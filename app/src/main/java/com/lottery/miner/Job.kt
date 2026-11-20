@@ -48,7 +48,8 @@ class Job(
         val header = ByteArray(80)
         copyReversed(Util.hexToBytes(versionHex), header, 0)
         System.arraycopy(prevInternal, 0, header, 4, 32)
-        System.arraycopy(h, 0, header, 36, 32)
+        // Bitcoin serializes the merkle root as a little-endian uint256 in the block header.
+        copyReversed(h, header, 36)
         copyReversed(Util.hexToBytes(ntimeHex), header, 68)
         copyReversed(Util.hexToBytes(nbitsHex), header, 72)
         return header
