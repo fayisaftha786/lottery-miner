@@ -100,7 +100,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     override fun onJob(job: Job) {
         MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
-        MinerState.status = "മൈനിംഗ് നടക്കുന്നു"
+        MinerState.status = if (activeThreads > 0) "മൈനിംഗ് നടക്കുന്നു" else "നിർത്തിവെച്ചു"
         if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
         current = job
     }
@@ -221,7 +221,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.tempC = temp
 
             if (temp >= cfg.maxTemp) hot = true else if (temp <= cfg.maxTemp - 4.0) hot = false
-            if (pct >= cfg.maxBattery) full = true else if (pct < cfg.maxBattery - 2) full = false
+            // A limit of 100 means "no battery limit"; otherwise pause at the limit and resume 2% below it.
+            if (cfg.maxBattery >= 100) full = false
+            else if (pct >= cfg.maxBattery) full = true
+            else if (pct < cfg.maxBattery - 2) full = false
 
             var target = cfg.threads
             var reason = ""
@@ -237,6 +240,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             activeThreads = target
             MinerState.activeThreads = target
             MinerState.pauseReason = reason
+            // The status line must tell the truth: never say "mining" while no thread is hashing.
+            if (target == 0 && MinerState.connected) MinerState.status = "നിർത്തിവെച്ചു"
+            else if (target > 0 && MinerState.status == "നിർത്തിവെച്ചു") {
+                MinerState.status = if (current != null) "മൈനിംഗ് നടക്കുന്നു" else "ജോബിനായി കാത്തിരിക്കുന്നു"
+            }
 
             sleepMs(2000)
 
