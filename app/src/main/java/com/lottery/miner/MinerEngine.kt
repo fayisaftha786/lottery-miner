@@ -191,7 +191,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun workerLoop(idx: Int) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
-        val best = DoubleArray(2)
+        val best = DoubleArray(3)
         var counter = idx.toLong()
         var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
@@ -232,6 +232,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 }
                 totalHashes.addAndGet(count.toLong())
                 if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
+                if (best[2] > 0.0) MinerState.log("Native result buffer overflow: ${best[2].toLong()} additional pool-target hits")
                 for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
                 start += count
             }
