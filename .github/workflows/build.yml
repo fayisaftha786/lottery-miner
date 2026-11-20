@@ -43,6 +43,12 @@ jobs:
         with:
           gradle-version: 8.7
 
+      - name: Run host native core tests
+        run: |
+          cmake -S app/src/main/cpp -B build/native-tests -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/native-tests --parallel
+          ctest --test-dir build/native-tests --output-on-failure
+
       - name: Run JVM tests and lint
         run: gradle testDebugUnitTest lintDebug --no-daemon
 
