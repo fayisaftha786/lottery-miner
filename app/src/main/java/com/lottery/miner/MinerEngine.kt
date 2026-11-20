@@ -136,6 +136,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onJob(job: Job) {
+        current = null
         jobGeneration.incrementAndGet()
         MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
         MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
