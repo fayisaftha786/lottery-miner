@@ -160,6 +160,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         }
     }
 
+    override fun onShareDropped(count: Int) {
+        if (count > 0) {
+            MinerState.droppedShares.addAndGet(count)
+            MinerState.log("$count share(s) not submitted: pool response queue full")
+        }
+    }
     override fun onShareResult(accepted: Boolean, reason: String?) {
         if (accepted) {
             MinerState.accepted.incrementAndGet()
