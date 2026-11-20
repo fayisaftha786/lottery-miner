@@ -26,6 +26,7 @@ class StratumClient(
         fun onJob(job: Job)
         fun onShareResult(accepted: Boolean, reason: String?)
         fun onShareUnknown(count: Int)
+        fun onShareDropped(count: Int)
         fun onStatus(msg: String)
     }
 
@@ -104,7 +105,8 @@ class StratumClient(
 
     @Synchronized fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
         if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
-            listener.onStatus("Share queue full; waiting for pool responses")
+            listener.onShareDropped(1)
+            listener.onStatus("Share not submitted: pending-response queue is full")
             return
         }
         val id = nextId.incrementAndGet()
