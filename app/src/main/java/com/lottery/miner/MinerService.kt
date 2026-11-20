@@ -36,6 +36,11 @@ class MinerService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
+            if (engine != null && !MinerState.running) {
+                stopMining()
+                stopSelf()
+                return
+            }
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIF_ID, buildNotification())
             handler.postDelayed(this, 5000)
