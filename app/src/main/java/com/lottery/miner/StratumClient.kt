@@ -151,8 +151,9 @@ class StratumClient(
 
         when (val id = message.optInt("id", -1)) {
             1 -> {
+                if (!message.isNull("error")) throw ProtocolException("Pool subscribe rejected: ${message.opt("error")}")
                 val result = message.optJSONArray("result")
-                    ?: throw ProtocolException("Pool subscribe rejected: ${message.opt("error")}")
+                    ?: throw ProtocolException("Pool subscribe response is not an array")
                 if (result.length() < 3) throw ProtocolException("Incomplete pool subscribe response")
                 val extranonceHex = result.getString(1)
                 if (extranonceHex.length > 64 || extranonceHex.length % 2 != 0 || !extranonceHex.matches(Regex("[0-9a-fA-F]*")))
@@ -165,14 +166,22 @@ class StratumClient(
                 send(2, "mining.authorize", JSONArray().put(user).put("x"))
             }
             2 -> {
-                if (!message.optBoolean("result", false)) {
-                    throw ProtocolException("Pool authorization rejected; check BTC address/worker. ${message.opt("error")}")
+                val result = message.opt("result")
+                val error = if (message.isNull("error")) null else message.opt("error").toString()
+                if (result !is Boolean || !result || error != null) {
+                    throw ProtocolException("Pool authorization rejected; check BTC address/worker. ${error ?: "invalid result"}")
                 }
                 listener.onAuthorized()
             }
             else -> if (id >= 100 && pendingSubmits.remove(id)) {
-                val error = if (message.isNull("error") || message.opt("error") == null) null else message.get("error").toString()
-                listener.onShareResult(message.optBoolean("result", false), error)
+                val result = message.opt("result")
+                val error = if (message.isNull("error")) null else message.opt("error").toString()
+                if (result !is Boolean) {
+                    listener.onShareUnknown(1)
+                    listener.onStatus("Pool returned malformed share response; outcome unknown")
+                } else {
+                    listener.onShareResult(result && error == null, error)
+                }
             }
         }
     }
