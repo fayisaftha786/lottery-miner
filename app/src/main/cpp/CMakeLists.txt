@@ -2,7 +2,17 @@ cmake_minimum_required(VERSION 3.22.1)
 project(minercore C)
 
 set(CMAKE_C_STANDARD 11)
-add_library(minercore SHARED jni_bridge.c miner_core.c)
+if(ANDROID)
+    add_library(minercore SHARED jni_bridge.c miner_core.c)
+else()
+    add_library(minercore STATIC miner_core.c)
+    include(CTest)
+    if(BUILD_TESTING)
+        add_executable(minercore_test native_core_test.c)
+        target_link_libraries(minercore_test PRIVATE minercore)
+        add_test(NAME minercore_test COMMAND minercore_test)
+    endif()
+endif()
 
 if(ANDROID_ABI STREQUAL "arm64-v8a")
     # ARMv8 Crypto Extension (hardware SHA-256). Chosen at runtime only if the CPU reports it
