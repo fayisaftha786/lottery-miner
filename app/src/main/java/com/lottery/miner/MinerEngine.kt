@@ -104,13 +104,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
+        current = null
+        jobGeneration.incrementAndGet()
         if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
             MinerState.status = "Pool invalid extranonce അയച്ചു"
             client?.close()
             return
         }
-        current = null
-        jobGeneration.incrementAndGet()
         en1 = extranonce1.copyOf()
         en2Size = extranonce2Size
         extranonceEpoch.incrementAndGet()
@@ -125,6 +125,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onDifficulty(diff: Double) {
+        current = null
+        jobGeneration.incrementAndGet()
         shareTarget = Util.difficultyToTarget(diff)
         MinerState.poolDiff = diff
         MinerState.log("പൂൾ difficulty = $diff")
