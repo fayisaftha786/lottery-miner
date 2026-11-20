@@ -37,6 +37,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
     private val jobGeneration = AtomicLong(0)
+    private val workLock = Any()
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
     private val threads = ArrayList<Thread>()
@@ -82,7 +83,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     @Synchronized fun stop() {
         running = false
-        jobGeneration.incrementAndGet()
+        synchronized(workLock) {
+            current = null
+            jobGeneration.incrementAndGet()
+        }
         client?.close()
         val stopping = threads.toList()
         stopping.forEach { it.interrupt() }
@@ -104,22 +108,23 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
-        current = null
-        jobGeneration.incrementAndGet()
-        MinerState.activeThreads = 0
-        if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
-        if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
-            MinerState.status = "Pool invalid extranonce അയച്ചു"
-            client?.close()
-            return
+        synchronized(workLock) {
+            current = null
+            jobGeneration.incrementAndGet()
+            MinerState.activeThreads = 0
+            if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
+            if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
+                MinerState.status = "Pool invalid extranonce അയച്ചു"
+                client?.close()
+                return
+            }
+            en1 = extranonce1.copyOf()
+            en2Size = extranonce2Size
+            extranonceEpoch.incrementAndGet()
+            reconnectingForExhaustion.set(false)
+            MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്)")
         }
-        en1 = extranonce1.copyOf()
-        en2Size = extranonce2Size
-        extranonceEpoch.incrementAndGet()
-        reconnectingForExhaustion.set(false)
-        MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്)")
     }
-
     override fun onAuthorized() {
         MinerState.connected = true
         MinerState.activeThreads = 0
@@ -128,24 +133,26 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onDifficulty(diff: Double) {
-        current = null
-        jobGeneration.incrementAndGet()
-        MinerState.activeThreads = 0
-        if (MinerState.connected) MinerState.status = "പുതിയ pool difficulty; പുതിയ job കാത്തിരിക്കുന്നു"
-        shareTarget = Util.difficultyToTarget(diff)
-        MinerState.poolDiff = diff
-        MinerState.log("പൂൾ difficulty = $diff")
+        synchronized(workLock) {
+            current = null
+            jobGeneration.incrementAndGet()
+            MinerState.activeThreads = 0
+            if (MinerState.connected) MinerState.status = "പുതിയ pool difficulty; പുതിയ job കാത്തിരിക്കുന്നു"
+            shareTarget = Util.difficultyToTarget(diff)
+            MinerState.poolDiff = diff
+            MinerState.log("പൂൾ difficulty = $diff")
+        }
     }
-
     override fun onJob(job: Job) {
-        current = null
-        jobGeneration.incrementAndGet()
-        MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
-        MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
-        if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
-        current = job
+        synchronized(workLock) {
+            current = null
+            jobGeneration.incrementAndGet()
+            MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
+            MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
+            if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
+            current = job
+        }
     }
-
     override fun onShareUnknown(count: Int) {
         if (count > 0) {
             MinerState.unknownShares.addAndGet(count)
@@ -182,10 +189,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             } catch (e: Exception) {
                 MinerState.log("കണക്ഷൻ പിശക്: ${e.message}")
             }
-            current = null
-            jobGeneration.incrementAndGet()
-            MinerState.connected = false
-            MinerState.activeThreads = 0
+            synchronized(workLock) {
+                current = null
+                jobGeneration.incrementAndGet()
+                MinerState.connected = false
+                MinerState.activeThreads = 0
+            }
             if (!running) break
             MinerState.status = "വീണ്ടും കണക്ട് ചെയ്യുന്നു…"
             sleepMs(retryDelay)
@@ -236,24 +245,50 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
                 val count = minOf(CHUNK, SPACE - start).toInt()
-                val nf = Native.scan(header, start.toInt(), count, target, found, best)
-                if (nf < 0 || nf > found.size) {
-                    MinerState.status = "Native scan error; mining stopped"
-                    MinerState.log("Native scan returned invalid result: $nf")
-                    running = false
-                    MinerState.running = false
-                    MinerState.activeThreads = 0
-                    MinerState.pauseReason = "Native scan error"
-                    client?.close()
-                    break
-                }
-                totalHashes.addAndGet(count.toLong())
-                if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
-                if (best[2] > 0.0) MinerState.log("Native result buffer overflow: ${best[2].toLong()} additional pool-target hits")
-                for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
+                scanRange(j, generation, target, header, en2, start, count, found, best)
                 start += count
             }
         }
+    }
+
+    /**
+     * If the native result buffer overflows, discard the partial result and rescan
+     * the range as smaller non-overlapping chunks so every pool-target hit is submitted.
+     * Hash accounting includes the extra real work performed by retry scans.
+     */
+    private fun scanRange(
+        j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
+        start: Long, count: Int, found: IntArray, best: DoubleArray
+    ) {
+        if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
+        val nf = Native.scan(header, start.toInt(), count, target, found, best)
+        totalHashes.addAndGet(count.toLong())
+        if (nf < 0 || nf > found.size) {
+            MinerState.status = "Native scan error; mining stopped"
+            MinerState.log("Native scan returned invalid result: $nf")
+            running = false
+            MinerState.running = false
+            MinerState.activeThreads = 0
+            MinerState.pauseReason = "Native scan error"
+            client?.close()
+            return
+        }
+        if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
+        if (best[2] > 0.0) {
+            if (count == 1) {
+                MinerState.log("Native scan reported impossible overflow for a one-nonce range")
+                running = false
+                MinerState.running = false
+                client?.close()
+                return
+            }
+            MinerState.log("Native result buffer full; splitting range to submit every hit")
+            val firstCount = count / 2
+            scanRange(j, generation, target, header, en2, start, firstCount, found, best)
+            scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
+            return
+        }
+        for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
     }
 
     private fun handleShare(j: Job, generation: Long, target: ByteArray, header: ByteArray, nonce: Int, en2: ByteArray) {
@@ -269,15 +304,15 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         if (value > BigInteger(1, target)) return
         val nonceHex = String.format(java.util.Locale.US, "%08x", nonce)
         val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
-        if (isBlock) {
-            MinerState.blockCandidateDetected = true
-            MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
-        }
-        if (running && current === j && jobGeneration.get() == generation) {
+        synchronized(workLock) {
+            if (!running || current !== j || jobGeneration.get() != generation) return
+            if (isBlock) {
+                MinerState.blockCandidateDetected = true
+                MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
+            }
             client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
         }
     }
-
     private fun policyLoop() {
         var lastHashes = 0L
         var lastTime = System.nanoTime()
@@ -350,7 +385,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val total = totalHashes.get()
             val elapsed = (now - lastTime) / 1e9
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
-            MinerState.hashrate = if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
+            MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
             lastHashes = total
             lastTime = now
