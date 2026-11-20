@@ -14,16 +14,19 @@ object MinerState {
     @Volatile var totalHashes = 0L
     val accepted = AtomicInteger(0)
     val rejected = AtomicInteger(0)
+    val unknownShares = AtomicInteger(0)
     @Volatile var bestDiff = 0.0
     @Volatile var poolDiff = 0.0
     @Volatile var netDiff = 0.0
-    @Volatile var tempC = 0.0
+    @Volatile var tempC = Double.NaN
+    @Volatile var tempAvailable = false
     @Volatile var battery = 0
+    @Volatile var batteryAvailable = false
     @Volatile var plugged = false
     @Volatile var activeThreads = 0
     @Volatile var totalThreads = 0
     @Volatile var hwSha = false
-    @Volatile var blockFound = false
+    @Volatile var blockCandidateDetected = false
     @Volatile var pauseReason = ""
 
     private val logs = ArrayDeque<String>()
@@ -50,10 +53,14 @@ object MinerState {
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
+        unknownShares.set(0)
         bestDiff = 0.0
         poolDiff = 0.0
         netDiff = 0.0
-        blockFound = false
+        tempC = Double.NaN
+        tempAvailable = false
+        batteryAvailable = false
+        blockCandidateDetected = false
         pauseReason = ""
         logs.clear()
         status = "തുടങ്ങുന്നു…"
