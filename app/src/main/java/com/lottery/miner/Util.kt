@@ -127,6 +127,7 @@ object Util {
     fun difficultyToTarget(diff: Double): ByteArray {
         require(diff.isFinite() && diff > 0.0) { "difficulty must be positive and finite" }
         val target = BigDecimal(DIFF1).divide(BigDecimal(diff), 0, RoundingMode.FLOOR).toBigInteger()
+        require(target.signum() > 0) { "difficulty is too high to represent a non-zero target" }
         return toBytes32(if (target > MAX256) MAX256 else target)
     }
 
@@ -138,6 +139,7 @@ object Util {
         require((bits and 0x00800000L) == 0L && mantissa != 0L && exponent in 1..32) { "invalid compact target" }
         val target = if (exponent <= 3) BigInteger.valueOf(mantissa ushr (8 * (3 - exponent)))
         else BigInteger.valueOf(mantissa).shiftLeft(8 * (exponent - 3))
+        require(target.signum() > 0) { "compact target rounds to zero" }
         require(target <= MAX256) { "target exceeds 256 bits" }
         return target
     }
