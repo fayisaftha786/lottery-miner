@@ -93,18 +93,26 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
-        val port = etPort.text.toString().toIntOrNull() ?: 3333
-        if (port !in 1..65535) {
+        val port = etPort.text.toString().trim().toIntOrNull()
+        if (port == null || port !in 1..65535) {
             Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
-        val threads = (etThreads.text.toString().toIntOrNull() ?: maxOf(1, cores / 2)).coerceIn(1, cores)
-        val maxTemp = etTemp.text.toString().toDoubleOrNull() ?: 40.0
-        if (!maxTemp.isFinite() || maxTemp !in 30.0..45.0) {
-            Toast.makeText(this, "സുരക്ഷയ്ക്കായി പരമാവധി താപനില 30–45°C ഇടയിൽ തിരഞ്ഞെടുക്കുക.", Toast.LENGTH_LONG).show()
+        val threads = etThreads.text.toString().trim().toIntOrNull()
+        if (threads == null || threads !in 1..cores) {
+            Toast.makeText(this, "Worker thread എണ്ണം 1 മുതൽ $cores വരെ നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
-        val maxBatt = (etBatt.text.toString().toIntOrNull() ?: 100).coerceIn(10, 100)
+        val maxTemp = etTemp.text.toString().trim().toDoubleOrNull()
+        if (maxTemp == null || !maxTemp.isFinite() || maxTemp !in 30.0..45.0) {
+            Toast.makeText(this, "സുരക്ഷയ്ക്കായി പരമാവധി താപനില 30–45°C ഇടയിൽ നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val maxBatt = etBatt.text.toString().trim().toIntOrNull()
+        if (maxBatt == null || maxBatt !in 10..100) {
+            Toast.makeText(this, "ബാറ്ററി പരിധി 10–100% ഇടയിൽ നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
         val onlyCharging = cbCharging.isChecked
 
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
