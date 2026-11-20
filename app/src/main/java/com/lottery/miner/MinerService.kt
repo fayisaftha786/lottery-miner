@@ -41,6 +41,7 @@ class MinerService : Service() {
                 stopSelf()
                 return
             }
+            updateWakeLock()
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIF_ID, buildNotification())
             handler.postDelayed(this, 5000)
@@ -88,6 +89,17 @@ class MinerService : Service() {
         handler.postDelayed(ticker, 5000)
     }
 
+    private fun updateWakeLock() {
+        if (MinerState.activeThreads > 0) {
+            if (wakeLock?.isHeld != true) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lotteryminer:cpu").also { it.acquire() }
+            }
+        } else {
+            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) { }
+            wakeLock = null
+        }
+    }
     private fun stopMining() {
         handler.removeCallbacks(ticker)
         engine?.stop()
