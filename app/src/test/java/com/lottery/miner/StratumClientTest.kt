@@ -7,18 +7,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class StratumClientTest {
     private class Listener : StratumClient.Listener {
-        var subscribed = false
-        var extranonce1 = byteArrayOf()
-        var extranonceUpdates = 0
-        var unknownShares = 0
-        var authorized = false
-        var difficulty = 0.0
-        var job: Job? = null
-        var accepted: Boolean? = null
+        @Volatile var subscribed = false
+        @Volatile var extranonce1 = byteArrayOf()
+        @Volatile var extranonceUpdates = 0
+        @Volatile var unknownShares = 0
+        @Volatile var authorized = false
+        @Volatile var difficulty = 0.0
+        @Volatile var job: Job? = null
+        @Volatile var accepted: Boolean? = null
+        val jobReceived = CountDownLatch(1)
+
         override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
             subscribed = extranonce2Size == 4
             this.extranonce1 = extranonce1.copyOf()
@@ -26,7 +30,7 @@ class StratumClientTest {
         }
         override fun onAuthorized() { authorized = true }
         override fun onDifficulty(diff: Double) { difficulty = diff }
-        override fun onJob(job: Job) { this.job = job }
+        override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
         override fun onShareResult(accepted: Boolean, reason: String?) { this.accepted = accepted }
         override fun onShareUnknown(count: Int) { unknownShares += count }
         override fun onStatus(msg: String) { }
@@ -36,8 +40,14 @@ class StratumClientTest {
         ServerSocket(0).use { server ->
             val worker = thread { server.accept().use { serve(it) } }
             val listener = Listener()
-            StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener).connectAndRun()
+            val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
+            val clientThread = thread { client.connectAndRun() }
+
+            assertTrue("pool job was not received", listener.jobReceived.await(3, TimeUnit.SECONDS))
+            client.submit("test-job", "00000000", "495fab29", "00000001")
+            clientThread.join(3000)
             worker.join(3000)
+
             assertTrue(listener.subscribed)
             assertTrue(listener.authorized)
             assertEquals(2.0, listener.difficulty, 0.0)
@@ -45,6 +55,7 @@ class StratumClientTest {
             assertEquals(true, listener.accepted)
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
+            assertEquals(0, listener.unknownShares)
         }
     }
 
