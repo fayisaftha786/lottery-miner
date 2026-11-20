@@ -33,6 +33,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var current: Job? = null
     @Volatile private var en1 = ByteArray(0)
     @Volatile private var en2Size = 4
+    private var hasExtranonceAllocation = false
     @Volatile private var shareTarget: ByteArray = Util.difficultyToTarget(1.0)
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
@@ -118,7 +119,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 client?.close()
                 return
             }
-            val allocationChanged = !en1.contentEquals(extranonce1) || en2Size != extranonce2Size
+            val allocationChanged = !hasExtranonceAllocation || !en1.contentEquals(extranonce1) || en2Size != extranonce2Size
             if (reconnectingForExhaustion.get() && !allocationChanged) {
                 MinerState.status = "Pool reused exhausted extranonce; mining stopped to prevent duplicate work"
                 MinerState.pauseReason = "Pool വീണ്ടും അതേ exhausted extranonce നൽകി; duplicate shares ഒഴിവാക്കാൻ mining നിർത്തി"
@@ -132,6 +133,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             if (allocationChanged) {
                 en1 = extranonce1.copyOf()
                 en2Size = extranonce2Size
+                hasExtranonceAllocation = true
                 extranonceEpoch.incrementAndGet()
             }
             reconnectingForExhaustion.set(false)
