@@ -17,7 +17,7 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scan(JNIEnv *env, jobject t
     if ((*env)->GetArrayLength(env, jheader) != 80 ||
         (*env)->GetArrayLength(env, jtarget) != 32 ||
         (*env)->GetArrayLength(env, jfound) < 8 ||
-        (*env)->GetArrayLength(env, jbest) < 2) return -1;
+        (*env)->GetArrayLength(env, jbest) < 3) return -1;
     if (count <= 0) return -1;
     uint64_t start_u = (uint32_t)start;
     if (start_u + (uint64_t)(uint32_t)count > 0x100000000ULL) return -1;
@@ -30,15 +30,15 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scan(JNIEnv *env, jobject t
 
     uint32_t found[8];
     double best = 0.0;
-    uint32_t best_nonce = 0;
-    uint32_t nf = miner_scan(header, (uint32_t)start, (uint32_t)count, target, found, 8, &best, &best_nonce);
+    uint32_t best_nonce = 0, overflow = 0;
+    uint32_t nf = miner_scan(header, (uint32_t)start, (uint32_t)count, target, found, 8, &best, &best_nonce, &overflow);
 
     if (nf > 0) {
         (*env)->SetIntArrayRegion(env, jfound, 0, (jsize)nf, (const jint *)found);
         if ((*env)->ExceptionCheck(env)) return -1;
     }
-    jdouble out[2] = {best, (jdouble)best_nonce};
-    (*env)->SetDoubleArrayRegion(env, jbest, 0, 2, out);
+    jdouble out[3] = {best, (jdouble)best_nonce, (jdouble)overflow};
+    (*env)->SetDoubleArrayRegion(env, jbest, 0, 3, out);
     if ((*env)->ExceptionCheck(env)) return -1;
     return (jint)nf;
 }
