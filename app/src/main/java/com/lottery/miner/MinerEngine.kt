@@ -297,6 +297,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             var reason = ""
             if (cfg.onlyCharging && !plugged) {
                 target = 0; reason = "ചാർജിൽ അല്ല"
+            } else if (!batteryAvailable) {
+                target = 0; reason = "ബാറ്ററി നില ലഭ്യമല്ല; സുരക്ഷയ്ക്കായി mining pause ചെയ്തു"
             } else if (full) {
                 target = 0; reason = "ബാറ്ററി പരിധി എത്തി"
             } else if (hot) {
