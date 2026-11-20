@@ -120,6 +120,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     override fun onAuthorized() {
         MinerState.connected = true
+        MinerState.activeThreads = 0
         MinerState.status = "Pool അംഗീകരിച്ചു; ജോബിനായി കാത്തിരിക്കുന്നു"
         MinerState.log("Pool authorization ശരി")
     }
@@ -127,6 +128,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     override fun onDifficulty(diff: Double) {
         current = null
         jobGeneration.incrementAndGet()
+        MinerState.activeThreads = 0
+        if (MinerState.connected) MinerState.status = "പുതിയ pool difficulty; പുതിയ job കാത്തിരിക്കുന്നു"
         shareTarget = Util.difficultyToTarget(diff)
         MinerState.poolDiff = diff
         MinerState.log("പൂൾ difficulty = $diff")
@@ -135,7 +138,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     override fun onJob(job: Job) {
         jobGeneration.incrementAndGet()
         MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
-        MinerState.status = if (activeThreads > 0) "മൈനിംഗ് നടക്കുന്നു" else "നിർത്തിവെച്ചു"
+        MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
         if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
         current = job
     }
@@ -326,12 +329,14 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 }
             }
             activeThreads = target
-            MinerState.activeThreads = target
+            MinerState.activeThreads = if (target > 0 && current != null && MinerState.connected) target else 0
             MinerState.pauseReason = reason
-            // The status line must tell the truth: never say "mining" while no thread is hashing.
+            // The UI reports eligible workers only when an authorized pool job is actually active.
             if (target == 0 && MinerState.connected) MinerState.status = "നിർത്തിവെച്ചു"
-            else if (target > 0 && MinerState.status == "നിർത്തിവെച്ചു") {
-                MinerState.status = if (current != null) "മൈനിംഗ് നടക്കുന്നു" else "ജോബിനായി കാത്തിരിക്കുന്നു"
+            else if (MinerState.connected && current == null) {
+                MinerState.status = "ജോബിനായി കാത്തിരിക്കുന്നു"
+            } else if (target > 0 && current != null && MinerState.connected) {
+                MinerState.status = "മൈനിംഗ് നടക്കുന്നു"
             }
 
             sleepMs(2000)
