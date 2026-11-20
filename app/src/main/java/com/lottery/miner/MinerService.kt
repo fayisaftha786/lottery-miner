@@ -73,7 +73,7 @@ class MinerService : Service() {
             host = i.getStringExtra(EXTRA_HOST) ?: "solo.ckpool.org",
             port = i.getIntExtra(EXTRA_PORT, 3333),
             threads = i.getIntExtra(EXTRA_THREADS, 1),
-            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, false),
+            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, true),
             maxTemp = i.getDoubleExtra(EXTRA_MAX_TEMP, 40.0),
             maxBattery = i.getIntExtra(EXTRA_MAX_BATT, 100)
         )
