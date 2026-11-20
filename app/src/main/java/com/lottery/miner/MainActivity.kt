@@ -31,8 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStats: TextView
     private lateinit var tvLog: TextView
 
-    private val addrRe =
-        Regex("^(bc1[a-z0-9]{20,90}|[13][a-km-zA-HJ-NP-Z1-9]{25,39})(\\.[A-Za-z0-9_-]{1,20})?$")
+    private val addrRe = Regex("^(bc1[a-z0-9]{20,90}|[13][a-km-zA-HJ-NP-Z1-9]{25,39})(\\.[A-Za-z0-9_-]{1,20})?")
 
     private val refresher = object : Runnable {
         override fun run() {
@@ -62,8 +61,8 @@ class MainActivity : AppCompatActivity() {
         etPort.setText(p.getInt("port", 3333).toString())
         etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
-        etBatt.setText(p.getInt("maxBatt", 80).toString())
-        cbCharging.isChecked = p.getBoolean("onlyCharging", true)
+        etBatt.setText(p.getInt("maxBatt", 100).toString())
+        cbCharging.isChecked = p.getBoolean("onlyCharging", false)
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
 
@@ -87,7 +86,7 @@ class MainActivity : AppCompatActivity() {
     private fun startMining() {
         val addr = etAddress.text.toString().trim()
         if (!addrRe.matches(addr)) {
-            Toast.makeText(this, "ശരിയായ BTC വിലാസം നൽകുക (bc1… അല്ലെങ്കിൽ 1…/3…)", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ശരിയായ BTC വിലാസം നൽകുക (bc1… അല്ലെങ്കിൽ 1…/3…). Worker નામ വേണ്ടിവെങ്കിൽ address.worker ഉപയോഗിക്കുക.", Toast.LENGTH_LONG).show()
             return
         }
         val cores = Runtime.getRuntime().availableProcessors()
@@ -95,7 +94,7 @@ class MainActivity : AppCompatActivity() {
         val port = etPort.text.toString().toIntOrNull() ?: 3333
         val threads = (etThreads.text.toString().toIntOrNull() ?: maxOf(1, cores / 2)).coerceIn(1, cores)
         val maxTemp = etTemp.text.toString().toDoubleOrNull() ?: 40.0
-        val maxBatt = (etBatt.text.toString().toIntOrNull() ?: 80).coerceIn(10, 100)
+        val maxBatt = (etBatt.text.toString().toIntOrNull() ?: 100).coerceIn(10, 100)
         val onlyCharging = cbCharging.isChecked
 
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()

@@ -80,8 +80,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
 
-    // ---- Stratum callbacks -------------------------------------------------------------------
-
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
         en1 = extranonce1
         en2Size = extranonce2Size
@@ -116,18 +114,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.log(msg)
     }
 
-    // ---- Threads -----------------------------------------------------------------------------
-
     private fun sleepMs(ms: Long) {
-        try { Thread.sleep(ms) } catch (e: InterruptedException) { /* ignore */ }
+        try { Thread.sleep(ms) } catch (_: InterruptedException) { }
     }
 
     private fun connectionLoop() {
+        var retryDelay = 5000L
         while (running) {
             val c = StratumClient(cfg.host, cfg.port, cfg.address, this)
             client = c
             try {
                 c.connectAndRun()
+                retryDelay = 5000L
             } catch (e: Exception) {
                 MinerState.log("കണക്ഷൻ പിശക്: ${e.message}")
             }
@@ -135,7 +133,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.connected = false
             if (!running) break
             MinerState.status = "വീണ്ടും കണക്ട് ചെയ്യുന്നു…"
-            sleepMs(5000)
+            sleepMs(retryDelay)
+            retryDelay = minOf(30000L, retryDelay * 2)
         }
     }
 
@@ -182,16 +181,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         h[78] = (nonce ushr 16).toByte()
         h[79] = (nonce ushr 24).toByte()
 
-        // independent re-check of the hash before submitting
         val digest = Native.sha256dHeader(h)
         val value = BigInteger(1, digest.reversedArray())
-        if (value > BigInteger(1, shareTarget)) {
-            MinerState.log("share ഉള്ളിലെ പരിശോധനയിൽ പരാജയപ്പെട്ടു (submit ചെയ്തില്ല)")
-            return
-        }
+        if (value > BigInteger(1, shareTarget)) return
         val nonceHex = String.format("%08x", nonce)
         val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
-        MinerState.log("share കണ്ടെത്തി, nonce $nonceHex")
         if (isBlock) {
             MinerState.blockFound = true
             MinerState.log("🎉🎉 ബ്ലോക്ക് സോൾവ് ചെയ്തു! nonce $nonceHex, ബ്ലോക്ക് പൂളിലേക്ക് അയച്ചു")
@@ -242,7 +236,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
             val now = System.nanoTime()
             val total = totalHashes.get()
-            val rate = (total - lastHashes) / ((now - lastTime) / 1e9)
+            val elapsed = (now - lastTime) / 1e9
+            val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
             lastHashes = total

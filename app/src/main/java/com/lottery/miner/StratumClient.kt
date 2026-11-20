@@ -5,6 +5,8 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
@@ -32,13 +34,12 @@ class StratumClient(
 
     /** Blocks until the connection ends. */
     fun connectAndRun() {
-        val s = Socket()
+        val s = connectSocket()
         socket = s
         try {
-            listener.onStatus("കണക്ട് ചെയ്യുന്നു $host:$port …")
-            s.connect(InetSocketAddress(host, port), 15000)
             s.soTimeout = 180000
             s.tcpNoDelay = true
+            s.keepAlive = true
             writer = OutputStreamWriter(s.getOutputStream(), Charsets.UTF_8)
             val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
             send(1, "mining.subscribe", JSONArray().put("LotteryMiner/1.0"))
@@ -52,14 +53,38 @@ class StratumClient(
                 }
             }
         } finally {
-            try { s.close() } catch (e: Exception) { /* ignore */ }
+            try { s.close() } catch (_: Exception) { }
             socket = null
             writer = null
         }
     }
 
+    private fun connectSocket(): Socket {
+        val addresses = try {
+            InetAddress.getAllByName(host)
+                .distinctBy { it.hostAddress }
+                .sortedWith(compareByDescending<InetAddress> { it is Inet4Address })
+        } catch (e: Exception) {
+            throw java.net.UnknownHostException("Host resolve ചെയ്യാനായില്ല: $host")
+        }
+
+        var lastError: Exception? = null
+        for (address in addresses) {
+            val s = Socket()
+            try {
+                listener.onStatus("കണക്ട് ചെയ്യുന്നു $host (${address.hostAddress}):$port …")
+                s.connect(InetSocketAddress(address, port), 10000)
+                return s
+            } catch (e: Exception) {
+                lastError = e
+                try { s.close() } catch (_: Exception) { }
+            }
+        }
+        throw lastError ?: java.net.ConnectException("Pool-ലേക്ക് കണക്റ്റ് ചെയ്യാൻ address ഇല്ല")
+    }
+
     fun close() {
-        try { socket?.close() } catch (e: Exception) { /* ignore */ }
+        try { socket?.close() } catch (_: Exception) { }
     }
 
     fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
@@ -92,10 +117,11 @@ class StratumClient(
                 "mining.notify" -> listener.onJob(parseJob(p))
                 "mining.set_difficulty" -> listener.onDifficulty(p.optDouble(0, 1.0))
                 "client.show_message" -> listener.onStatus("പൂൾ സന്ദേശം: " + p.optString(0))
-                else -> { /* ignored */ }
+                else -> { }
             }
             return
         }
+
         val id = m.optInt("id", -1)
         when {
             id == 1 -> {
@@ -110,12 +136,12 @@ class StratumClient(
             }
             id == 2 -> {
                 val ok = m.optBoolean("result", false)
-                listener.onStatus(if (ok) "authorize ശരി, ജോബിനായി കാത്തിരിക്കുന്നു" else "authorize നിരസിച്ചു (വിലാസം പരിശോധിക്കുക)")
+                listener.onStatus(if (ok) "authorize ശരി, ജോബിനായി കാത്തിരിക്കുന്നു" else "authorize നിരസിച്ചു")
             }
             id >= 100 -> {
                 if (pendingSubmits.remove(id)) {
                     val ok = m.optBoolean("result", false)
-                    val err = if (m.isNull("error")) null else m.get("error").toString()
+                    val err = if (m.isNull("error") || m.opt("error") == null) null else m.get("error").toString()
                     listener.onShareResult(ok, err)
                 }
             }

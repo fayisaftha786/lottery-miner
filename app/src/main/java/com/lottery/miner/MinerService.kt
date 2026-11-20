@@ -73,9 +73,9 @@ class MinerService : Service() {
             host = i.getStringExtra(EXTRA_HOST) ?: "solo.ckpool.org",
             port = i.getIntExtra(EXTRA_PORT, 3333),
             threads = i.getIntExtra(EXTRA_THREADS, 1),
-            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, true),
+            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, false),
             maxTemp = i.getDoubleExtra(EXTRA_MAX_TEMP, 40.0),
-            maxBattery = i.getIntExtra(EXTRA_MAX_BATT, 80)
+            maxBattery = i.getIntExtra(EXTRA_MAX_BATT, 100)
         )
         val e = MinerEngine(applicationContext, cfg)
         engine = e
@@ -87,7 +87,7 @@ class MinerService : Service() {
         handler.removeCallbacks(ticker)
         engine?.stop()
         engine = null
-        try { wakeLock?.release() } catch (e: Exception) { /* ignore */ }
+        try { wakeLock?.release() } catch (_: Exception) { }
         wakeLock = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
     }
