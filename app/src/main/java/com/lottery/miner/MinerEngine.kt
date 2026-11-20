@@ -106,6 +106,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
         current = null
         jobGeneration.incrementAndGet()
+        MinerState.activeThreads = 0
+        if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
         if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
             MinerState.status = "Pool invalid extranonce അയച്ചു"
             client?.close()
@@ -181,7 +183,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 MinerState.log("കണക്ഷൻ പിശക്: ${e.message}")
             }
             current = null
+            jobGeneration.incrementAndGet()
             MinerState.connected = false
+            MinerState.activeThreads = 0
             if (!running) break
             MinerState.status = "വീണ്ടും കണക്ട് ചെയ്യുന്നു…"
             sleepMs(retryDelay)
