@@ -87,7 +87,7 @@ class StratumClientTest {
         output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
         val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
             .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
-        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\\n")
+        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
         output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
