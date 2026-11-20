@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity() {
         etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
-        cbCharging.isChecked = p.getBoolean("onlyCharging", false)
+        cbCharging.isChecked = p.getBoolean("onlyCharging", true)
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
 
@@ -132,18 +132,19 @@ class MainActivity : AppCompatActivity() {
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
-        if (s.blockFound) sb.append("🎉🎉 ബ്ലോക്ക് കണ്ടെത്തി! 🎉🎉\n")
+        if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("വേഗത      : ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Shares    : ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
-            .append("  (പൂൾ diff ").append(s.poolDiff).append(")\n")
+            .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
+        sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
         sb.append("Best share: ").append(String.format(Locale.US, "%.4g", s.bestDiff)).append('\n')
-        sb.append("Network diff: ").append(String.format(Locale.US, "%.4e", s.netDiff)).append('\n')
-        sb.append("താപനില    : ").append(String.format(Locale.US, "%.1f°C", s.tempC))
-            .append("   ബാറ്ററി ").append(s.battery).append('%')
+        sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
+        sb.append("താപനില    : ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
+            .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
             .append(if (s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         if (s.netDiff > 0 && s.hashrate > 0) {
