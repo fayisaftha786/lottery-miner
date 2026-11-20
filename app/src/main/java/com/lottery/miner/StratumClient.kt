@@ -25,6 +25,7 @@ class StratumClient(
         fun onDifficulty(diff: Double)
         fun onJob(job: Job)
         fun onShareResult(accepted: Boolean, reason: String?)
+        fun onShareUnknown(count: Int)
         fun onStatus(msg: String)
     }
 
@@ -32,6 +33,8 @@ class StratumClient(
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
     private val pendingSubmits: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+
+    companion object { private const val MAX_PENDING_SUBMITS = 256; private const val MAX_LINE_CHARS = 65536 }
 
     fun connectAndRun() {
         require(port in 1..65535) { "Pool port must be 1..65535" }
@@ -45,8 +48,7 @@ class StratumClient(
             val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
             send(1, "mining.subscribe", JSONArray().put("LotteryMiner/1.0"))
             while (true) {
-                val line = reader.readLine() ?: break
-                if (line.length > 65536) throw ProtocolException("Pool Stratum line exceeds 64 KiB")
+                val line = readBoundedLine(reader, MAX_LINE_CHARS) ?: break
                 if (line.isBlank()) continue
                 try {
                     handle(JSONObject(line))
@@ -59,7 +61,9 @@ class StratumClient(
             try { s.close() } catch (_: Exception) { }
             socket = null
             writer = null
+            val unresolved = pendingSubmits.size
             pendingSubmits.clear()
+            if (unresolved > 0) listener.onShareUnknown(unresolved)
         }
     }
 
@@ -89,6 +93,10 @@ class StratumClient(
     fun close() { try { socket?.close() } catch (_: Exception) { } }
 
     fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
+        if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
+            listener.onStatus("Share queue full; waiting for pool responses")
+            return
+        }
         val id = nextId.incrementAndGet()
         pendingSubmits.add(id)
         try {
@@ -114,6 +122,16 @@ class StratumClient(
             val params = message.optJSONArray("params") ?: JSONArray()
             when (method) {
                 "mining.notify" -> listener.onJob(parseJob(params))
+                "mining.set_extranonce" -> {
+                    if (params.length != 2 || params.isNull(0) || params.isNull(1))
+                        throw ProtocolException("Invalid mining.set_extranonce parameters")
+                    val hex = params.getString(0)
+                    if (hex.length > 64 || hex.length % 2 != 0 || !hex.matches(Regex("[0-9a-fA-F]*")))
+                        throw ProtocolException("Invalid extranonce1 encoding")
+                    val size = params.getInt(1)
+                    if (size !in 1..16) throw ProtocolException("Invalid extranonce2 size")
+                    listener.onSubscribed(Util.hexToBytes(hex), size)
+                }
                 "mining.set_difficulty" -> {
                     val diff = params.optDouble(0, Double.NaN)
                     if (diff.isFinite() && diff > 0.0) listener.onDifficulty(diff)
@@ -135,7 +153,10 @@ class StratumClient(
                 val result = message.optJSONArray("result")
                     ?: throw ProtocolException("Pool subscribe rejected: ${message.opt("error")}")
                 if (result.length() < 3) throw ProtocolException("Incomplete pool subscribe response")
-                val extranonce1 = Util.hexToBytes(result.getString(1))
+                val extranonceHex = result.getString(1)
+                if (extranonceHex.length > 64 || extranonceHex.length % 2 != 0 || !extranonceHex.matches(Regex("[0-9a-fA-F]*")))
+                    throw ProtocolException("Invalid subscribe extranonce1")
+                val extranonce1 = Util.hexToBytes(extranonceHex)
                 val extranonce2Size = result.getInt(2)
                 if (extranonce2Size !in 1..16) throw ProtocolException("Invalid extranonce2 size")
                 listener.onSubscribed(extranonce1, extranonce2Size)
@@ -158,8 +179,13 @@ class StratumClient(
     private fun parseJob(params: JSONArray): Job {
         if (params.length() < 9) throw ProtocolException("Incomplete mining.notify job")
         val branchesJson = params.getJSONArray(4)
+        if (branchesJson.length() > 32) throw ProtocolException("Too many merkle branches")
         val branches = ArrayList<ByteArray>(branchesJson.length())
-        for (i in 0 until branchesJson.length()) branches.add(Util.hexToBytes(branchesJson.getString(i)))
+        for (i in 0 until branchesJson.length()) {
+            val branch = Util.hexToBytes(branchesJson.getString(i))
+            if (branch.size != 32) throw ProtocolException("Merkle branch must be 32 bytes")
+            branches.add(branch)
+        }
         return try {
             Job(
                 id = params.getString(0), prevHashHex = params.getString(1),
@@ -169,6 +195,17 @@ class StratumClient(
             )
         } catch (e: Exception) {
             throw ProtocolException("Invalid mining.notify job: ${e.message}")
+        }
+    }
+
+    private fun readBoundedLine(reader: BufferedReader, maxChars: Int): String? {
+        val line = StringBuilder(minOf(1024, maxChars))
+        while (true) {
+            val ch = reader.read()
+            if (ch == -1) return if (line.isEmpty()) null else line.toString()
+            if (ch == '\\n'.code) return line.toString().removeSuffix("\\r")
+            if (line.length >= maxChars) throw ProtocolException("Pool Stratum line exceeds 64 KiB")
+            line.append(ch.toChar())
         }
     }
 
