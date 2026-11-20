@@ -111,6 +111,9 @@ class StratumClientTest {
                             val line = input.readLine() ?: throw AssertionError("socket closed before all queued submits arrived")
                             assertEquals("mining.submit", JSONObject(line).getString("method"))
                         }
+                        // Keep the socket open until the test closes the client; otherwise EOF can
+                        // clear pending submissions before the 257th queue-capacity check.
+                        while (input.readLine() != null) { }
                     }
                 } catch (t: Throwable) { serverFailure.set(t) }
             }
