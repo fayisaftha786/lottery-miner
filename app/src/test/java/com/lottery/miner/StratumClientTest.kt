@@ -19,6 +19,7 @@ class StratumClientTest {
         @Volatile var extranonce1 = byteArrayOf()
         @Volatile var extranonceUpdates = 0
         @Volatile var unknownShares = 0
+        @Volatile var droppedShares = 0
         @Volatile var authorized = false
         @Volatile var difficulty = 0.0
         @Volatile var job: Job? = null
@@ -36,6 +37,7 @@ class StratumClientTest {
         override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
         override fun onShareResult(accepted: Boolean, reason: String?) { this.accepted = accepted }
         override fun onShareUnknown(count: Int) { unknownShares += count }
+        override fun onShareDropped(count: Int) { droppedShares += count }
         override fun onStatus(msg: String) { statuses.add(msg) }
     }
 
