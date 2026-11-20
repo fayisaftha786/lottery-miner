@@ -1,0 +1,34 @@
+#ifndef MINER_CORE_H
+#define MINER_CORE_H
+
+#include <stdint.h>
+
+/* SHA-256 compression: state[8] updated in place, w[16] = message words (host order, big-endian decoded). */
+typedef void (*compress_fn_t)(uint32_t state[8], const uint32_t w[16]);
+
+/* Picks the fastest implementation (ARM SHA2 hardware if present and self-test passes). */
+void miner_core_init(void);
+int miner_core_uses_hw(void);
+int miner_core_selftest_ok(void);
+
+/* Double SHA-256 of an 80 byte block header. out = digest bytes in internal order (little-endian number). */
+void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]);
+
+/*
+ * Scan nonces [start, start+count) (wrapping mod 2^32). The nonce is written little-endian into header[76..79].
+ * target: 32 bytes, big-endian. A nonce is a share if hash <= target.
+ * found: receives up to max_found share nonces. Returns number found.
+ * best_diff / best_nonce: best (lowest) hash seen in this call, expressed as difficulty (diff1 / hash).
+ */
+uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
+                    const uint8_t target[32], uint32_t *found, uint32_t max_found,
+                    double *best_diff, uint32_t *best_nonce);
+
+extern const uint32_t SHA256_K[64];
+
+#ifdef HAVE_ARM_SHA2
+void compress_arm(uint32_t state[8], const uint32_t w[16]);
+int arm_sha2_supported(void);
+#endif
+
+#endif
