@@ -25,7 +25,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
-        private const val CHUNK = 1L shl 18
+        private const val CHUNK = 1L shl 15
     }
 
     @Volatile private var running = false
