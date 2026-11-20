@@ -124,17 +124,30 @@ class StratumClient(
             when (method) {
                 "mining.notify" -> listener.onJob(parseJob(params))
                 "mining.set_extranonce" -> {
-                    if (params.length != 2 || params.isNull(0) || params.isNull(1))
-                        throw ProtocolException("Invalid mining.set_extranonce parameters")
-                    val hex = params.getString(0)
-                    if (hex.length > 64 || hex.length % 2 != 0 || !hex.matches(Regex("[0-9a-fA-F]*")))
-                        throw ProtocolException("Invalid extranonce1 encoding")
-                    val size = params.getInt(1)
-                    if (size !in 1..16) throw ProtocolException("Invalid extranonce2 size")
-                    listener.onSubscribed(Util.hexToBytes(hex), size)
+                    try {
+                        if (params.length() != 2 || params.isNull(0) || params.isNull(1))
+                            throw ProtocolException("Invalid mining.set_extranonce parameters")
+                        val hexValue = params.get(0)
+                        val sizeValue = params.get(1)
+                        if (hexValue !is String || sizeValue !is Number)
+                            throw ProtocolException("Invalid mining.set_extranonce value types")
+                        val hex = hexValue
+                        val sizeNumber = sizeValue.toDouble()
+                        val size = sizeValue.toInt()
+                        if (sizeNumber != size.toDouble() || size !in 1..16)
+                            throw ProtocolException("Invalid extranonce2 size")
+                        if (hex.length > 64 || hex.length % 2 != 0 || !hex.matches(Regex("[0-9a-fA-F]*")))
+                            throw ProtocolException("Invalid extranonce1 encoding")
+                        listener.onSubscribed(Util.hexToBytes(hex), size)
+                    } catch (e: ProtocolException) {
+                        throw e
+                    } catch (e: Exception) {
+                        throw ProtocolException("Invalid mining.set_extranonce notification: ${e.message}")
+                    }
                 }
                 "mining.set_difficulty" -> {
-                    val diff = params.optDouble(0, Double.NaN)
+                    val rawDiff = if (params.length() > 0) params.opt(0) else null
+                    val diff = (rawDiff as? Number)?.toDouble() ?: Double.NaN
                     if (diff.isFinite() && diff > 0.0) listener.onDifficulty(diff)
                     else throw ProtocolException("Pool sent an invalid difficulty")
                 }
@@ -154,14 +167,27 @@ class StratumClient(
                 if (!message.isNull("error")) throw ProtocolException("Pool subscribe rejected: ${message.opt("error")}")
                 val result = message.optJSONArray("result")
                     ?: throw ProtocolException("Pool subscribe response is not an array")
-                if (result.length() < 3) throw ProtocolException("Incomplete pool subscribe response")
-                val extranonceHex = result.getString(1)
-                if (extranonceHex.length > 64 || extranonceHex.length % 2 != 0 || !extranonceHex.matches(Regex("[0-9a-fA-F]*")))
-                    throw ProtocolException("Invalid subscribe extranonce1")
-                val extranonce1 = Util.hexToBytes(extranonceHex)
-                val extranonce2Size = result.getInt(2)
-                if (extranonce2Size !in 1..16) throw ProtocolException("Invalid extranonce2 size")
-                listener.onSubscribed(extranonce1, extranonce2Size)
+                if (result.length() != 3) throw ProtocolException("Incomplete pool subscribe response")
+                try {
+                    result.getJSONArray(0)
+                    val extranonceValue = result.get(1)
+                    val sizeValue = result.get(2)
+                    if (extranonceValue !is String || sizeValue !is Number)
+                        throw ProtocolException("Invalid subscribe response value types")
+                    val extranonceHex = extranonceValue
+                    val sizeNumber = sizeValue.toDouble()
+                    val extranonce2Size = sizeValue.toInt()
+                    if (sizeNumber != extranonce2Size.toDouble() || extranonce2Size !in 1..16)
+                        throw ProtocolException("Invalid extranonce2 size")
+                    if (extranonceHex.length > 64 || extranonceHex.length % 2 != 0 || !extranonceHex.matches(Regex("[0-9a-fA-F]*")))
+                        throw ProtocolException("Invalid subscribe extranonce1")
+                    val extranonce1 = Util.hexToBytes(extranonceHex)
+                    listener.onSubscribed(extranonce1, extranonce2Size)
+                } catch (e: ProtocolException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw ProtocolException("Invalid pool subscribe response: ${e.message}")
+                }
                 send(3, "mining.suggest_difficulty", JSONArray().put(1))
                 send(2, "mining.authorize", JSONArray().put(user).put("x"))
             }
