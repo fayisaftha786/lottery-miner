@@ -58,6 +58,9 @@ jobs:
       - name: Assemble release APK
         run: gradle assembleRelease --no-daemon
 
+      - name: Assemble installable debug test APK
+        run: gradle assembleDebug --no-daemon
+
       - name: Verify APK signing state
         run: |
           APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
@@ -80,6 +83,12 @@ jobs:
         with:
           name: LotteryMiner-release-build
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LotteryMiner-debug-test-apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Publish signed APK for version tags only
