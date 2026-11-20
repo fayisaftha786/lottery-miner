@@ -177,22 +177,32 @@ class StratumClient(
     }
 
     private fun parseJob(params: JSONArray): Job {
-        if (params.length() < 9) throw ProtocolException("Incomplete mining.notify job")
-        val branchesJson = params.getJSONArray(4)
-        if (branchesJson.length() > 32) throw ProtocolException("Too many merkle branches")
-        val branches = ArrayList<ByteArray>(branchesJson.length())
-        for (i in 0 until branchesJson.length()) {
-            val branch = Util.hexToBytes(branchesJson.getString(i))
-            if (branch.size != 32) throw ProtocolException("Merkle branch must be 32 bytes")
-            branches.add(branch)
-        }
-        return try {
-            Job(
-                id = params.getString(0), prevHashHex = params.getString(1),
-                coinb1 = Util.hexToBytes(params.getString(2)), coinb2 = Util.hexToBytes(params.getString(3)),
-                merkle = branches, versionHex = params.getString(5), nbitsHex = params.getString(6),
-                ntimeHex = params.getString(7), clean = params.optBoolean(8, false)
+        try {
+            if (params.length() != 9) throw ProtocolException("mining.notify must contain exactly 9 fields")
+            val jobId = params.getString(0)
+            val prevHash = params.getString(1)
+            val coinb1 = Util.hexToBytes(params.getString(2))
+            val coinb2 = Util.hexToBytes(params.getString(3))
+            val branchesJson = params.getJSONArray(4)
+            if (branchesJson.length() > 32) throw ProtocolException("Too many merkle branches")
+            val branches = ArrayList<ByteArray>(branchesJson.length())
+            for (i in 0 until branchesJson.length()) {
+                val branch = Util.hexToBytes(branchesJson.getString(i))
+                if (branch.size != 32) throw ProtocolException("Merkle branch must be 32 bytes")
+                branches.add(branch)
+            }
+            val version = params.getString(5)
+            val nbits = params.getString(6)
+            val ntime = params.getString(7)
+            val cleanValue = params.get(8)
+            if (cleanValue !is Boolean) throw ProtocolException("clean_jobs must be boolean")
+            return Job(
+                id = jobId, prevHashHex = prevHash, coinb1 = coinb1, coinb2 = coinb2,
+                merkle = branches, versionHex = version, nbitsHex = nbits,
+                ntimeHex = ntime, clean = cleanValue
             )
+        } catch (e: ProtocolException) {
+            throw e
         } catch (e: Exception) {
             throw ProtocolException("Invalid mining.notify job: ${e.message}")
         }
