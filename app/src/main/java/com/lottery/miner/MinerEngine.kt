@@ -86,9 +86,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         client?.close()
         val stopping = threads.toList()
         stopping.forEach { it.interrupt() }
+        val deadline = System.nanoTime() + 3_000_000_000L
         for (t in stopping) {
             if (t !== Thread.currentThread()) {
-                try { t.join(2000) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+                val remainingNanos = deadline - System.nanoTime()
+                if (remainingNanos <= 0L) break
+                try { t.join(maxOf(1L, remainingNanos / 1_000_000L)) }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
             }
         }
         threads.removeAll { !it.isAlive }
@@ -227,6 +231,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                     MinerState.status = "Native scan error; mining stopped"
                     MinerState.log("Native scan returned invalid result: $nf")
                     running = false
+                    MinerState.running = false
+                    MinerState.activeThreads = 0
+                    MinerState.pauseReason = "Native scan error"
                     client?.close()
                     break
                 }
