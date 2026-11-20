@@ -145,7 +145,7 @@ class MainActivity : AppCompatActivity() {
         sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
         sb.append("താപനില    : ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
             .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
-            .append(if (s.plugged) " ⚡" else "").append('\n')
+            .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         tvStats.text = sb.toString()
         tvLog.text = s.logText()
