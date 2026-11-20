@@ -1,5 +1,6 @@
 package com.lottery.miner
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -24,6 +25,23 @@ class JobTest {
 
     @Test fun acceptsWellFormedJob() {
         assertEquals("job-1", validJob().id)
+    }
+
+    @Test fun serializesBlockHeaderFieldsInBitcoinByteOrder() {
+        val header = validJob().buildHeader(byteArrayOf(), byteArrayOf())
+        assertArrayEquals(Util.hexToBytes("01000000"), header.copyOfRange(0, 4))
+        assertArrayEquals(ByteArray(32), header.copyOfRange(4, 36))
+        assertArrayEquals(Util.sha256d(byteArrayOf(1, 2)).reversedArray(), header.copyOfRange(36, 68))
+        assertArrayEquals(Util.hexToBytes("29ab5f49"), header.copyOfRange(68, 72))
+        assertArrayEquals(Util.hexToBytes("ffff001d"), header.copyOfRange(72, 76))
+    }
+
+    @Test fun foldsMerkleBranchesBeforeSerializingRoot() {
+        val branch = ByteArray(32) { it.toByte() }
+        val coinbaseHash = Util.sha256d(byteArrayOf(1, 2))
+        val expectedRoot = Util.sha256d(coinbaseHash + branch).reversedArray()
+        val header = validJob(merkle = listOf(branch)).buildHeader(byteArrayOf(), byteArrayOf())
+        assertArrayEquals(expectedRoot, header.copyOfRange(36, 68))
     }
 
     @Test(expected = IllegalArgumentException::class)
