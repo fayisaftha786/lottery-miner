@@ -4,8 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
+import android.os.PowerManager
 import android.os.Process
 import java.math.BigInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 data class MinerConfig(
@@ -33,10 +36,19 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var shareTarget: ByteArray = Util.difficultyToTarget(1.0)
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
+    private val jobGeneration = AtomicLong(0)
+    private val extranonceEpoch = AtomicLong(0)
+    private val reconnectingForExhaustion = AtomicBoolean(false)
     private val threads = ArrayList<Thread>()
 
-    fun start() {
+    @Synchronized fun start() {
+        threads.removeAll { !it.isAlive }
         if (running) return
+        if (threads.any { it.isAlive }) {
+            MinerState.status = "മുൻ worker-കൾ പൂർണ്ണമായി നിർത്തിയിട്ടില്ല"
+            MinerState.log("പഴയ worker thread അവസാനിക്കുന്നതുവരെ restart തടഞ്ഞു")
+            return
+        }
         running = true
         MinerState.reset()
         MinerState.running = true
@@ -68,11 +80,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         pol.start()
     }
 
-    fun stop() {
+    @Synchronized fun stop() {
         running = false
+        jobGeneration.incrementAndGet()
         client?.close()
-        for (t in threads) t.interrupt()
-        threads.clear()
+        val stopping = threads.toList()
+        stopping.forEach { it.interrupt() }
+        for (t in stopping) {
+            if (t !== Thread.currentThread()) {
+                try { t.join(2000) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            }
+        }
+        threads.removeAll { !it.isAlive }
         MinerState.running = false
         MinerState.connected = false
         MinerState.hashrate = 0.0
@@ -81,8 +100,17 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
-        en1 = extranonce1
+        if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
+            MinerState.status = "Pool invalid extranonce അയച്ചു"
+            client?.close()
+            return
+        }
+        current = null
+        jobGeneration.incrementAndGet()
+        en1 = extranonce1.copyOf()
         en2Size = extranonce2Size
+        extranonceEpoch.incrementAndGet()
+        reconnectingForExhaustion.set(false)
         MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്)")
     }
 
@@ -99,10 +127,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onJob(job: Job) {
+        jobGeneration.incrementAndGet()
         MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
         MinerState.status = if (activeThreads > 0) "മൈനിംഗ് നടക്കുന്നു" else "നിർത്തിവെച്ചു"
         if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
         current = job
+    }
+
+    override fun onShareUnknown(count: Int) {
+        if (count > 0) {
+            MinerState.unknownShares.addAndGet(count)
+            MinerState.log("കണക്ഷൻ നഷ്ടപ്പെട്ടു: $count share response അറിയില്ല; accepted ആയി കണക്കാക്കിയിട്ടില്ല")
+        }
     }
 
     override fun onShareResult(accepted: Boolean, reason: String?) {
@@ -157,29 +193,53 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         val found = IntArray(8)
         val best = DoubleArray(2)
         var counter = idx.toLong()
+        var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
+            val epoch = extranonceEpoch.get()
+            if (epoch != seenExtranonceEpoch) {
+                counter = idx.toLong()
+                seenExtranonceEpoch = epoch
+            }
             if (idx >= activeThreads) { sleepMs(500); continue }
             val j = current
             if (j == null) { sleepMs(300); continue }
 
-            val en2 = encodeEn2(counter, en2Size)
-            counter += cfg.threads
-            val header = j.buildHeader(en1, en2)
-            val target = shareTarget
+            val size = en2Size
+            val maxCounter = if (size < 8) (1L shl (size * 8)) - 1L else Long.MAX_VALUE
+            if (counter < 0L || counter > maxCounter) {
+                MinerState.status = "Extranonce2 പരിധി തീർന്നു; pool reconnect ചെയ്യുന്നു"
+                if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
+                sleepMs(500)
+                continue
+            }
+            val generation = jobGeneration.get()
+            val en1Snapshot = en1.copyOf()
+            val en2 = encodeEn2(counter, size)
+            counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
+            val header = j.buildHeader(en1Snapshot, en2)
+            val target = shareTarget.copyOf()
 
             var start = 0L
-            while (running && current === j && idx < activeThreads && start < SPACE) {
+            while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
                 val count = minOf(CHUNK, SPACE - start).toInt()
                 val nf = Native.scan(header, start.toInt(), count, target, found, best)
+                if (nf < 0 || nf > found.size) {
+                    MinerState.status = "Native scan error; mining stopped"
+                    MinerState.log("Native scan returned invalid result: $nf")
+                    running = false
+                    client?.close()
+                    break
+                }
                 totalHashes.addAndGet(count.toLong())
                 if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
-                for (k in 0 until nf) handleShare(j, header, found[k], en2)
+                for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
                 start += count
             }
         }
     }
 
-    private fun handleShare(j: Job, header: ByteArray, nonce: Int, en2: ByteArray) {
+    private fun handleShare(j: Job, generation: Long, target: ByteArray, header: ByteArray, nonce: Int, en2: ByteArray) {
+        if (!running || current !== j || jobGeneration.get() != generation) return
         val h = header.copyOf()
         h[76] = nonce.toByte()
         h[77] = (nonce ushr 8).toByte()
@@ -188,14 +248,16 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val digest = Native.sha256dHeader(h)
         val value = BigInteger(1, digest.reversedArray())
-        if (value > BigInteger(1, shareTarget)) return
+        if (value > BigInteger(1, target)) return
         val nonceHex = String.format(java.util.Locale.US, "%08x", nonce)
         val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
         if (isBlock) {
-            MinerState.blockFound = true
-            MinerState.log("🎉🎉 Block candidate found; submitting share nonce $nonceHex")
+            MinerState.blockCandidateDetected = true
+            MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
         }
-        client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+        if (running && current === j && jobGeneration.get() == generation) {
+            client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+        }
     }
 
     private fun policyLoop() {
@@ -208,19 +270,23 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             var pct = MinerState.battery
             var plugged = MinerState.plugged
             var temp = MinerState.tempC
+            var batteryAvailable = false
+            var tempAvailable = false
             if (bi != null) {
                 val level = bi.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                 val scale = bi.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
-                if (level >= 0 && scale > 0) pct = level * 100 / scale
+                if (level >= 0 && scale > 0) { pct = level * 100 / scale; batteryAvailable = true }
                 plugged = bi.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
-                val rawTemp = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
-                if (rawTemp > 0) temp = rawTemp / 10.0
+                val rawTemp = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
+                if (rawTemp > 0) { temp = rawTemp / 10.0; tempAvailable = true }
             }
             MinerState.battery = pct
+            MinerState.batteryAvailable = batteryAvailable
             MinerState.plugged = plugged
-            MinerState.tempC = temp
+            MinerState.tempAvailable = tempAvailable
+            MinerState.tempC = if (tempAvailable) temp else Double.NaN
 
-            if (temp >= cfg.maxTemp) hot = true else if (temp <= cfg.maxTemp - 4.0) hot = false
+            if (tempAvailable && temp >= cfg.maxTemp) hot = true else if (tempAvailable && temp <= cfg.maxTemp - 4.0) hot = false
             // A limit of 100 means "no battery limit"; otherwise pause at the limit and resume 2% below it.
             if (cfg.maxBattery >= 100) full = false
             else if (pct >= cfg.maxBattery) full = true
@@ -234,8 +300,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 target = 0; reason = "ബാറ്ററി പരിധി എത്തി"
             } else if (hot) {
                 target = 0; reason = "ഫോൺ ചൂടായി, തണുക്കാൻ കാത്തിരിക്കുന്നു"
+            } else if (!tempAvailable) {
+                target = minOf(1, cfg.threads); reason = "താപനില ലഭ്യമല്ല; സുരക്ഷയ്ക്കായി ഒരു worker മാത്രം"
             } else if (temp >= cfg.maxTemp - 3.0) {
                 target = maxOf(1, cfg.threads / 2); reason = "ചൂട് കൂടുന്നു, ത്രെഡ് കുറച്ചു"
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val thermal = (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
+                if (thermal >= PowerManager.THERMAL_STATUS_SEVERE) {
+                    target = 0; reason = "Android thermal protection: high temperature"
+                } else if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) {
+                    target = minOf(target, maxOf(1, cfg.threads / 2)); reason = "Android thermal status moderate; worker reduced"
+                }
             }
             activeThreads = target
             MinerState.activeThreads = target
