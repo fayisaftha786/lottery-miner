@@ -141,6 +141,7 @@ object Util {
         else BigInteger.valueOf(mantissa).shiftLeft(8 * (exponent - 3))
         require(target.signum() > 0) { "compact target rounds to zero" }
         require(target <= MAX256) { "target exceeds 256 bits" }
+        require(target <= DIFF1) { "compact target exceeds Bitcoin mainnet proof-of-work limit" }
         return target
     }
 
