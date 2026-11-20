@@ -101,11 +101,11 @@ class StratumClientTest {
                         val input = socket.getInputStream().bufferedReader()
                         val output = socket.getOutputStream().bufferedWriter()
                         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-                        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\\n")
+                        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
                         output.flush()
                         input.readLine() // suggest difficulty
                         input.readLine() // authorize request
-                        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\\n")
+                        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
                         output.flush()
                         repeat(256) {
                             val line = input.readLine() ?: throw AssertionError("socket closed before all queued submits arrived")
