@@ -92,7 +92,7 @@ class StratumClient(
 
     fun close() { try { socket?.close() } catch (_: Exception) { } }
 
-    fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
+    @Synchronized fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
         if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
             listener.onStatus("Share queue full; waiting for pool responses")
             return
@@ -103,7 +103,8 @@ class StratumClient(
             send(id, "mining.submit", JSONArray().put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex))
         } catch (e: Exception) {
             pendingSubmits.remove(id)
-            listener.onStatus("Share send failed: ${e.message}")
+            listener.onShareUnknown(1)
+            listener.onStatus("Share send failed; outcome is unknown: ${e.message}")
         }
     }
 
