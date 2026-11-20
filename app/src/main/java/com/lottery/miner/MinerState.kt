@@ -50,6 +50,9 @@ object MinerState {
     fun reset() {
         connected = false
         hashrate = 0.0
+        battery = 0
+        plugged = false
+        activeThreads = 0
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
