@@ -30,6 +30,7 @@ class StratumClient(
     }
 
     @Volatile private var socket: Socket? = null
+    @Volatile private var closed = false
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
     private val pendingSubmits: MutableSet<Int> = ConcurrentHashMap.newKeySet()
@@ -41,6 +42,7 @@ class StratumClient(
         val s = connectSocket()
         socket = s
         try {
+            if (closed) return
             s.soTimeout = 180000
             s.tcpNoDelay = true
             s.keepAlive = true
@@ -77,10 +79,15 @@ class StratumClient(
         }
         var lastError: Exception? = null
         for (address in addresses) {
+            if (closed) throw java.io.IOException("Stratum client closed")
             val candidate = Socket()
             try {
                 listener.onStatus("Connecting to $host (${address.hostAddress}):$port")
                 candidate.connect(InetSocketAddress(address, port), 10000)
+                if (closed) {
+                    candidate.close()
+                    throw java.io.IOException("Stratum client closed")
+                }
                 return candidate
             } catch (e: Exception) {
                 lastError = e
@@ -90,7 +97,10 @@ class StratumClient(
         throw lastError ?: java.net.ConnectException("Pool host resolved to no addresses")
     }
 
-    fun close() { try { socket?.close() } catch (_: Exception) { } }
+    fun close() {
+        closed = true
+        try { socket?.close() } catch (_: Exception) { }
+    }
 
     @Synchronized fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
         if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
