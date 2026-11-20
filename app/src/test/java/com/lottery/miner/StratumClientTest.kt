@@ -9,6 +9,8 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 class StratumClientTest {
@@ -22,6 +24,7 @@ class StratumClientTest {
         @Volatile var job: Job? = null
         @Volatile var accepted: Boolean? = null
         val jobReceived = CountDownLatch(1)
+        val statuses = CopyOnWriteArrayList<String>()
 
         override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
             subscribed = extranonce2Size == 4
@@ -33,17 +36,22 @@ class StratumClientTest {
         override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
         override fun onShareResult(accepted: Boolean, reason: String?) { this.accepted = accepted }
         override fun onShareUnknown(count: Int) { unknownShares += count }
-        override fun onStatus(msg: String) { }
+        override fun onStatus(msg: String) { statuses.add(msg) }
     }
 
     @Test fun exchangesSubscribeAuthorizeJobAndShareWithMockPool() {
         ServerSocket(0).use { server ->
-            val worker = thread { server.accept().use { serve(it) } }
+            val serverFailure = AtomicReference<Throwable?>()
+            val worker = thread {
+                try { server.accept().use { serve(it) } }
+                catch (t: Throwable) { serverFailure.set(t) }
+            }
             val listener = Listener()
             val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
             val clientThread = thread { client.connectAndRun() }
 
-            assertTrue("pool job was not received", listener.jobReceived.await(3, TimeUnit.SECONDS))
+            assertTrue("pool job was not received; server=${serverFailure.get()}; client=${listener.statuses}",
+                listener.jobReceived.await(3, TimeUnit.SECONDS))
             client.submit("test-job", "00000000", "495fab29", "00000001")
             clientThread.join(3000)
             worker.join(3000)
@@ -61,12 +69,17 @@ class StratumClientTest {
 
     @Test fun marksPendingShareUnknownWhenPoolDisconnectsBeforeResponse() {
         ServerSocket(0).use { server ->
-            val worker = thread { server.accept().use { serveAndDrop(it) } }
+            val serverFailure = AtomicReference<Throwable?>()
+            val worker = thread {
+                try { server.accept().use { serveAndDrop(it) } }
+                catch (t: Throwable) { serverFailure.set(t) }
+            }
             val listener = Listener()
             val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
             val clientThread = thread { client.connectAndRun() }
 
-            assertTrue("pool job was not received", listener.jobReceived.await(3, TimeUnit.SECONDS))
+            assertTrue("pool job was not received; server=${serverFailure.get()}; client=${listener.statuses}",
+                listener.jobReceived.await(3, TimeUnit.SECONDS))
             client.submit("test-job", "00000000", "495fab29", "00000001")
             clientThread.join(3000)
             worker.join(3000)
