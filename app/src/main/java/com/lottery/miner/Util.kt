@@ -22,10 +22,8 @@ object Util {
         }
     }
 
-    fun bytesToHex(b: ByteArray): String {
-        val sb = StringBuilder(b.size * 2)
-        for (x in b) sb.append(String.format(Locale.US, "%02x", x.toInt() and 0xff))
-        return sb.toString()
+    fun bytesToHex(b: ByteArray): String = buildString(b.size * 2) {
+        for (x in b) append(String.format(Locale.US, "%02x", x.toInt() and 0xff))
     }
 
     fun sha256d(data: ByteArray): ByteArray {
@@ -38,11 +36,8 @@ object Util {
         val parts = input.split('.', limit = 2)
         val address = parts[0]
         if (address.isEmpty() || (parts.size == 2 && !parts[1].matches(Regex("[A-Za-z0-9_-]{1,20}")))) return false
-        return if (address.startsWith("1") || address.startsWith("3")) {
-            isValidBase58Address(address)
-        } else {
-            isValidSegwitAddress(address)
-        }
+        return if (address.startsWith("1") || address.startsWith("3")) isValidBase58Address(address)
+        else isValidSegwitAddress(address)
     }
 
     private fun isValidBase58Address(address: String): Boolean = try {
@@ -52,9 +47,9 @@ object Util {
             if (digit < 0) return false
             value = value.multiply(BigInteger.valueOf(58)).add(BigInteger.valueOf(digit.toLong()))
         }
-        var decoded = value.toByteArray().let { if (it.size > 1 && it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it }
-        val leadingZeroes = address.takeWhile { it == '1' }.length
-        decoded = ByteArray(leadingZeroes) + decoded
+        val raw = value.toByteArray()
+        val significant = if (raw.size > 1 && raw[0] == 0.toByte()) raw.copyOfRange(1, raw.size) else raw
+        val decoded = ByteArray(address.takeWhile { it == '1' }.length) + significant
         if (decoded.size != 25) return false
         val version = decoded[0].toInt() and 0xff
         if (version != 0 && version != 5) return false
@@ -71,22 +66,21 @@ object Util {
         if (separator !in 1..(address.length - 7) || address.substring(0, separator) != "bc") return false
         val data = IntArray(address.length - separator - 1)
         for (i in data.indices) {
-            val v = BECH32.indexOf(address[separator + 1 + i])
-            if (v < 0) return false
-            data[i] = v
+            val value = BECH32.indexOf(address[separator + 1 + i])
+            if (value < 0) return false
+            data[i] = value
         }
-        val expanded = listOf(3, 3, 0, 2, 3) + address.substring(0, separator).map { it.code shr 5 } +
-            listOf(0) + address.substring(0, separator).map { it.code and 31 } + data.toList()
+        val hrp = address.substring(0, separator)
+        val expanded = hrp.map { it.code shr 5 } + listOf(0) + hrp.map { it.code and 31 } + data.toList()
         val polymod = bech32Polymod(expanded)
         if (polymod != 1 && polymod != 0x2bc830a3) return false
         val payload = data.copyOf(data.size - 6)
         if (payload.isEmpty() || payload[0] !in 0..16) return false
         val version = payload[0]
-        val program = convertBits(payload.copyOfRange(1, payload.size), 5, 8, false) ?: return false
-        if (program.size !in 2..40) return false
-        if (version == 0 && (polymod != 1 || (program.size != 20 && program.size != 32))) return false
-        if (version != 0 && polymod != 0x2bc830a3) return false
-        return true
+        val program = convertBits(payload.copyOfRange(1, payload.size), 5, 8) ?: return false
+        if (version == 0) return polymod == 1 && (program.size == 20 || program.size == 32)
+        if (polymod != 0x2bc830a3 || program.size !in 2..40) return false
+        return version != 1 || program.size == 32
     }
 
     private fun bech32Polymod(values: List<Int>): Int {
@@ -100,25 +94,22 @@ object Util {
         return chk
     }
 
-    private fun convertBits(data: IntArray, from: Int, to: Int, pad: Boolean): ByteArray? {
+    private fun convertBits(data: IntArray, from: Int, to: Int): ByteArray? {
         var acc = 0
         var bits = 0
         val out = ArrayList<Byte>()
         val maxv = (1 shl to) - 1
+        val maxAcc = (1 shl (from + to - 1)) - 1
         for (value in data) {
             if (value < 0 || (value ushr from) != 0) return null
-            acc = (acc shl from) or value
+            acc = ((acc shl from) or value) and maxAcc
             bits += from
             while (bits >= to) {
                 bits -= to
                 out.add(((acc ushr bits) and maxv).toByte())
             }
         }
-        if (pad) {
-            if (bits > 0) out.add(((acc shl (to - bits)) and maxv).toByte())
-        } else if (bits >= from || ((acc shl (to - bits)) and maxv) != 0) {
-            return null
-        }
+        if (bits >= from || ((acc shl (to - bits)) and maxv) != 0) return null
         return ByteArray(out.size) { out[it] }
     }
 
@@ -131,25 +122,25 @@ object Util {
         return out
     }
 
-    /** share target (32 bytes big-endian) = diff1 / difficulty */
     fun difficultyToTarget(diff: Double): ByteArray {
-        val d = if (diff.isNaN() || diff.isInfinite() || diff <= 0.0) 1.0 else diff
-        val t = BigDecimal(DIFF1).divide(BigDecimal(d), 0, RoundingMode.FLOOR).toBigInteger()
-        return toBytes32(if (t > MAX256) MAX256 else t)
+        require(diff.isFinite() && diff > 0.0) { "difficulty must be positive and finite" }
+        val target = BigDecimal(DIFF1).divide(BigDecimal(diff), 0, RoundingMode.FLOOR).toBigInteger()
+        return toBytes32(if (target > MAX256) MAX256 else target)
     }
 
     fun nbitsToTarget(nbitsHex: String): BigInteger {
+        require(nbitsHex.length == 8) { "nbits must contain 8 hex characters" }
         val bits = nbitsHex.toLong(16)
-        val exp = (bits ushr 24).toInt()
-        val mant = bits and 0x7fffffL
-        return if (exp <= 3) BigInteger.valueOf(mant ushr (8 * (3 - exp)))
-        else BigInteger.valueOf(mant).shiftLeft(8 * (exp - 3))
+        val exponent = (bits ushr 24).toInt()
+        val mantissa = bits and 0x7fffffL
+        require((bits and 0x00800000L) == 0L && mantissa != 0L && exponent in 1..32) { "invalid compact target" }
+        val target = if (exponent <= 3) BigInteger.valueOf(mantissa ushr (8 * (3 - exponent)))
+        else BigInteger.valueOf(mantissa).shiftLeft(8 * (exponent - 3))
+        require(target <= MAX256) { "target exceeds 256 bits" }
+        return target
     }
 
-    fun networkDifficulty(nbitsHex: String): Double {
-        val t = nbitsToTarget(nbitsHex)
-        return if (t.signum() == 0) 0.0 else DIFF1.toDouble() / t.toDouble()
-    }
+    fun networkDifficulty(nbitsHex: String): Double = DIFF1.toDouble() / nbitsToTarget(nbitsHex).toDouble()
 
     fun fmtRate(hps: Double): String = when {
         hps >= 1e9 -> String.format(Locale.US, "%.2f GH/s", hps / 1e9)

@@ -12,7 +12,7 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Minimal Stratum v1 client (plain TCP, e.g. solo.ckpool.org:3333). */
+/** Minimal Stratum v1 client (plain TCP). */
 class StratumClient(
     private val host: String,
     private val port: Int,
@@ -34,6 +34,7 @@ class StratumClient(
     private val pendingSubmits: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
     fun connectAndRun() {
+        require(port in 1..65535) { "Pool port must be 1..65535" }
         val s = connectSocket()
         socket = s
         try {
@@ -45,11 +46,12 @@ class StratumClient(
             send(1, "mining.subscribe", JSONArray().put("LotteryMiner/1.0"))
             while (true) {
                 val line = reader.readLine() ?: break
+                if (line.length > 65536) throw ProtocolException("Pool Stratum line exceeds 64 KiB")
                 if (line.isBlank()) continue
                 try {
                     handle(JSONObject(line))
                 } catch (e: Exception) {
-                    listener.onStatus("Stratum സന്ദേശ പിശക്: ${e.message}")
+                    listener.onStatus("Stratum message error: ${e.message}")
                     if (e is ProtocolException) throw e
                 }
             }
@@ -66,27 +68,25 @@ class StratumClient(
             InetAddress.getAllByName(host)
                 .distinctBy { it.hostAddress }
                 .sortedWith(compareByDescending<InetAddress> { it is Inet4Address })
-        } catch (_: Exception) {
-            throw java.net.UnknownHostException("Host resolve ചെയ്യാനായില്ല: $host")
+        } catch (e: Exception) {
+            throw java.net.UnknownHostException("Could not resolve pool host '$host': ${e.message}")
         }
         var lastError: Exception? = null
         for (address in addresses) {
-            val s = Socket()
+            val candidate = Socket()
             try {
-                listener.onStatus("കണക്ട് ചെയ്യുന്നു $host (${address.hostAddress}):$port …")
-                s.connect(InetSocketAddress(address, port), 10000)
-                return s
+                listener.onStatus("Connecting to $host (${address.hostAddress}):$port")
+                candidate.connect(InetSocketAddress(address, port), 10000)
+                return candidate
             } catch (e: Exception) {
                 lastError = e
-                try { s.close() } catch (_: Exception) { }
+                try { candidate.close() } catch (_: Exception) { }
             }
         }
-        throw lastError ?: java.net.ConnectException("Pool-ലേക്ക് കണക്റ്റ് ചെയ്യാൻ address ഇല്ല")
+        throw lastError ?: java.net.ConnectException("Pool host resolved to no addresses")
     }
 
-    fun close() {
-        try { socket?.close() } catch (_: Exception) { }
-    }
+    fun close() { try { socket?.close() } catch (_: Exception) { } }
 
     fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
         val id = nextId.incrementAndGet()
@@ -95,82 +95,81 @@ class StratumClient(
             send(id, "mining.submit", JSONArray().put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex))
         } catch (e: Exception) {
             pendingSubmits.remove(id)
-            listener.onStatus("Share അയയ്ക്കാനായില്ല: ${e.message}")
+            listener.onStatus("Share send failed: ${e.message}")
         }
     }
 
     @Synchronized
     private fun send(id: Int, method: String, params: JSONArray) {
-        val o = JSONObject()
-        o.put("id", id)
-        o.put("method", method)
-        o.put("params", params)
-        val w = writer ?: throw java.io.IOException("Pool socket തയ്യാറല്ല")
-        w.write(o.toString())
-        w.write("\n")
-        w.flush()
+        val message = JSONObject().put("id", id).put("method", method).put("params", params)
+        val out = writer ?: throw java.io.IOException("Pool socket is not ready")
+        out.write(message.toString())
+        out.write("\n")
+        out.flush()
     }
 
-    private fun handle(m: JSONObject) {
-        val method = m.optString("method", "")
+    private fun handle(message: JSONObject) {
+        val method = message.optString("method", "")
         if (method.isNotEmpty()) {
-            val p = m.optJSONArray("params") ?: JSONArray()
+            val params = message.optJSONArray("params") ?: JSONArray()
             when (method) {
-                "mining.notify" -> listener.onJob(parseJob(p))
+                "mining.notify" -> listener.onJob(parseJob(params))
                 "mining.set_difficulty" -> {
-                    val diff = p.optDouble(0, Double.NaN)
+                    val diff = params.optDouble(0, Double.NaN)
                     if (diff.isFinite() && diff > 0.0) listener.onDifficulty(diff)
-                    else listener.onStatus("പൂളിൽ നിന്ന് അസാധുവായ difficulty ലഭിച്ചു")
+                    else throw ProtocolException("Pool sent an invalid difficulty")
                 }
-                "client.show_message" -> listener.onStatus("പൂൾ സന്ദേശം: " + p.optString(0))
+                "mining.ping" -> {
+                    val response = JSONObject().put("id", message.opt("id")).put("result", JSONObject.NULL).put("error", JSONObject.NULL)
+                    val out = writer ?: throw java.io.IOException("Pool socket is not ready")
+                    out.write(response.toString()); out.write("\n"); out.flush()
+                }
+                "client.show_message" -> listener.onStatus("Pool: ${params.optString(0)}")
                 else -> { }
             }
             return
         }
 
-        val id = m.optInt("id", -1)
-        when (id) {
+        when (val id = message.optInt("id", -1)) {
             1 -> {
-                val res = m.optJSONArray("result")
-                    ?: throw ProtocolException("Pool subscribe നിരസിച്ചു: ${m.opt("error")}")
-                if (res.length() < 3) throw ProtocolException("Pool-ന്റെ subscribe മറുപടി അപൂർണ്ണമാണ്")
-                val extranonce1 = Util.hexToBytes(res.getString(1))
-                val extranonce2Size = res.getInt(2)
-                if (extranonce2Size !in 1..16) throw ProtocolException("Pool extranonce2 വലുപ്പം അസാധുവാണ്")
+                val result = message.optJSONArray("result")
+                    ?: throw ProtocolException("Pool subscribe rejected: ${message.opt("error")}")
+                if (result.length() < 3) throw ProtocolException("Incomplete pool subscribe response")
+                val extranonce1 = Util.hexToBytes(result.getString(1))
+                val extranonce2Size = result.getInt(2)
+                if (extranonce2Size !in 1..16) throw ProtocolException("Invalid extranonce2 size")
                 listener.onSubscribed(extranonce1, extranonce2Size)
                 send(3, "mining.suggest_difficulty", JSONArray().put(1))
                 send(2, "mining.authorize", JSONArray().put(user).put("x"))
             }
             2 -> {
-                if (!m.optBoolean("result", false)) {
-                    throw ProtocolException("Pool authorization നിരസിച്ചു; address/worker ശരിയാണോ പരിശോധിക്കുക. ${m.opt("error")}")
+                if (!message.optBoolean("result", false)) {
+                    throw ProtocolException("Pool authorization rejected; check BTC address/worker. ${message.opt("error")}")
                 }
                 listener.onAuthorized()
             }
             else -> if (id >= 100 && pendingSubmits.remove(id)) {
-                val ok = m.optBoolean("result", false)
-                val err = if (m.isNull("error") || m.opt("error") == null) null else m.get("error").toString()
-                listener.onShareResult(ok, err)
+                val error = if (message.isNull("error") || message.opt("error") == null) null else message.get("error").toString()
+                listener.onShareResult(message.optBoolean("result", false), error)
             }
         }
     }
 
-    private fun parseJob(p: JSONArray): Job {
-        if (p.length() < 9) throw ProtocolException("Pool mining.notify job അപൂർണ്ണമാണ്")
-        val branches = ArrayList<ByteArray>()
-        val br = p.getJSONArray(4)
-        for (i in 0 until br.length()) branches.add(Util.hexToBytes(br.getString(i)))
-        return Job(
-            id = p.getString(0),
-            prevHashHex = p.getString(1),
-            coinb1 = Util.hexToBytes(p.getString(2)),
-            coinb2 = Util.hexToBytes(p.getString(3)),
-            merkle = branches,
-            versionHex = p.getString(5),
-            nbitsHex = p.getString(6),
-            ntimeHex = p.getString(7),
-            clean = p.optBoolean(8, false)
-        )
+    private fun parseJob(params: JSONArray): Job {
+        if (params.length() < 9) throw ProtocolException("Incomplete mining.notify job")
+        val branchesJson = params.getJSONArray(4)
+        val branches = ArrayList<ByteArray>(branchesJson.length())
+        for (i in 0 until branchesJson.length()) branches.add(Util.hexToBytes(branchesJson.getString(i)))
+        return try {
+            Job(
+                id = params.getString(0), prevHashHex = params.getString(1),
+                coinb1 = Util.hexToBytes(params.getString(2)), coinb2 = Util.hexToBytes(params.getString(3)),
+                merkle = branches, versionHex = params.getString(5), nbitsHex = params.getString(6),
+                ntimeHex = params.getString(7), clean = params.optBoolean(8, false)
+            )
+        } catch (e: Exception) {
+            throw ProtocolException("Invalid mining.notify job: ${e.message}")
+        }
     }
 
     private class ProtocolException(message: String) : java.io.IOException(message)
