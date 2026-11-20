@@ -59,6 +59,41 @@ class StratumClientTest {
         }
     }
 
+    @Test fun marksPendingShareUnknownWhenPoolDisconnectsBeforeResponse() {
+        ServerSocket(0).use { server ->
+            val worker = thread { server.accept().use { serveAndDrop(it) } }
+            val listener = Listener()
+            val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
+            val clientThread = thread { client.connectAndRun() }
+
+            assertTrue("pool job was not received", listener.jobReceived.await(3, TimeUnit.SECONDS))
+            client.submit("test-job", "00000000", "495fab29", "00000001")
+            clientThread.join(3000)
+            worker.join(3000)
+
+            assertEquals(1, listener.unknownShares)
+            assertEquals(null, listener.accepted)
+        }
+    }
+
+    private fun serveAndDrop(socket: Socket) {
+        val input = socket.getInputStream().bufferedReader()
+        val output = socket.getOutputStream().bufferedWriter()
+        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
+        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\\n")
+        output.flush()
+        input.readLine() // suggest difficulty
+        input.readLine() // authorize request
+        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\\n")
+        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
+            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
+        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\\n")
+        output.flush()
+        val submit = JSONObject(input.readLine())
+        assertEquals("mining.submit", submit.getString("method"))
+        socket.close() // Deliberately omit the submit response.
+    }
+
     private fun serve(socket: Socket) {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
