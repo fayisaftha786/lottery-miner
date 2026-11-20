@@ -148,8 +148,11 @@ class StratumClient(
                 "mining.set_difficulty" -> {
                     val rawDiff = if (params.length() > 0) params.opt(0) else null
                     val diff = (rawDiff as? Number)?.toDouble() ?: Double.NaN
-                    if (diff.isFinite() && diff > 0.0) listener.onDifficulty(diff)
-                    else throw ProtocolException("Pool sent an invalid difficulty")
+                    if (!diff.isFinite() || diff <= 0.0)
+                        throw ProtocolException("Pool sent an invalid difficulty")
+                    try { Util.difficultyToTarget(diff) }
+                    catch (e: Exception) { throw ProtocolException("Pool difficulty cannot be represented: ${e.message}") }
+                    listener.onDifficulty(diff)
                 }
                 "mining.ping" -> {
                     val response = JSONObject().put("id", message.opt("id")).put("result", JSONObject.NULL).put("error", JSONObject.NULL)
@@ -229,6 +232,8 @@ class StratumClient(
             }
             val version = params.getString(5)
             val nbits = params.getString(6)
+            try { Util.nbitsToTarget(nbits) }
+            catch (e: Exception) { throw ProtocolException("Invalid network target: ${e.message}") }
             val ntime = params.getString(7)
             val cleanValue = params.get(8)
             if (cleanValue !is Boolean) throw ProtocolException("clean_jobs must be boolean")
