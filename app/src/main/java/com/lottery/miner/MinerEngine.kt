@@ -262,7 +262,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     ) {
         if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
         val nf = Native.scan(header, start.toInt(), count, target, found, best)
-        totalHashes.addAndGet(count.toLong())
         if (nf < 0 || nf > found.size) {
             MinerState.status = "Native scan error; mining stopped"
             MinerState.log("Native scan returned invalid result: $nf")
@@ -273,6 +272,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             client?.close()
             return
         }
+        totalHashes.addAndGet(count.toLong())
         if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
         if (best[2] > 0.0) {
             if (count == 1) {
