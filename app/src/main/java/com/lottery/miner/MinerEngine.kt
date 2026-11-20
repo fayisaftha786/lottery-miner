@@ -118,11 +118,25 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 client?.close()
                 return
             }
-            en1 = extranonce1.copyOf()
-            en2Size = extranonce2Size
-            extranonceEpoch.incrementAndGet()
+            val allocationChanged = !en1.contentEquals(extranonce1) || en2Size != extranonce2Size
+            if (reconnectingForExhaustion.get() && !allocationChanged) {
+                MinerState.status = "Pool reused exhausted extranonce; mining stopped to prevent duplicate work"
+                MinerState.pauseReason = "Pool വീണ്ടും അതേ exhausted extranonce നൽകി; duplicate shares ഒഴിവാക്കാൻ mining നിർത്തി"
+                MinerState.running = false
+                running = false
+                MinerState.activeThreads = 0
+                MinerState.log("Pool reused the exhausted extranonce allocation; stopped safely")
+                client?.close()
+                return
+            }
+            if (allocationChanged) {
+                en1 = extranonce1.copyOf()
+                en2Size = extranonce2Size
+                extranonceEpoch.incrementAndGet()
+            }
             reconnectingForExhaustion.set(false)
-            MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്)")
+            val allocationStatus = if (allocationChanged) "പുതിയത്" else "തുടരുന്നു"
+            MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്; allocation $allocationStatus)")
         }
     }
     override fun onAuthorized() {
