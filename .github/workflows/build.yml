@@ -4,13 +4,13 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  create:
 
 permissions:
   contents: write
 
 env:
   ANDROID_KEYSTORE_PATH: release-keystore.jks
+  ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
   ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
   ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
   ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -34,9 +34,7 @@ jobs:
           "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Configure protected release signing
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "app/$ANDROID_KEYSTORE_PATH"
           chmod 600 "app/$ANDROID_KEYSTORE_PATH"
