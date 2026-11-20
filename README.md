@@ -1,33 +1,27 @@
-# Lottery Miner (Android, solo Bitcoin mining)
+# Lottery Miner — Android Stratum v1 CPU miner
 
-യഥാർത്ഥ ബിറ്റ്‌കോയിൻ സോളോ മൈനിംഗ് ആപ്പ്. സിമുലേഷനോ ഡമ്മി ഡാറ്റയോ ഇല്ല.
-പൂളിൽ (ഡിഫോൾട്ട് `solo.ckpool.org:3333`) Stratum വഴി കണക്ട് ചെയ്ത് യഥാർത്ഥ ബ്ലോക്ക് ജോബുകളിൽ SHA-256d ഹാഷ് ചെയ്യുന്നു.
-ബ്ലോക്ക് കിട്ടിയാൽ 3.125 BTC + ഫീസ് (പൂൾ ഫീസ് കഴിച്ച്) നിങ്ങൾ നൽകിയ വിലാസത്തിലേക്ക് പോകും. ഡെവലപ്പർ ഫീസ് ഒന്നുമില്ല, ഒരു വിലാസവും കോഡിൽ ഇല്ല.
+This experimental Android app implements a Stratum v1 TCP client and a CPU SHA-256d miner for solo Bitcoin mining. It is not a profitable replacement for dedicated ASIC hardware and does not promise Bitcoin rewards. Phone CPU mining can create heat, reduce performance, and accelerate battery wear. Use conservative settings and stop if the device gets hot.
 
-## ബിൽഡ് ചെയ്യാൻ (കമ്പ്യൂട്ടറിൽ)
-1. Android Studio (Koala അല്ലെങ്കിൽ പുതിയത്) ഇൻസ്റ്റാൾ ചെയ്യുക.
-2. `File > Open` ൽ ഈ `LotteryMiner` ഫോൾഡർ തുറക്കുക. Gradle 8.7 ഡൗൺലോഡ് ചെയ്യാൻ അനുവദിക്കുക.
-3. `Tools > SDK Manager > SDK Tools` ൽ **NDK (Side by side)** ഉം **CMake 3.22.1** ഉം ഇൻസ്റ്റാൾ ചെയ്യുക.
-4. ഫോണിൽ USB debugging ഓൺ ചെയ്ത് കണക്ട് ചെയ്ത് **Run** അമർത്തുക. (അല്ലെങ്കിൽ `Build > Build APK(s)`, APK ഫോണിൽ ഇൻസ്റ്റാൾ ചെയ്യുക.)
+## Pool setup
 
-## ഉപയോഗം
-- നിങ്ങളുടെ സ്വന്തം വാലറ്റിന്റെ BTC വിലാസം നൽകുക (`bc1...`). ആവശ്യമെങ്കിൽ `വിലാസം.വർക്കർപേര്` ഉപയോഗിക്കാം.
-- ഡിഫോൾട്ടുകൾ: ചാർജിൽ മാത്രം, 40°C കഴിഞ്ഞാൽ ത്രെഡ് കുറയ്ക്കും/നിർത്തും, ബാറ്ററി 80% എത്തിയാൽ നിർത്തും.
-- ഡാഷ്‌ബോർഡിലെ എല്ലാ സംഖ്യകളും യഥാർത്ഥ അളവുകളാണ്: ഹാഷ് റേറ്റ്, ആകെ ഹാഷ്, പൂൾ സ്വീകരിച്ച/നിരസിച്ച shares, best share, നെറ്റ്‌വർക്ക് difficulty, ബ്ലോക്ക് ലഭിക്കാനുള്ള ശരാശരി സമയം.
+The app's configured default is `solo.ckpool.org:3333`. Pool endpoints and availability may change; verify the current hostname and port with the pool operator. The app attempts resolved IPv4 and IPv6 addresses and retries with backoff. `ECONNREFUSED` means the endpoint or network rejected the TCP connection; retry logic cannot make an unavailable or blocked server accept connections.
 
-## എന്താണ് ഉള്ളിൽ
-- `app/src/main/cpp/` : C ഹാഷിംഗ് കോർ. midstate, nonce-scan, ARMv8 hardware SHA-256 (CPU പിന്തുണച്ചാൽ മാത്രം, ഓരോ തവണയും genesis ബ്ലോക്ക് ഉപയോഗിച്ചുള്ള self-test പാസായാൽ മാത്രം).
-- `StratumClient.kt` : പൂൾ പ്രോട്ടോക്കോൾ. `Job.kt` : coinbase, merkle root, header നിർമ്മാണം.
-- `MinerEngine.kt` : വർക്കർ ത്രെഡുകൾ, ബാറ്ററി/ചൂട് നിയന്ത്രണം, share verify ചെയ്ത് submit.
-- `MinerService.kt` : ഫോർഗ്രൗണ്ട് സർവീസ് (സ്ക്രീൻ ഓഫ് ആയാലും ഓടും).
+Use your Bitcoin mainnet address as the Stratum username. An optional worker suffix may be used if supported by the pool. Password is `x`. Never enter a seed phrase or private key.
 
-## എന്തൊക്കെ ടെസ്റ്റ് ചെയ്തു / ചെയ്തില്ല
-- ✅ C കോർ (scalar): ബിറ്റ്‌കോയിൻ genesis ബ്ലോക്ക് ഹാഷും genesis nonce-ഉം ശരിയായി കണ്ടെത്തുന്നു. `gcc -O3 -o coretest hosttest/test.c app/src/main/cpp/miner_core.c && ./coretest`
-- ✅ Stratum → header ലോജിക് genesis ബ്ലോക്കിൽ ശരിയാണെന്ന് തെളിഞ്ഞു: `python3 hosttest/stratum_check.py`
-- ⚠️ ARM hardware SHA കോഡ് ARM64 ആയി കമ്പൈൽ ചെയ്യുന്നുണ്ട് (SHA നിർദ്ദേശങ്ങൾ ശരിയായ എണ്ണത്തിൽ ഉണ്ട്), പക്ഷേ ARM ചിപ്പിൽ ഓടിച്ചിട്ടില്ല. ഫോണിൽ self-test പരാജയപ്പെട്ടാൽ ആപ്പ് സ്വയം software SHA-ലേക്ക് മാറും.
-- ⚠️ Kotlin/Gradle ഭാഗം ഇവിടെ കമ്പൈൽ ചെയ്തിട്ടില്ല. ആദ്യ ബിൽഡിൽ ചെറിയ പിശക് വന്നാൽ അതിന്റെ സന്ദേശം അയച്ചാൽ ശരിയാക്കാം.
-- ⚠️ യഥാർത്ഥ പൂളുമായി ഇതുവരെ ഓടിച്ചിട്ടില്ല.
+## Build and verification
 
-## യാഥാർത്ഥ്യം
-ഫോൺ നെറ്റ്‌വർക്കിന്റെ ഏകദേശം 10^15-ൽ ഒരു ഭാഗം മാത്രമാണ്. ആപ്പ് സ്വയം കാണിക്കുന്ന "ഒരു ബ്ലോക്കിന് ശരാശരി ... വർഷം" ആണ് ശരിയായ കണക്ക്. ഭാഗ്യം കൊണ്ട് ജയിക്കാം, പക്ഷേ സാധ്യത ലോട്ടറിയേക്കാൾ വളരെ കുറവാണ്.
-ഫോൺ ചൂടാകുന്നത് ബാറ്ററിക്ക് കേടാണ്, അതുകൊണ്ട് തലയിണയുടെ അടിയിലോ കവറിനുള്ളിലോ വെച്ച് ഓടിക്കരുത്.
+Requires JDK 17, Android SDK 34, NDK 26.1.10909125, CMake 3.22.1, and Gradle 8.7.
+
+```bash
+gradle testDebugUnitTest
+gradle assembleRelease
+```
+
+GitHub Actions runs JVM tests and builds an APK artifact. It is debug-signed for testing only; do not distribute it as a production APK. A production release requires a private signing key configured via protected CI secrets. Automated tests cannot verify live pool availability or authorization.
+
+## Safety and limitations
+
+- Battery temperature is reported only when Android exposes it; it is not CPU temperature. If unavailable, mining is limited to one worker thread.
+- Thermal and battery safeguards reduce risk but cannot guarantee device safety. Do not bypass these limits.
+- Hashrate and share counters are measurements; block probability is a rough statistical estimate, not a prediction or reward guarantee.
+- Do not hard-code pool IP addresses: DNS records can change. Diagnose connection errors using the displayed log, host/port, and another device on the same network.
