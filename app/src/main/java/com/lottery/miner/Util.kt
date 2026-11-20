@@ -4,27 +4,122 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
 import java.security.MessageDigest
+import java.util.Locale
 
 object Util {
     val DIFF1: BigInteger = BigInteger.valueOf(0xFFFFL).shiftLeft(208)
     private val MAX256: BigInteger = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE)
+    private const val BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    private const val BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
     fun hexToBytes(s: String): ByteArray {
         require(s.length % 2 == 0) { "odd hex length" }
         return ByteArray(s.length / 2) { i ->
-            ((Character.digit(s[2 * i], 16) shl 4) or Character.digit(s[2 * i + 1], 16)).toByte()
+            val hi = Character.digit(s[2 * i], 16)
+            val lo = Character.digit(s[2 * i + 1], 16)
+            require(hi >= 0 && lo >= 0) { "invalid hex" }
+            ((hi shl 4) or lo).toByte()
         }
     }
 
     fun bytesToHex(b: ByteArray): String {
         val sb = StringBuilder(b.size * 2)
-        for (x in b) sb.append(String.format("%02x", x.toInt() and 0xff))
+        for (x in b) sb.append(String.format(Locale.US, "%02x", x.toInt() and 0xff))
         return sb.toString()
     }
 
     fun sha256d(data: ByteArray): ByteArray {
         val md = MessageDigest.getInstance("SHA-256")
         return md.digest(md.digest(data))
+    }
+
+    /** Validate a mainnet legacy or SegWit address, optionally followed by a pool worker suffix. */
+    fun isValidBitcoinAddress(input: String): Boolean {
+        val parts = input.split('.', limit = 2)
+        val address = parts[0]
+        if (address.isEmpty() || (parts.size == 2 && !parts[1].matches(Regex("[A-Za-z0-9_-]{1,20}")))) return false
+        return if (address.startsWith("1") || address.startsWith("3")) {
+            isValidBase58Address(address)
+        } else {
+            isValidSegwitAddress(address)
+        }
+    }
+
+    private fun isValidBase58Address(address: String): Boolean = try {
+        var value = BigInteger.ZERO
+        for (c in address) {
+            val digit = BASE58.indexOf(c)
+            if (digit < 0) return false
+            value = value.multiply(BigInteger.valueOf(58)).add(BigInteger.valueOf(digit.toLong()))
+        }
+        var decoded = value.toByteArray().let { if (it.size > 1 && it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it }
+        val leadingZeroes = address.takeWhile { it == '1' }.length
+        decoded = ByteArray(leadingZeroes) + decoded
+        if (decoded.size != 25) return false
+        val version = decoded[0].toInt() and 0xff
+        if (version != 0 && version != 5) return false
+        val payload = decoded.copyOfRange(0, 21)
+        decoded.copyOfRange(21, 25).contentEquals(sha256d(payload).copyOfRange(0, 4))
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun isValidSegwitAddress(input: String): Boolean {
+        if (input.length !in 14..90 || (input.any { it.isLowerCase() } && input.any { it.isUpperCase() })) return false
+        val address = input.lowercase(Locale.ROOT)
+        val separator = address.lastIndexOf('1')
+        if (separator !in 1..(address.length - 7) || address.substring(0, separator) != "bc") return false
+        val data = IntArray(address.length - separator - 1)
+        for (i in data.indices) {
+            val v = BECH32.indexOf(address[separator + 1 + i])
+            if (v < 0) return false
+            data[i] = v
+        }
+        val expanded = listOf(3, 3, 0, 2, 3) + address.substring(0, separator).map { it.code shr 5 } +
+            listOf(0) + address.substring(0, separator).map { it.code and 31 } + data.toList()
+        val polymod = bech32Polymod(expanded)
+        if (polymod != 1 && polymod != 0x2bc830a3) return false
+        val payload = data.copyOf(data.size - 6)
+        if (payload.isEmpty() || payload[0] !in 0..16) return false
+        val version = payload[0]
+        val program = convertBits(payload.copyOfRange(1, payload.size), 5, 8, false) ?: return false
+        if (program.size !in 2..40) return false
+        if (version == 0 && (polymod != 1 || (program.size != 20 && program.size != 32))) return false
+        if (version != 0 && polymod != 0x2bc830a3) return false
+        return true
+    }
+
+    private fun bech32Polymod(values: List<Int>): Int {
+        val generators = intArrayOf(0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3)
+        var chk = 1
+        for (v in values) {
+            val top = chk ushr 25
+            chk = ((chk and 0x1ffffff) shl 5) xor v
+            for (i in 0..4) if (((top ushr i) and 1) != 0) chk = chk xor generators[i]
+        }
+        return chk
+    }
+
+    private fun convertBits(data: IntArray, from: Int, to: Int, pad: Boolean): ByteArray? {
+        var acc = 0
+        var bits = 0
+        val out = ArrayList<Byte>()
+        val maxv = (1 shl to) - 1
+        for (value in data) {
+            if (value < 0 || (value ushr from) != 0) return null
+            acc = (acc shl from) or value
+            bits += from
+            while (bits >= to) {
+                bits -= to
+                out.add(((acc ushr bits) and maxv).toByte())
+            }
+        }
+        if (pad) {
+            if (bits > 0) out.add(((acc shl (to - bits)) and maxv).toByte())
+        } else if (bits >= from || ((acc shl (to - bits)) and maxv) != 0) {
+            return null
+        }
+        return ByteArray(out.size) { out[it] }
     }
 
     fun toBytes32(v: BigInteger): ByteArray {
@@ -57,9 +152,9 @@ object Util {
     }
 
     fun fmtRate(hps: Double): String = when {
-        hps >= 1e9 -> String.format(java.util.Locale.US, "%.2f GH/s", hps / 1e9)
-        hps >= 1e6 -> String.format(java.util.Locale.US, "%.2f MH/s", hps / 1e6)
-        hps >= 1e3 -> String.format(java.util.Locale.US, "%.2f kH/s", hps / 1e3)
-        else -> String.format(java.util.Locale.US, "%.0f H/s", hps)
+        hps >= 1e9 -> String.format(Locale.US, "%.2f GH/s", hps / 1e9)
+        hps >= 1e6 -> String.format(Locale.US, "%.2f MH/s", hps / 1e6)
+        hps >= 1e3 -> String.format(Locale.US, "%.2f kH/s", hps / 1e3)
+        else -> String.format(Locale.US, "%.0f H/s", hps)
     }
 }

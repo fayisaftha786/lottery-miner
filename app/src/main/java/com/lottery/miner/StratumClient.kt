@@ -21,6 +21,7 @@ class StratumClient(
 ) {
     interface Listener {
         fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int)
+        fun onAuthorized()
         fun onDifficulty(diff: Double)
         fun onJob(job: Job)
         fun onShareResult(accepted: Boolean, reason: String?)
@@ -32,7 +33,6 @@ class StratumClient(
     private val nextId = AtomicInteger(100)
     private val pendingSubmits: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
-    /** Blocks until the connection ends. */
     fun connectAndRun() {
         val s = connectSocket()
         socket = s
@@ -49,13 +49,15 @@ class StratumClient(
                 try {
                     handle(JSONObject(line))
                 } catch (e: Exception) {
-                    listener.onStatus("സന്ദേശ പിശക്: ${e.message}")
+                    listener.onStatus("Stratum സന്ദേശ പിശക്: ${e.message}")
+                    if (e is ProtocolException) throw e
                 }
             }
         } finally {
             try { s.close() } catch (_: Exception) { }
             socket = null
             writer = null
+            pendingSubmits.clear()
         }
     }
 
@@ -64,10 +66,9 @@ class StratumClient(
             InetAddress.getAllByName(host)
                 .distinctBy { it.hostAddress }
                 .sortedWith(compareByDescending<InetAddress> { it is Inet4Address })
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             throw java.net.UnknownHostException("Host resolve ചെയ്യാനായില്ല: $host")
         }
-
         var lastError: Exception? = null
         for (address in addresses) {
             val s = Socket()
@@ -94,6 +95,7 @@ class StratumClient(
             send(id, "mining.submit", JSONArray().put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex))
         } catch (e: Exception) {
             pendingSubmits.remove(id)
+            listener.onStatus("Share അയയ്ക്കാനായില്ല: ${e.message}")
         }
     }
 
@@ -103,7 +105,7 @@ class StratumClient(
         o.put("id", id)
         o.put("method", method)
         o.put("params", params)
-        val w = writer ?: return
+        val w = writer ?: throw java.io.IOException("Pool socket തയ്യാറല്ല")
         w.write(o.toString())
         w.write("\n")
         w.flush()
@@ -115,7 +117,11 @@ class StratumClient(
             val p = m.optJSONArray("params") ?: JSONArray()
             when (method) {
                 "mining.notify" -> listener.onJob(parseJob(p))
-                "mining.set_difficulty" -> listener.onDifficulty(p.optDouble(0, 1.0))
+                "mining.set_difficulty" -> {
+                    val diff = p.optDouble(0, Double.NaN)
+                    if (diff.isFinite() && diff > 0.0) listener.onDifficulty(diff)
+                    else listener.onStatus("പൂളിൽ നിന്ന് അസാധുവായ difficulty ലഭിച്ചു")
+                }
                 "client.show_message" -> listener.onStatus("പൂൾ സന്ദേശം: " + p.optString(0))
                 else -> { }
             }
@@ -123,32 +129,34 @@ class StratumClient(
         }
 
         val id = m.optInt("id", -1)
-        when {
-            id == 1 -> {
+        when (id) {
+            1 -> {
                 val res = m.optJSONArray("result")
-                if (res == null) {
-                    listener.onStatus("subscribe പരാജയപ്പെട്ടു")
-                    return
-                }
-                listener.onSubscribed(Util.hexToBytes(res.getString(1)), res.getInt(2))
+                    ?: throw ProtocolException("Pool subscribe നിരസിച്ചു: ${m.opt("error")}")
+                if (res.length() < 3) throw ProtocolException("Pool-ന്റെ subscribe മറുപടി അപൂർണ്ണമാണ്")
+                val extranonce1 = Util.hexToBytes(res.getString(1))
+                val extranonce2Size = res.getInt(2)
+                if (extranonce2Size !in 1..16) throw ProtocolException("Pool extranonce2 വലുപ്പം അസാധുവാണ്")
+                listener.onSubscribed(extranonce1, extranonce2Size)
                 send(3, "mining.suggest_difficulty", JSONArray().put(1))
                 send(2, "mining.authorize", JSONArray().put(user).put("x"))
             }
-            id == 2 -> {
-                val ok = m.optBoolean("result", false)
-                listener.onStatus(if (ok) "authorize ശരി, ജോബിനായി കാത്തിരിക്കുന്നു" else "authorize നിരസിച്ചു")
-            }
-            id >= 100 -> {
-                if (pendingSubmits.remove(id)) {
-                    val ok = m.optBoolean("result", false)
-                    val err = if (m.isNull("error") || m.opt("error") == null) null else m.get("error").toString()
-                    listener.onShareResult(ok, err)
+            2 -> {
+                if (!m.optBoolean("result", false)) {
+                    throw ProtocolException("Pool authorization നിരസിച്ചു; address/worker ശരിയാണോ പരിശോധിക്കുക. ${m.opt("error")}")
                 }
+                listener.onAuthorized()
+            }
+            else -> if (id >= 100 && pendingSubmits.remove(id)) {
+                val ok = m.optBoolean("result", false)
+                val err = if (m.isNull("error") || m.opt("error") == null) null else m.get("error").toString()
+                listener.onShareResult(ok, err)
             }
         }
     }
 
     private fun parseJob(p: JSONArray): Job {
+        if (p.length() < 9) throw ProtocolException("Pool mining.notify job അപൂർണ്ണമാണ്")
         val branches = ArrayList<ByteArray>()
         val br = p.getJSONArray(4)
         for (i in 0 until br.length()) branches.add(Util.hexToBytes(br.getString(i)))
@@ -164,4 +172,6 @@ class StratumClient(
             clean = p.optBoolean(8, false)
         )
     }
+
+    private class ProtocolException(message: String) : java.io.IOException(message)
 }

@@ -43,15 +43,19 @@ object MinerState {
     @Synchronized
     fun logText(): String = logs.reversed().joinToString("\n")
 
+    @Synchronized
     fun reset() {
         connected = false
         hashrate = 0.0
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
+        bestDiff = 0.0
         poolDiff = 0.0
         netDiff = 0.0
+        blockFound = false
         pauseReason = ""
+        logs.clear()
         status = "തുടങ്ങുന്നു…"
     }
 }

@@ -83,8 +83,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
         en1 = extranonce1
         en2Size = extranonce2Size
-        MinerState.connected = true
         MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്)")
+    }
+
+    override fun onAuthorized() {
+        MinerState.connected = true
+        MinerState.status = "Pool അംഗീകരിച്ചു; ജോബിനായി കാത്തിരിക്കുന്നു"
+        MinerState.log("Pool authorization ശരി")
     }
 
     override fun onDifficulty(diff: Double) {
@@ -184,11 +189,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         val digest = Native.sha256dHeader(h)
         val value = BigInteger(1, digest.reversedArray())
         if (value > BigInteger(1, shareTarget)) return
-        val nonceHex = String.format("%08x", nonce)
+        val nonceHex = String.format(java.util.Locale.US, "%08x", nonce)
         val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
         if (isBlock) {
             MinerState.blockFound = true
-            MinerState.log("🎉🎉 ബ്ലോക്ക് സോൾവ് ചെയ്തു! nonce $nonceHex, ബ്ലോക്ക് പൂളിലേക്ക് അയച്ചു")
+            MinerState.log("🎉🎉 Block candidate found; submitting share nonce $nonceHex")
         }
         client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
     }
@@ -208,7 +213,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 val scale = bi.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
                 if (level >= 0 && scale > 0) pct = level * 100 / scale
                 plugged = bi.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
-                temp = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0
+                val rawTemp = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
+                if (rawTemp > 0) temp = rawTemp / 10.0
             }
             MinerState.battery = pct
             MinerState.plugged = plugged
