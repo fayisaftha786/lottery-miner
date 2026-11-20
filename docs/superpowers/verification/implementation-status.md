@@ -32,3 +32,7 @@
 
 ## Release boundary
 Changes remain on the feature branch. `main` has not been modified or merged. The APK has not been declared production-ready because test/build output and live-device/pool evidence are not yet available.
+## Review record
+- Author self-review completed against the design and implementation plan; no independent reviewer tool or local Android build environment was available in this session.
+- The repository Actions workflow has been updated to run the full verification pipeline, but no successful run output was obtained here. Treat all tests/builds as pending until a green Actions run is inspected.
+- Live CKPool and physical-device verification remain pending and cannot be inferred from source changes.
