@@ -15,6 +15,7 @@ object MinerState {
     val accepted = AtomicInteger(0)
     val rejected = AtomicInteger(0)
     val unknownShares = AtomicInteger(0)
+    val droppedShares = AtomicInteger(0)
     @Volatile var bestDiff = 0.0
     @Volatile var poolDiff = 0.0
     @Volatile var netDiff = 0.0
@@ -57,6 +58,7 @@ object MinerState {
         accepted.set(0)
         rejected.set(0)
         unknownShares.set(0)
+        droppedShares.set(0)
         bestDiff = 0.0
         poolDiff = 0.0
         netDiff = 0.0
