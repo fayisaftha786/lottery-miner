@@ -25,6 +25,7 @@ class StratumClientTest {
         @Volatile var job: Job? = null
         @Volatile var accepted: Boolean? = null
         val jobReceived = CountDownLatch(1)
+        val authorizedLatch = CountDownLatch(1)
         val statuses = CopyOnWriteArrayList<String>()
 
         override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
@@ -32,7 +33,7 @@ class StratumClientTest {
             this.extranonce1 = extranonce1.copyOf()
             extranonceUpdates++
         }
-        override fun onAuthorized() { authorized = true }
+        override fun onAuthorized() { authorized = true; authorizedLatch.countDown() }
         override fun onDifficulty(diff: Double) { difficulty = diff }
         override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
         override fun onShareResult(accepted: Boolean, reason: String?) { this.accepted = accepted }
@@ -91,6 +92,41 @@ class StratumClientTest {
         }
     }
 
+    @Test fun reportsSharesDroppedWhenPendingQueueIsFull() {
+        ServerSocket(0).use { server ->
+            val serverFailure = AtomicReference<Throwable?>()
+            val worker = thread {
+                try {
+                    server.accept().use { socket ->
+                        val input = socket.getInputStream().bufferedReader()
+                        val output = socket.getOutputStream().bufferedWriter()
+                        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
+                        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\\n")
+                        output.flush()
+                        input.readLine() // suggest difficulty
+                        input.readLine() // authorize request
+                        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\\n")
+                        output.flush()
+                        repeat(256) {
+                            val line = input.readLine() ?: throw AssertionError("socket closed before all queued submits arrived")
+                            assertEquals("mining.submit", JSONObject(line).getString("method"))
+                        }
+                    }
+                } catch (t: Throwable) { serverFailure.set(t) }
+            }
+            val listener = Listener()
+            val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
+            val clientThread = thread { client.connectAndRun() }
+            assertTrue("pool authorization timed out", listener.authorizedLatch.await(3, TimeUnit.SECONDS))
+            repeat(257) { client.submit("test-job", "00000000", "495fab29", "%08x".format(it)) }
+            assertEquals(1, listener.droppedShares)
+            client.close()
+            clientThread.join(3000)
+            worker.join(3000)
+            assertEquals(null, serverFailure.get())
+            assertEquals(256, listener.unknownShares)
+        }
+    }
     private fun serveAndDrop(socket: Socket) {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
