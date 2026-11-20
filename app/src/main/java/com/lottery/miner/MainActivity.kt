@@ -147,13 +147,6 @@ class MainActivity : AppCompatActivity() {
             .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
             .append(if (s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
-        if (s.netDiff > 0 && s.hashrate > 0) {
-            val perBlock = s.netDiff * 4294967296.0
-            val years = perBlock / s.hashrate / 31557600.0
-            val pSoFar = -Math.expm1(-s.totalHashes.toDouble() / perBlock) * 100.0
-            sb.append("ഒരു ബ്ലോക്കിന് ശരാശരി ≈ ").append(String.format(Locale.US, "%.3e", years)).append(" വർഷം\n")
-            sb.append("ഇതുവരെ ജയിക്കാനുള്ള സാധ്യത: ").append(String.format(Locale.US, "%.3e", pSoFar)).append(" %\n")
-        }
         tvStats.text = sb.toString()
         tvLog.text = s.logText()
     }
