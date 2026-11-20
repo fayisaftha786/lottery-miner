@@ -1,14 +1,22 @@
-name: Build APK
+name: Build and verify APK
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
+  create:
 
 permissions:
   contents: write
 
+env:
+  ANDROID_KEYSTORE_PATH: release-keystore.jks
+  ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+  ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+  ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,31 +26,63 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # The runner image already ships the Android SDK; just accept licenses and add NDK/CMake.
-      - name: Install SDK parts
+      - name: Install Android SDK parts
         run: |
-          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -1)
-          echo "using $SDKM"
-          yes | "$SDKM" --licenses > /dev/null || true
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -1)
+          test -n "$SDKM"
+          yes | "$SDKM" --licenses >/dev/null || true
           "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Configure protected release signing
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "app/$ANDROID_KEYSTORE_PATH"
+          chmod 600 "app/$ANDROID_KEYSTORE_PATH"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
 
-      - name: Build release APK
+      - name: Run JVM tests and lint
+        run: gradle testDebugUnitTest lintDebug --no-daemon
+
+      - name: Build release native libraries
+        run: gradle externalNativeBuildRelease --no-daemon
+
+      - name: Assemble release APK
         run: gradle assembleRelease --no-daemon
+
+      - name: Verify APK signing state
+        run: |
+          APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$APK"
+          if [ -f "app/$ANDROID_KEYSTORE_PATH" ]; then
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+            echo "Release APK signed with configured protected keystore." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::No release keystore configured. Artifact is unsigned and must not be distributed as a production APK."
+            echo "Release APK is unsigned; configure repository secrets before distribution." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LotteryMiner-apk
+          name: LotteryMiner-release-build
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
-      - name: Publish APK as a GitHub Release
+      - name: Publish signed APK for version tags only
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/*.apk LotteryMiner.apk
-          gh release create "v1.${{ github.run_number }}" LotteryMiner.apk \
-            --title "Lottery Miner build ${{ github.run_number }}" \
-            --notes "Installable APK (signed with debug key)."
+          APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$APK"
+          test -f "app/$ANDROID_KEYSTORE_PATH" || {
+            echo "Refusing to publish an unsigned APK. Configure ANDROID_KEYSTORE_BASE64 and signing secrets."
+            exit 1
+          }
+          gh release create "$GITHUB_REF_NAME" "$APK" \
+            --title "Lottery Miner $GITHUB_REF_NAME" \
+            --notes "Signed APK built after JVM tests, lint, and native compilation."
