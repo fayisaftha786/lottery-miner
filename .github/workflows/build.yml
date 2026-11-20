@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   ANDROID_KEYSTORE_PATH: release-keystore.jks
@@ -58,9 +58,6 @@ jobs:
       - name: Assemble release APK
         run: gradle assembleRelease --no-daemon
 
-      - name: Assemble installable debug test APK
-        run: gradle assembleDebug --no-daemon
-
       - name: Verify APK signing state
         run: |
           APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
@@ -69,8 +66,12 @@ jobs:
             "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
             echo "Release APK signed with configured protected keystore." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::No release keystore configured. Artifact is unsigned and must not be distributed as a production APK."
+            echo "::warning::No release keystore configured. Release artifact is unsigned and not production-ready."
             echo "Release APK is unsigned; configure repository secrets before distribution." >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "Refusing tagged release build without protected signing material."
+              exit 1
+            fi
           fi
 
       - name: Record APK checksum and source commit
@@ -85,23 +86,33 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      - name: Assemble installable debug test APK
+        run: gradle assembleDebug --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: LotteryMiner-debug-test-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Publish signed APK for version tags only
-        if: startsWith(github.ref, 'refs/tags/')
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LotteryMiner-release-build
+          path: release-artifact
+
+      - name: Publish signed APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          APK=$(find release-artifact -type f -name '*.apk' -print -quit)
           test -n "$APK"
-          test -f "app/$ANDROID_KEYSTORE_PATH" || {
-            echo "Refusing to publish an unsigned APK. Configure ANDROID_KEYSTORE_BASE64 and signing secrets."
-            exit 1
-          }
           gh release create "$GITHUB_REF_NAME" "$APK" \
             --title "Lottery Miner $GITHUB_REF_NAME" \
-            --notes "Signed APK built after JVM tests, lint, and native compilation."
+            --notes "Signed APK built after native tests, JVM tests, lint, and Android native compilation. Source commit: $GITHUB_SHA"
