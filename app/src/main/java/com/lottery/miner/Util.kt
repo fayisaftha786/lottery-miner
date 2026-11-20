@@ -40,23 +40,25 @@ object Util {
         else isValidSegwitAddress(address)
     }
 
-    private fun isValidBase58Address(address: String): Boolean = try {
-        var value = BigInteger.ZERO
-        for (c in address) {
-            val digit = BASE58.indexOf(c)
-            if (digit < 0) return false
-            value = value.multiply(BigInteger.valueOf(58)).add(BigInteger.valueOf(digit.toLong()))
+    private fun isValidBase58Address(address: String): Boolean {
+        try {
+            var value = BigInteger.ZERO
+            for (c in address) {
+                val digit = BASE58.indexOf(c)
+                if (digit < 0) return false
+                value = value.multiply(BigInteger.valueOf(58)).add(BigInteger.valueOf(digit.toLong()))
+            }
+            val raw = value.toByteArray()
+            val significant = if (raw.size > 1 && raw[0] == 0.toByte()) raw.copyOfRange(1, raw.size) else raw
+            val decoded = ByteArray(address.takeWhile { it == '1' }.length) + significant
+            if (decoded.size != 25) return false
+            val version = decoded[0].toInt() and 0xff
+            if (version != 0 && version != 5) return false
+            val payload = decoded.copyOfRange(0, 21)
+            return decoded.copyOfRange(21, 25).contentEquals(sha256d(payload).copyOfRange(0, 4))
+        } catch (_: Exception) {
+            return false
         }
-        val raw = value.toByteArray()
-        val significant = if (raw.size > 1 && raw[0] == 0.toByte()) raw.copyOfRange(1, raw.size) else raw
-        val decoded = ByteArray(address.takeWhile { it == '1' }.length) + significant
-        if (decoded.size != 25) return false
-        val version = decoded[0].toInt() and 0xff
-        if (version != 0 && version != 5) return false
-        val payload = decoded.copyOfRange(0, 21)
-        decoded.copyOfRange(21, 25).contentEquals(sha256d(payload).copyOfRange(0, 4))
-    } catch (_: Exception) {
-        false
     }
 
     private fun isValidSegwitAddress(input: String): Boolean {
