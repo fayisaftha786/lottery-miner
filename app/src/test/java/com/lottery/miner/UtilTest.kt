@@ -23,4 +23,9 @@ class UtilTest {
     fun rejectsNegativeCompactTarget() {
         Util.nbitsToTarget("1d80ffff")
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsTargetAboveBitcoinMainnetPowLimit() {
+        Util.nbitsToTarget("207fffff")
+    }
 }
