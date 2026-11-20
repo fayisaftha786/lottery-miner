@@ -13,30 +13,47 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scan(JNIEnv *env, jobject t
                                                           jint start, jint count, jbyteArray jtarget,
                                                           jintArray jfound, jdoubleArray jbest) {
     (void)thiz;
+    if (jheader == NULL || jtarget == NULL || jfound == NULL || jbest == NULL) return -1;
+    if ((*env)->GetArrayLength(env, jheader) != 80 ||
+        (*env)->GetArrayLength(env, jtarget) != 32 ||
+        (*env)->GetArrayLength(env, jfound) < 8 ||
+        (*env)->GetArrayLength(env, jbest) < 2) return -1;
+    if (count <= 0) return -1;
+    uint64_t start_u = (uint32_t)start;
+    if (start_u + (uint64_t)(uint32_t)count > 0x100000000ULL) return -1;
+
     uint8_t header[80], target[32];
     (*env)->GetByteArrayRegion(env, jheader, 0, 80, (jbyte *)header);
+    if ((*env)->ExceptionCheck(env)) return -1;
     (*env)->GetByteArrayRegion(env, jtarget, 0, 32, (jbyte *)target);
+    if ((*env)->ExceptionCheck(env)) return -1;
 
     uint32_t found[8];
     double best = 0.0;
     uint32_t best_nonce = 0;
     uint32_t nf = miner_scan(header, (uint32_t)start, (uint32_t)count, target, found, 8, &best, &best_nonce);
 
-    if (nf > 0) (*env)->SetIntArrayRegion(env, jfound, 0, (jsize)nf, (const jint *)found);
-    jdouble out[2];
-    out[0] = best;
-    out[1] = (jdouble)best_nonce;
+    if (nf > 0) {
+        (*env)->SetIntArrayRegion(env, jfound, 0, (jsize)nf, (const jint *)found);
+        if ((*env)->ExceptionCheck(env)) return -1;
+    }
+    jdouble out[2] = {best, (jdouble)best_nonce};
     (*env)->SetDoubleArrayRegion(env, jbest, 0, 2, out);
+    if ((*env)->ExceptionCheck(env)) return -1;
     return (jint)nf;
 }
 
 JNIEXPORT jbyteArray JNICALL Java_com_lottery_miner_Native_sha256dHeader(JNIEnv *env, jobject thiz,
                                                                          jbyteArray jheader) {
     (void)thiz;
+    if (jheader == NULL || (*env)->GetArrayLength(env, jheader) != 80) return NULL;
     uint8_t header[80], out[32];
     (*env)->GetByteArrayRegion(env, jheader, 0, 80, (jbyte *)header);
+    if ((*env)->ExceptionCheck(env)) return NULL;
     miner_sha256d_header(header, out);
     jbyteArray res = (*env)->NewByteArray(env, 32);
+    if (res == NULL || (*env)->ExceptionCheck(env)) return NULL;
     (*env)->SetByteArrayRegion(env, res, 0, 32, (const jbyte *)out);
+    if ((*env)->ExceptionCheck(env)) return NULL;
     return res;
 }
