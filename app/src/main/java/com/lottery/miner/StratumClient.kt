@@ -203,7 +203,7 @@ class StratumClient(
         while (true) {
             val ch = reader.read()
             if (ch == -1) return if (line.isEmpty()) null else line.toString()
-            if (ch == '\\n'.code) return line.toString().removeSuffix("\\r")
+            if (ch == '\n'.code) return line.toString().removeSuffix("\r")
             if (line.length >= maxChars) throw ProtocolException("Pool Stratum line exceeds 64 KiB")
             line.append(ch.toChar())
         }
