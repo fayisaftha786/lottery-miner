@@ -10,8 +10,9 @@ data class MiningMarketSnapshot(
     val btcHashpriceUsdPerThDay: Double,
     val btcPriceUsd: Double?,
     val usdInr: Double,
-    val hashpriceFetchedAtMillis: Long,
+    val hashpriceUpdatedAtMillis: Long?,
     val fxUpdatedAtMillis: Long,
+    val downloadedAtMillis: Long,
     val hashpriceSource: String = ProfitabilityMarketData.HASHPRICE_URL,
     val fxSource: String = ProfitabilityMarketData.FX_URL
 )
@@ -135,8 +136,9 @@ object ProfitabilityMarketData {
             btcHashpriceUsdPerThDay = hashprice,
             btcPriceUsd = btcPrice,
             usdInr = usdInr,
-            hashpriceFetchedAtMillis = hashFetchedAt,
-            fxUpdatedAtMillis = fxTimestamp
+            hashpriceUpdatedAtMillis = hashFetchedAt,
+            fxUpdatedAtMillis = fxTimestamp,
+            downloadedAtMillis = System.currentTimeMillis()
         )
     }
 
