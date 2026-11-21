@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_POOL_PORT = 3333
         private const val LEGACY_DEFAULT_POOL_HOST = "solo.ckpool.org"
         private const val EXTERNAL_REFRESH_MS = 30_000L
-        private const val MARKET_CACHE_TTL_MS = 30L * 60L * 1000L
+        private const val MARKET_CACHE_TTL_MS = 60L * 60L * 1000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -175,7 +175,7 @@ class MainActivity : AppCompatActivity() {
         val cached = marketSnapshot
         val cacheAge = cached?.let { System.currentTimeMillis() - it.downloadedAtMillis } ?: Long.MAX_VALUE
         if (cached != null && cacheAge in 0..MARKET_CACHE_TTL_MS) {
-            economicsStatus = "Using cached public market data; refresh is limited to once per 30 minutes."
+            economicsStatus = "Using cached public market data; refresh is limited to once per hour."
             renderEconomics()
             return
         }
