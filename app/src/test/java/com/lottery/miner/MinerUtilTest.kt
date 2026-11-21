@@ -39,4 +39,16 @@ class MinerUtilTest {
         assertFalse(runCatching { Util.difficultyToTarget(Double.MAX_VALUE) }.isSuccess)
     }
 
+    @Test fun estimatesPoolFeedbackShareIntervalFromDiffAndHashrate() {
+        val seconds = Util.expectedShareIntervalSeconds(10_000.0, 1_550_000.0)
+        assertEquals(27_709_466.4, seconds, 1.0)
+        assertEquals(320.7, seconds / 86_400.0, 0.1)
+    }
+
+    @Test fun rejectsInvalidShareIntervalInputs() {
+        assertFalse(runCatching { Util.expectedShareIntervalSeconds(0.0, 1_000.0) }.isSuccess)
+        assertFalse(runCatching { Util.expectedShareIntervalSeconds(1.0, 0.0) }.isSuccess)
+        assertFalse(runCatching { Util.expectedShareIntervalSeconds(Double.NaN, 1_000.0) }.isSuccess)
+    }
+
 }
