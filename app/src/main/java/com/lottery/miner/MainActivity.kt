@@ -298,7 +298,7 @@ class MainActivity : AppCompatActivity() {
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
         if (s.hashrate > 0.0 && s.poolDiff > 0.0) {
-            val expectedSeconds = s.poolDiff * 4_294_967_296.0 / s.hashrate
+            val expectedSeconds = Util.expectedShareIntervalSeconds(s.poolDiff, s.hashrate)
             sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\\n')
             sb.append("ഇത് feedback share-ന്റെ ശരാശരി മാത്രം; block/payout ഉറപ്പല്ല.\\n")
         }
