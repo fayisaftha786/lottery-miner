@@ -54,11 +54,6 @@ The app uses an explicitly user-started special-use foreground service for susta
 - Automated tests cannot verify live pool availability, pool-side share acceptance, device thermal stability, or an actual block confirmation. These require real-device testing and independent pool/network evidence.
 
 
-## Remote cloud worker eligibility (not connected)
+## Scope: Android phone mining only
 
-The app currently hashes on the Android device and reads OCEAN's public worker-statistics API. OCEAN monitoring does not provide or create external hashpower.
-
-Cloud auto-connect is deliberately **LOCKED**. The current reviewed provider list contains no provider that has all required evidence at once: mining permission (including written approval where required), a verified free mining quota for this workload, a supported provisioning API, and explicit user authorization. A free trial, free notebook, or free GPU offer is not proof that cryptocurrency mining is allowed.
-
-The in-app provider registry is an eligibility guard only. It does not implement OAuth, create cloud instances, rent hardware, coordinate remote workers, or charge an account. Passwords, API tokens, wallet private keys, and seed phrases must never be entered into the miner. Re-review the provider's current terms and obtain written approval before changing any provider's policy state.
-
+This app performs SHA-256d mining on the Android device and submits work to the configured Stratum pool. It does not connect to cloud-compute providers, provision remote instances, or run remote workers. The OCEAN panel is read-only monitoring of workers already associated with a wallet; it does not supply or create mining power.
