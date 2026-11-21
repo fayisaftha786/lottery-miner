@@ -132,6 +132,198 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(refresher)
     }
 
+    private fun loadCachedMarketSnapshot(): MiningMarketSnapshot? {
+        val prefs = getSharedPreferences("economics", Context.MODE_PRIVATE)
+        val hashprice = prefs.getString("hashprice", null)?.toDoubleOrNull() ?: return null
+        val usdInr = prefs.getString("usdInr", null)?.toDoubleOrNull() ?: return null
+        val downloadedAt = prefs.getLong("downloadedAt", 0L)
+        val fxUpdatedAt = prefs.getLong("fxUpdatedAt", 0L)
+        if (downloadedAt <= 0L || hashprice <= 0.0 || usdInr <= 0.0) return null
+        val btcPrice = prefs.getString("btcPriceUsd", null)?.toDoubleOrNull()
+        val hashUpdated = prefs.getLong("hashpriceUpdatedAt", 0L).takeIf { it > 0L }
+        return MiningMarketSnapshot(
+            btcHashpriceUsdPerThDay = hashprice,
+            btcPriceUsd = btcPrice,
+            usdInr = usdInr,
+            hashpriceUpdatedAtMillis = hashUpdated,
+            fxUpdatedAtMillis = fxUpdatedAt,
+            downloadedAtMillis = downloadedAt
+        )
+    }
+
+    private fun saveMarketSnapshot(snapshot: MiningMarketSnapshot) {
+        getSharedPreferences("economics", Context.MODE_PRIVATE).edit()
+            .putString("hashprice", snapshot.btcHashpriceUsdPerThDay.toString())
+            .putString("btcPriceUsd", snapshot.btcPriceUsd?.toString().orEmpty())
+            .putString("usdInr", snapshot.usdInr.toString())
+            .putLong("hashpriceUpdatedAt", snapshot.hashpriceUpdatedAtMillis ?: 0L)
+            .putLong("fxUpdatedAt", snapshot.fxUpdatedAtMillis)
+            .putLong("downloadedAt", snapshot.downloadedAtMillis)
+            .apply()
+    }
+
+    private fun refreshEconomics() {
+        if (economicsInFlight) return
+        val prefs = getSharedPreferences("economics", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("powerWatts", etPowerWatts.text.toString().trim())
+            .putString("tariffInr", etTariffInr.text.toString().trim())
+            .putString("poolFeePercent", etPoolFeePercent.text.toString().trim())
+            .apply()
+
+        val cached = marketSnapshot
+        val cacheAge = cached?.let { System.currentTimeMillis() - it.downloadedAtMillis } ?: Long.MAX_VALUE
+        if (cached != null && cacheAge in 0..MARKET_CACHE_TTL_MS) {
+            economicsStatus = "Using cached public market data; refresh is limited to once per 30 minutes."
+            renderEconomics()
+            return
+        }
+
+        economicsInFlight = true
+        btnRefreshEconomics.isEnabled = false
+        economicsStatus = "Fetching public BTC hashprice and USD/INR reference rate…"
+        renderEconomics()
+
+        Thread {
+            try {
+                val fresh = ProfitabilityMarketData.fetch()
+                runOnUiThread {
+                    marketSnapshot = fresh
+                    saveMarketSnapshot(fresh)
+                    economicsStatus = "Market data refresh successful."
+                    economicsInFlight = false
+                    btnRefreshEconomics.isEnabled = true
+                    renderEconomics()
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    economicsStatus = if (cached != null) {
+                        "Refresh failed; showing cached market data only: ${error.message ?: "network error"}"
+                    } else {
+                        "Market data unavailable: ${error.message ?: "network error"}"
+                    }
+                    economicsInFlight = false
+                    btnRefreshEconomics.isEnabled = true
+                    renderEconomics()
+                }
+            }
+        }.start()
+    }
+
+    private fun renderEconomics() {
+        val snapshot = marketSnapshot
+        if (snapshot == null) {
+            tvEconomics.text = buildString {
+                append("MINING ECONOMICS\n")
+                append(economicsStatus).append('\n')
+                append("Market source: ").append(ProfitabilityMarketData.HASHPRICE_URL).append('\n')
+                append("FX source: ").append(ProfitabilityMarketData.FX_URL).append('\n')
+                append("Phone watts and electricity tariff are required before net profit can be calculated.")
+            }
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val currentRate = MinerState.hashrate.takeIf { it.isFinite() && it > 0.0 }
+        if (currentRate != null && now - lastHashrateSaveAt >= 60_000L) {
+            getSharedPreferences("economics", Context.MODE_PRIVATE).edit()
+                .putString("lastMeasuredHashrateHps", currentRate.toString())
+                .putLong("lastMeasuredHashrateAt", now)
+                .apply()
+            lastHashrateSaveAt = now
+        }
+        val savedPrefs = getSharedPreferences("economics", Context.MODE_PRIVATE)
+        val savedRate = savedPrefs.getString("lastMeasuredHashrateHps", null)?.toDoubleOrNull()
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        val rate = currentRate ?: savedRate
+        val rateSource = if (currentRate != null) "live miner measurement" else "last saved real-device measurement"
+
+        val power = etPowerWatts.text.toString().trim().toDoubleOrNull()
+        val tariff = etTariffInr.text.toString().trim().toDoubleOrNull()
+        val fee = etPoolFeePercent.text.toString().trim().toDoubleOrNull()
+        val hashAgeHours = ((now - snapshot.downloadedAtMillis).coerceAtLeast(0L) / 3_600_000.0)
+        val fxDate = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            .format(java.util.Date(snapshot.fxUpdatedAtMillis))
+        val sb = StringBuilder()
+        sb.append("MINING ECONOMICS · BTC SHA-256d\n")
+        sb.append("BTC hashprice: $")
+            .append(String.format(Locale.US, "%.5f", snapshot.btcHashpriceUsdPerThDay))
+            .append(" / TH/s / day\n")
+        snapshot.btcPriceUsd?.let {
+            sb.append("BTC spot reference: $")
+                .append(String.format(Locale.US, "%.2f", it)).append('\n')
+        }
+        sb.append("USD/INR reference: ")
+            .append(String.format(Locale.US, "%.4f", snapshot.usdInr))
+            .append(" (FX date ").append(fxDate).append(")\n")
+        sb.append("Market snapshot age: ")
+            .append(String.format(Locale.US, "%.1f hours", hashAgeHours)).append('\n')
+        sb.append("Status: ").append(economicsStatus).append('\n')
+        if (hashAgeHours > 24.0) {
+            sb.append("WARNING: hashprice snapshot is older than 24 hours; treat this estimate as stale.\n")
+        }
+        if (rate == null) {
+            sb.append("Hashrate: not measured yet. Start phone mining briefly to record a real hashrate.\n")
+        } else {
+            sb.append("Hashrate used: ").append(Util.fmtRate(rate))
+                .append(" (").append(rateSource).append(")\n")
+        }
+
+        val missing = mutableListOf<String>()
+        if (rate == null) missing.add("measured hashrate")
+        if (power == null) missing.add("incremental mining power in watts")
+        if (tariff == null) missing.add("electricity tariff in INR/kWh")
+        if (fee == null) missing.add("pool fee percentage")
+        if (missing.isNotEmpty()) {
+            sb.append("Estimate not available: enter ").append(missing.joinToString()).append(".\n")
+        } else {
+            try {
+                val estimate = ProfitabilityEngine.estimateBitcoin(
+                    hashrateHps = rate!!,
+                    powerWatts = power!!,
+                    tariffInrPerKwh = tariff!!,
+                    usdInr = snapshot.usdInr,
+                    hashpriceUsdPerThDay = snapshot.btcHashpriceUsdPerThDay,
+                    poolFeePercent = fee!!
+                )
+                sb.append("Gross expected value: $")
+                    .append(String.format(Locale.US, "%.12f", estimate.grossRevenueUsdPerDay))
+                    .append(" / day\n")
+                sb.append("After pool fee: ₹")
+                    .append(String.format(Locale.US, "%.10f", estimate.revenueAfterPoolFeeInrPerDay))
+                    .append(" / day\n")
+                sb.append("Energy use: ")
+                    .append(String.format(Locale.US, "%.4f", estimate.energyKwhPerDay))
+                    .append(" kWh/day at ")
+                    .append(String.format(Locale.US, "%.2f", power))
+                    .append(" W\n")
+                sb.append("Electricity cost: ₹")
+                    .append(String.format(Locale.US, "%.4f", estimate.electricityCostInrPerDay))
+                    .append(" / day\n")
+                sb.append("EXPECTED NET: ₹")
+                    .append(String.format(Locale.US, "%.8f", estimate.expectedNetInrPerDay))
+                    .append(" / day\n")
+                sb.append(if (estimate.expectedNetInrPerDay >= 0.0) {
+                    "Model result: non-negative expected value before device wear and other costs.\n"
+                } else {
+                    "Model result: NOT PROFITABLE at these power and electricity inputs.\n"
+                })
+                sb.append("Break-even hashrate: ")
+                    .append(if (estimate.breakEvenHashrateHps.isFinite()) {
+                        Util.fmtRate(estimate.breakEvenHashrateHps)
+                    } else "unreachable at this hashprice/fee")
+                    .append('\n')
+            } catch (error: IllegalArgumentException) {
+                sb.append("Input error: ").append(error.message ?: "invalid economics input").append('\n')
+            }
+        }
+        sb.append("Pool fee is user-configured; CKPool's documented fee is 2% on a found block reward plus transaction fees.\n")
+        sb.append("WARNING: hashprice is expected network revenue, NOT a promised CKPool payment. Solo-mining payouts are rare block events; accepted shares are not paid shares.\n")
+        sb.append("Excludes battery wear, charger loss, cooling, internet, device depreciation, and opportunity cost. Enter incremental mining watts, not the phone's idle draw.\n")
+        sb.append("Sources: Startmining public API; Rates By Exchange Rate API.")
+        tvEconomics.text = sb.toString()
+    }
+
     private fun openPoolStatistics() {
         val address = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(address)) {
