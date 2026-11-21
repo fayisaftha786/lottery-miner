@@ -377,8 +377,6 @@ class MainActivity : AppCompatActivity() {
             .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
-        sb.append("\nCLOUD WORKERS\n")
-        sb.append(CloudProviderRegistry.summary()).append('\n')
         tvStats.text = sb.toString()
         renderExternalStats()
         tvLog.text = s.logText()
