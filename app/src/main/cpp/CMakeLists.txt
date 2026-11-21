@@ -30,3 +30,11 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
 endif()
 
 target_compile_options(minercore PRIVATE -Wall -Wextra -fstack-protector-strong)
+
+if(ANDROID)
+    # Android's debug variant is the APK used for iterative device testing.
+    # Keep the native hashing hot loop optimized in every build variant;
+    # otherwise a debug APK can benchmark dramatically slower than release.
+    # Do not use -ffast-math: best-difficulty reporting relies on IEEE doubles.
+    target_compile_options(minercore PRIVATE -O3)
+endif()
