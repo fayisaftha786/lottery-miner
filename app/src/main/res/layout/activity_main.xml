@@ -102,6 +102,13 @@
             android:layout_height="wrap_content"
             android:text="സ്റ്റാർട്ട്" />
 
+        <Button
+            android:id="@+id/btnPoolStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="CKPool Live Statistics തുറക്കുക" />
+
         <TextView
             android:id="@+id/tvStats"
             android:layout_width="match_parent"
