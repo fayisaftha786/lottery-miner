@@ -66,7 +66,7 @@ object OceanStats {
             val apiError = root.optString("error", "").trim()
             val inactiveResponse = apiError.contains("inactive", ignoreCase = true) ||
                 apiError.contains("no active workers", ignoreCase = true) ||
-                apiError.equals("No such user", ignoreCase = true)
+                apiError.contains("no such user", ignoreCase = true)
             if (inactiveResponse) {
                 // OCEAN returns an error object (HTTP 200) for a valid user with no active workers.
                 // This is a normal empty result, not an API outage or a parser failure.
