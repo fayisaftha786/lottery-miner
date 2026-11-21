@@ -153,6 +153,8 @@ class MainActivity : AppCompatActivity() {
             sb.append("ഒരു ബ്ലോക്കിന് ശരാശരി ≈ ").append(String.format(Locale.US, "%.3e", years)).append(" വർഷം\n")
             sb.append("ഇതുവരെ ജയിക്കാനുള്ള സാധ്യത: ").append(String.format(Locale.US, "%.3e", pSoFar)).append(" %\n")
         }
+        sb.append("\n\nCLOUD WORKERS\n")
+        sb.append(CloudProviderRegistry.summary()).append("\n")
         tvStats.text = sb.toString()
         tvLog.text = s.logText()
     }
