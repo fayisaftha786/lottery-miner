@@ -17,7 +17,7 @@ object SoloFuryStats {
 
     fun fetch(address: String): ExternalMiningSnapshot {
         require(Util.isValidBitcoinAddress(address)) { "Invalid Bitcoin mainnet address" }
-        val connection = (URL(BASE_URL + address).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(BASE_URL + address.substringBefore('.')).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 8_000
             readTimeout = 8_000
