@@ -50,7 +50,7 @@ class ProfitabilityEngineTest {
             powerWatts = 0.0,
             tariffInrPerKwh = 12.0,
             usdInr = 90.0,
-            hashpriceUsdPerPhDay = 0.0274,
+            hashpriceUsdPerPhDay = 27.4,
             poolFeePercent = 2.0
         )
         assertEquals(0.0, result.electricityCostInrPerDay, 0.0)
@@ -58,9 +58,8 @@ class ProfitabilityEngineTest {
     }
 
     @Test fun rejectsInvalidInputsAndFeeOutOfRange() {
-        val base = arrayOf(1e6, 100.0, 10.0, 90.0, 27.4, 2.0)
         assertTrue(runCatching {
-            ProfitabilityEngine.estimateBitcoin(-1.0, 100.0, 10.0, 90.0, 0.0274, 2.0)
+            ProfitabilityEngine.estimateBitcoin(-1.0, 100.0, 10.0, 90.0, 27.4, 2.0)
         }.isFailure)
         assertTrue(runCatching {
             ProfitabilityEngine.estimateBitcoin(1e6, Double.NaN, 10.0, 90.0, 0.0274, 2.0)
