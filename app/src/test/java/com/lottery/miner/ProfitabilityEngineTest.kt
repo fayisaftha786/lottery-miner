@@ -21,6 +21,7 @@ class ProfitabilityEngineTest {
         assertEquals(2.4, result.energyKwhPerDay, 1e-12)
         assertEquals(24.0, result.electricityCostInrPerDay, 1e-12)
         assertEquals(-21.58332, result.expectedNetInrPerDay, 1e-9)
+        assertEquals(2.41668 / 2.4, result.breakEvenTariffInrPerKwh, 1e-9)
     }
 
     @Test fun derivesBreakEvenHashrateFromPowerAndTariff() {
