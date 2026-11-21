@@ -23,7 +23,8 @@ data class BitcoinProfitEstimate(
     val energyKwhPerDay: Double,
     val electricityCostInrPerDay: Double,
     val expectedNetInrPerDay: Double,
-    val breakEvenHashrateHps: Double
+    val breakEvenHashrateHps: Double,
+    val breakEvenTariffInrPerKwh: Double
 )
 
 /**
@@ -79,6 +80,11 @@ object ProfitabilityEngine {
         } else {
             Double.POSITIVE_INFINITY
         }
+        val breakEvenTariff = if (energyKwh > 0.0) {
+            afterFeeInr / energyKwh
+        } else {
+            Double.POSITIVE_INFINITY
+        }
 
         return BitcoinProfitEstimate(
             grossRevenueUsdPerDay = grossUsd,
@@ -87,7 +93,8 @@ object ProfitabilityEngine {
             energyKwhPerDay = energyKwh,
             electricityCostInrPerDay = electricityInr,
             expectedNetInrPerDay = netInr,
-            breakEvenHashrateHps = breakEven
+            breakEvenHashrateHps = breakEven,
+            breakEvenTariffInrPerKwh = breakEvenTariff
         )
     }
 }
@@ -178,12 +185,36 @@ object ProfitabilityMarketData {
                 }
                 is String -> value.toLongOrNull()?.let { n ->
                     if (n in 1_000_000_000L..9_999_999_999L) n * 1000L else n
-                }
+                } ?: parseIsoTimestamp(value)
                 else -> null
             }
             if (millis != null &&
                 millis in 1_000_000_000_000L..(System.currentTimeMillis() + 86_400_000L)
             ) return millis
+        }
+        return null
+    }
+
+    private fun parseIsoTimestamp(value: String): Long? {
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX"
+        )
+        for (pattern in patterns) {
+            val formatter = SimpleDateFormat(pattern, Locale.US).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val position = ParsePosition(0)
+            val parsed: Date = formatter.parse(value, position) ?: continue
+            if (position.index == value.length) {
+                val timestamp = parsed.time
+                if (timestamp in 1_000_000_000_000L..(System.currentTimeMillis() + 86_400_000L)) {
+                    return timestamp
+                }
+            }
         }
         return null
     }
