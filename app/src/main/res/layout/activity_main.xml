@@ -116,7 +116,7 @@
             android:layout_marginTop="16dp"
             android:padding="12dp"
             android:background="#18242D"
-            android:text="FREE EXTERNAL MINING · SOLOFURY BTC\nWallet address നൽകുക."
+            android:text="OCEAN EXTERNAL WORKER MONITOR\nWallet address നൽകുക.\nMonitoring സൗജന്യമാണ്; external mining power അല്ല."
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
