@@ -67,3 +67,17 @@ The algorithm registry currently marks SHA-256d as installed. RandomX, VerusHash
 Profitability estimates require device benchmark rate, network hashrate, daily network reward, market price, measured power, local electricity tariff, pool fee, and a fresh timestamp. Snapshots older than 15 minutes are rejected for net-profit selection. Hashrates from different algorithms are never compared directly. Solo-mining reward probability must not be presented as proportional pool income.
 
 Automatic algorithm switching remains disabled until live market/network/pool data adapters and at least two validated mining implementations are available. The engine must choose by expected net return per day only after subtracting pool fees and electricity cost; if no candidate has a fresh positive estimate, mining should remain stopped or stay on the user's explicit manual selection.
+
+## Adaptive Mining Lab and profitability estimates
+
+The in-app SHA-256d benchmark runs for at most five seconds, at reduced thread priority, only while phone mining is stopped. It scans a deterministic synthetic header against a zero target and does not connect to a pool or submit shares. The most recent measured rate is saved locally for the estimator.
+
+The Bitcoin estimator refreshes read-only public data on user request:
+- Bitcoin network difficulty and current block subsidy: Blockchain.com simple network API.
+- BTC/INR ticker price: Blockchain.com ticker.
+
+Network hashrate is estimated from difficulty as `difficulty × 2^32 / 600 seconds`. Expected daily subsidy uses 144 blocks/day and the current subsidy returned by the API; transaction fees are excluded. The model shows expected value, CKPool fee, and electricity cost separately. The power input must be the *mining-only incremental wall power* measured with an external meter; the electricity tariff must match the user's bill. Android battery telemetry is not treated as a wall-power meter.
+
+For CKPool solo mining the displayed net value is only a long-run mathematical expectation. It is not a daily payout forecast: a payout requires a valid network block, and the wait time at phone hashrates can be extraordinarily long. Accepted shares are feedback, not proportional BTC earnings. The estimator refuses to use snapshots older than 15 minutes and does not reuse failed market data as if it were live.
+
+Only SHA-256d has a native miner implementation in this application. VerusHash, RandomX, Scrypt, and other algorithm entries are research targets, not selectable or executable miners. Automatic multi-algorithm switching is disabled until a separately audited native engine, compatible pool protocol, license notices, per-device benchmarks, and network/economic data adapters are integrated and validated.
