@@ -116,7 +116,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 client?.close()
                 return
             }
-            val allocationChanged = !hasExtranonceAllocation || !en1.contentEquals(extranonce1) || en2Size != extranonce2Size
+            val allocationChanged = !hasExtranonceAllocation || !ExtranonceAllocation(en1, en2Size).matches(extranonce1, extranonce2Size)
             if (reconnectingForExhaustion.get() && !allocationChanged) {
                 MinerState.status = "Pool reused exhausted extranonce; mining stopped to prevent duplicate work"
                 MinerState.pauseReason = "Pool വീണ്ടും അതേ exhausted extranonce നൽകി; duplicate shares ഒഴിവാക്കാൻ mining നിർത്തി"
