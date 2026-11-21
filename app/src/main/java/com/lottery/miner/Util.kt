@@ -154,3 +154,30 @@ object Util {
         else -> String.format(Locale.US, "%.0f H/s", hps)
     }
 }
+
+
+/**
+ * Keeps the active share target stable for the current Stratum job.
+ * Difficulty notifications are staged and only take effect when the next
+ * mining.notify arrives, as required by Stratum V1 job semantics.
+ */
+class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
+    @Volatile private var active: ByteArray = Util.difficultyToTarget(initialDifficulty)
+    @Volatile private var pending: ByteArray? = null
+
+    @Synchronized fun stage(difficulty: Double) {
+        // Validate and compute before mutating pending state.
+        val target = Util.difficultyToTarget(difficulty)
+        pending = target
+    }
+
+    @Synchronized fun activateForNextJob(): ByteArray {
+        pending?.let {
+            active = it
+            pending = null
+        }
+        return active.copyOf()
+    }
+
+    @Synchronized fun activeTarget(): ByteArray = active.copyOf()
+}
