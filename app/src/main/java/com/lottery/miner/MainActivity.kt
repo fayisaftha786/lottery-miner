@@ -41,6 +41,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
+    private lateinit var etPowerWatts: EditText
+    private lateinit var etTariffInr: EditText
+    private lateinit var etPoolFeePercent: EditText
+    private lateinit var btnRefreshEconomics: Button
+    private lateinit var tvEconomics: TextView
+    private var marketSnapshot: MiningMarketSnapshot? = null
+    private var economicsStatus = "Market data not loaded."
+    private var economicsInFlight = false
+    private var lastHashrateSaveAt = 0L
     @Volatile private var externalPollInFlight = false
     private var lastExternalPollAt = 0L
     private var externalSnapshot: ExternalMiningSnapshot? = null
@@ -70,6 +79,11 @@ class MainActivity : AppCompatActivity() {
         tvStats = findViewById(R.id.tvStats)
         tvExternalStats = findViewById(R.id.tvExternalStats)
         tvLog = findViewById(R.id.tvLog)
+        etPowerWatts = findViewById(R.id.etPowerWatts)
+        etTariffInr = findViewById(R.id.etTariffInr)
+        etPoolFeePercent = findViewById(R.id.etPoolFeePercent)
+        btnRefreshEconomics = findViewById(R.id.btnRefreshEconomics)
+        tvEconomics = findViewById(R.id.tvEconomics)
 
         val cores = Runtime.getRuntime().availableProcessors()
         val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
@@ -86,9 +100,22 @@ class MainActivity : AppCompatActivity() {
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
 
+        val economicsPrefs = getSharedPreferences("economics", Context.MODE_PRIVATE)
+        etPowerWatts.setText(economicsPrefs.getString("powerWatts", ""))
+        etTariffInr.setText(economicsPrefs.getString("tariffInr", ""))
+        etPoolFeePercent.setText(economicsPrefs.getString("poolFeePercent", "2.0"))
+        marketSnapshot = loadCachedMarketSnapshot()
+        economicsStatus = if (marketSnapshot == null) {
+            "Market data not loaded. Tap Refresh market data."
+        } else {
+            "Cached public market data loaded."
+        }
+
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
         btnPoolStats.setOnClickListener { openPoolStatistics() }
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
+        btnRefreshEconomics.setOnClickListener { refreshEconomics() }
+        renderEconomics()
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
