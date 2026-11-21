@@ -1,7 +1,6 @@
 package com.lottery.miner
 
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -116,8 +115,7 @@ object ProfitabilityMarketData {
             "hashprice_usd"
         ) ?: throw IOException("BTC hashprice field missing from market response")
         val btcPrice = firstPositiveNumber(market, "btcPrice", "btcPriceUsd", "bitcoinPriceUsd")
-        val hashFetchedAt = firstTimestamp(market, "updatedAt", "timestamp", "updated_at")
-            ?: System.currentTimeMillis()
+        val hashFetchedAt = firstTimestamp(market, "updatedAt", "timestamp", "updated_at", "asOf", "as_of")
 
         val fxJson = getJson(FX_URL)
         if (!fxJson.optString("result").equals("success", ignoreCase = true)) {
