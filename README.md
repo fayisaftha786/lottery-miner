@@ -43,6 +43,27 @@ Configure these repository Actions secrets to enable signed releases:
 
 Never commit the keystore or passwords.
 
+
+## Mining economics advisor (expected value, not payout)
+
+The in-app Mining Economics panel estimates Bitcoin SHA-256d expected revenue against electricity cost:
+
+- BTC hashprice is read from Startmining's public `/api/market-summary` endpoint in **USD per PH/s per day**. The documented free tier is 100 requests/day; the app refreshes only when the user taps the button and caches a successful response for 30 minutes.
+- USD/INR is read from ExchangeRate-API's open `/v6/latest/USD` endpoint. Its open rate is refreshed daily and attribution is shown in-app.
+- Hashrate comes from the live native miner or the last real device hashrate recorded by the app. It is never fabricated.
+- The user supplies measured *incremental mining power* in watts, the electricity tariff in INR/kWh, and the pool fee percentage. Android battery percentage/temperature are not a reliable wattmeter.
+- The estimate shows expected gross value, post-fee value, daily energy, electricity cost, expected net value, and break-even hashrate.
+
+Formula:
+- Expected gross USD/day = (measured H/s ÷ 10^15) × hashprice USD/(PH/s)/day.
+- Post-fee expected value = gross × (1 − pool fee).
+- Daily energy (kWh) = incremental watts × 24 ÷ 1,000.
+- Expected net INR/day = post-fee USD × USD/INR − daily energy × tariff INR/kWh.
+
+This is a statistical expected-value comparison, **not an actual payout forecast**. CKPool is solo mining: accepted shares are feedback, and payout requires finding a valid block. The estimator excludes device wear, charger losses, cooling, internet, depreciation, and opportunity cost. A positive estimate is not a guarantee of income.
+
+The current app still mines only SHA-256d. It does not automatically switch to VerusHash, RandomX, or Scrypt; those need separate native algorithms, pool protocol integration, self-tests, device benchmarks, and live accepted-share verification before being advertised as supported.
+
 ## Android distribution and foreground service
 The app uses an explicitly user-started special-use foreground service for sustained local computation. This does not imply Google Play approval. Google Play policy does not allow apps that mine cryptocurrency on the device; it permits apps that remotely manage mining. Do not submit this on-device miner to Google Play as a mining app. See the [Google Play blockchain-based content policy](https://support.google.com/googleplay/android-developer/answer/13607354).
 
