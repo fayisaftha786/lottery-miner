@@ -1,14 +1,19 @@
 package com.lottery.miner
 
 /**
- * Fail-closed cloud provider eligibility registry.
- * A free tier is not mining permission. Never store provider passwords or tokens here.
+ * Evidence-based, fail-closed registry for potential remote mining providers.
+ *
+ * Listing a provider is not an endorsement. A worker may start only when the
+ * provider policy permits it, any required written approval is verified,
+ * free mining quota is verified, the provisioning API is verified, and the
+ * user explicitly authorizes the run. Never store provider passwords or tokens here.
  */
 object CloudProviderRegistry {
 
     enum class MiningPolicy {
         PROHIBITED,
         WRITTEN_APPROVAL_REQUIRED,
+        EXPRESSLY_ALLOWED,
         NOT_VERIFIED
     }
 
@@ -16,63 +21,107 @@ object CloudProviderRegistry {
         val name: String,
         val policy: MiningPolicy,
         val policyUrl: String,
-        val note: String
+        val note: String,
+        val isFreeOffer: Boolean = false,
+        val freeMiningQuotaVerified: Boolean = false,
+        val provisioningApiVerified: Boolean = false
     )
 
     val providers = listOf(
         Provider(
             name = "Google Cloud Free Trial",
-            policy = MiningPolicy.WRITTEN_APPROVAL_REQUIRED,
+            policy = MiningPolicy.PROHIBITED,
             policyUrl = "https://support.google.com/cloud/answer/7002354",
+            note = "Free Trial Services may not be used for cryptocurrency mining.",
+            isFreeOffer = true
+        ),
+        Provider(
+            name = "Google Cloud standard services",
+            policy = MiningPolicy.WRITTEN_APPROVAL_REQUIRED,
+            policyUrl = "https://cloud.google.com/terms",
             note = "Cryptocurrency mining requires Google's prior written approval."
         ),
         Provider(
-            name = "Google Colab",
+            name = "Google Colab managed runtimes",
             policy = MiningPolicy.PROHIBITED,
-            policyUrl = "https://colab.research.google.com/",
-            note = "Managed runtimes prohibit cryptocurrency mining."
+            policyUrl = "https://research.google.com/colaboratory/faq.html",
+            note = "Mining cryptocurrency is disallowed on all managed Colab runtimes.",
+            isFreeOffer = true
         ),
         Provider(
             name = "Kaggle",
             policy = MiningPolicy.PROHIBITED,
             policyUrl = "https://www.kaggle.com/terms",
-            note = "Terms expressly prohibit cryptomining."
+            note = "Terms of Use expressly prohibit cryptomining.",
+            isFreeOffer = true
         ),
         Provider(
-            name = "AWS Free Tier",
+            name = "AWS Free Tier offers",
             policy = MiningPolicy.PROHIBITED,
             policyUrl = "https://aws.amazon.com/free/terms/",
-            note = "Free Tier offers may not be used for cryptocurrency mining."
+            note = "Free Tier offers prohibit crypto mining and may incur standard charges or suspension.",
+            isFreeOffer = true
         ),
         Provider(
-            name = "Oracle Cloud",
+            name = "AWS services",
             policy = MiningPolicy.PROHIBITED,
-            policyUrl = "https://www.oracle.com/il-en/contracts/docs/cloud_csa_online_v062223_us_eng.pdf",
-            note = "Cloud Services Agreement prohibits cryptocurrency mining."
+            policyUrl = "https://aws.amazon.com/service-terms/",
+            note = "AWS Service Terms prohibit using or facilitating cryptocurrency mining."
+        ),
+        Provider(
+            name = "Oracle Cloud (India agreement)",
+            policy = MiningPolicy.PROHIBITED,
+            policyUrl = "https://www.oracle.com/contracts/docs/cloud_csa_online_v062223_in_eng.pdf",
+            note = "The India Cloud Services Agreement prohibits crypto-currency mining."
         ),
         Provider(
             name = "Azure Lab Services",
             policy = MiningPolicy.PROHIBITED,
             policyUrl = "https://www.microsoft.com/licensing/terms/en-US/productoffering/MicrosoftAzureServices/OVOVS",
-            note = "Azure Lab Services terms prohibit cryptocurrency mining."
+            note = "Microsoft Product Terms expressly prohibit cryptocurrency mining in Azure Lab Services."
+        ),
+        Provider(
+            name = "DigitalOcean",
+            policy = MiningPolicy.WRITTEN_APPROVAL_REQUIRED,
+            policyUrl = "https://www.digitalocean.com/legal/acceptable-use-policy",
+            note = "Mining requires explicit written permission; no free mining quota has been verified."
         )
     )
 
-    /** A worker can start only when every independent safety condition is true. */
+    /**
+     * Evidence is checked for the selected provider, not inferred from its name
+     * or from the existence of a free trial. This method does not provision resources.
+     */
     fun canStartWorker(
-        miningExplicitlyAllowed: Boolean,
-        freeQuotaVerified: Boolean,
+        provider: Provider,
+        writtenApprovalVerified: Boolean,
         userAuthorized: Boolean
-    ): Boolean = miningExplicitlyAllowed && freeQuotaVerified && userAuthorized
+    ): Boolean {
+        val policyAllowsMining = when (provider.policy) {
+            MiningPolicy.PROHIBITED, MiningPolicy.NOT_VERIFIED -> false
+            MiningPolicy.WRITTEN_APPROVAL_REQUIRED -> writtenApprovalVerified
+            MiningPolicy.EXPRESSLY_ALLOWED -> true
+        }
+        return policyAllowsMining &&
+            provider.freeMiningQuotaVerified &&
+            provider.provisioningApiVerified &&
+            userAuthorized
+    }
 
     fun summary(): String = buildString {
         append("Cloud auto-connect: LOCKED\n")
-        append("Verified free + mining-permitted providers: 0\n")
-        append("Prior written approval required: ")
+        append("Verified free + mining-permitted providers: ")
+        append(providers.count {
+            it.policy == MiningPolicy.EXPRESSLY_ALLOWED &&
+                it.isFreeOffer && it.freeMiningQuotaVerified && it.provisioningApiVerified
+        })
+        append("\nFree offers with mining prohibited: ")
+        append(providers.count { it.isFreeOffer && it.policy == MiningPolicy.PROHIBITED })
+        append("\nProviders requiring written approval: ")
         append(providers.count { it.policy == MiningPolicy.WRITTEN_APPROVAL_REQUIRED })
-        append("\nMining prohibited: ")
-        append(providers.count { it.policy == MiningPolicy.PROHIBITED })
-        append("\nLogin is unavailable until a provider passes policy and free-quota checks.")
-        append("\nNo instance is provisioned; paid usage is blocked.")
+        append("\nVerified provider provisioning integrations: ")
+        append(providers.count { it.provisioningApiVerified })
+        append("\nOAuth login: NOT AVAILABLE")
+        append("\nNo cloud instance is provisioned; paid usage is blocked.")
     }
 }
