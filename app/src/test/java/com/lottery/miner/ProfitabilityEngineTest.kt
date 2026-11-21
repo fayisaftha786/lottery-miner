@@ -29,7 +29,7 @@ class ProfitabilityEngineTest {
             powerWatts = 100.0,
             tariffInrPerKwh = 10.0,
             usdInr = 90.0,
-            hashpriceUsdPerThDay = 0.0274,
+            hashpriceUsdPerPhDay = 27.4,
             poolFeePercent = 2.0
         )
         val high = ProfitabilityEngine.estimateBitcoin(
@@ -37,7 +37,7 @@ class ProfitabilityEngineTest {
             powerWatts = 200.0,
             tariffInrPerKwh = 10.0,
             usdInr = 90.0,
-            hashpriceUsdPerThDay = 0.0274,
+            hashpriceUsdPerPhDay = 0.0274,
             poolFeePercent = 2.0
         )
         assertTrue(high.breakEvenHashrateHps > low.breakEvenHashrateHps)
@@ -50,7 +50,7 @@ class ProfitabilityEngineTest {
             powerWatts = 0.0,
             tariffInrPerKwh = 12.0,
             usdInr = 90.0,
-            hashpriceUsdPerThDay = 0.0274,
+            hashpriceUsdPerPhDay = 0.0274,
             poolFeePercent = 2.0
         )
         assertEquals(0.0, result.electricityCostInrPerDay, 0.0)
@@ -58,7 +58,7 @@ class ProfitabilityEngineTest {
     }
 
     @Test fun rejectsInvalidInputsAndFeeOutOfRange() {
-        val base = arrayOf(1e6, 100.0, 10.0, 90.0, 0.0274, 2.0)
+        val base = arrayOf(1e6, 100.0, 10.0, 90.0, 27.4, 2.0)
         assertTrue(runCatching {
             ProfitabilityEngine.estimateBitcoin(-1.0, 100.0, 10.0, 90.0, 0.0274, 2.0)
         }.isFailure)
@@ -72,7 +72,7 @@ class ProfitabilityEngineTest {
             ProfitabilityEngine.estimateBitcoin(1e6, 100.0, 10.0, 0.0, 0.0274, 2.0)
         }.isFailure)
         assertTrue(runCatching {
-            ProfitabilityEngine.estimateBitcoin(1e6, 100.0, 10.0, 90.0, 0.0274, 101.0)
+            ProfitabilityEngine.estimateBitcoin(1e6, 100.0, 10.0, 90.0, 27.4, 101.0)
         }.isFailure)
     }
 }
