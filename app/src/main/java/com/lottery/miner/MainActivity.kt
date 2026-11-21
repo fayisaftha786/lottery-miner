@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_POOL_PORT = 3333
         private const val LEGACY_DEFAULT_POOL_HOST = "solo.ckpool.org"
         private const val EXTERNAL_REFRESH_MS = 30_000L
+        private const val MARKET_CACHE_TTL_MS = 30L * 60L * 1000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -598,6 +599,7 @@ class MainActivity : AppCompatActivity() {
         sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
         tvStats.text = sb.toString()
         renderExternalStats()
+        renderEconomics()
         tvLog.text = s.logText()
     }
 }
