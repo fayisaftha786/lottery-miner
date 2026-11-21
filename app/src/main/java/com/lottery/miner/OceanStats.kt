@@ -33,35 +33,48 @@ object OceanStats {
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) throw IllegalStateException("OCEAN API HTTP $code")
-            val root = JSONObject(body)
-            val workersJson = root.optJSONArray("workers") ?: JSONArray()
-            val workers = buildList {
-                for (index in 0 until workersJson.length()) {
-                    val item = workersJson.optJSONObject(index) ?: continue
-                    val rate60 = firstNumber(item, "hashrate_60s", "hashRate", "hashrate")
-                    val rate300 = firstNumber(item, "hashrate_300s", "hashrate_300s")
-                    val name = firstString(item, "worker", "worker_name", "name", "username")
-                        .ifBlank { "worker-${index + 1}" }
-                    if (rate60 >= 0.0 && rate60.isFinite()) {
-                        add(ExternalWorker(name, rate60, rate300.coerceAtLeast(0.0)))
-                    }
-                }
-            }
-            val total = workers.sumOf { it.hashrate }
-            return ExternalMiningSnapshot(workers, total, System.currentTimeMillis())
+            return parseResponse(body)
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun firstNumber(item: JSONObject, vararg keys: String): Double {
+    internal fun parseResponse(body: String): ExternalMiningSnapshot {
+        val root = JSONObject(body)
+        val workersJson = root.optJSONArray("workers")
+            ?: throw IllegalStateException("OCEAN response missing workers array")
+        val workers = buildList {
+            for (index in 0 until workersJson.length()) {
+                val item = workersJson.optJSONObject(index) ?: continue
+                val rate60 = firstNumber(item, "hashrate_60s")
+                val rate300 = firstNumber(item, "hashrate_300s")
+                val name = firstString(item, "worker", "worker_name", "name", "username")
+                    .ifBlank { "worker-${index + 1}" }
+                if (rate60.isFinite() && rate60 >= 0.0 && rate300.isFinite() && rate300 >= 0.0) {
+                    add(ExternalWorker(name, rate60, rate300))
+                }
+            }
+        }
+        // OCEAN publishes a wallet-wide aggregate separately from the worker rows.
+        // Prefer that documented total; fall back to worker sum only if absent.
+        val userTotal = root.optJSONObject("user_hashrate")
+            ?.let { firstNumber(it, "hashrate_60s") }
+        val total = if (userTotal != null && userTotal.isFinite() && userTotal >= 0.0) {
+            userTotal
+        } else {
+            workers.sumOf { it.hashrate }
+        }
+        return ExternalMiningSnapshot(workers, total, System.currentTimeMillis())
+    }
+
+    private fun firstNumber(item: JSONObject, vararg keys: String): Double? {
         for (key in keys) {
             if (item.has(key) && !item.isNull(key)) {
                 val value = item.optDouble(key, Double.NaN)
                 if (value.isFinite()) return value
             }
         }
-        return 0.0
+        return null
     }
 
     private fun firstString(item: JSONObject, vararg keys: String): String {
