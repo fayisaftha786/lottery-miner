@@ -169,44 +169,65 @@ class MainActivity : AppCompatActivity() {
         val snapshot = externalSnapshot.takeIf { externalSnapshotAddress == currentAddress }
         val host = etHost.text.toString().trim().lowercase(Locale.US)
         val sb = StringBuilder()
-        sb.append("EXTERNAL WORKER MONITOR · OCEAN BTC\n")
-        sb.append("Auto refresh: 30 sec while app is open\n")
+        sb.append("EXTERNAL WORKER MONITOR · OCEAN BTC\\n")
+        sb.append("Auto refresh: 30 sec while app is open\\n")
         if (snapshot != null) {
             val ageMs = System.currentTimeMillis() - snapshot.fetchedAtMillis
             val snapshotFresh = externalError == null && ageMs in 0..120_000L
-            sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
-            sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
+            sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\\n')
+            sb.append("Workers detected: ").append(snapshot.workers.size).append('\\n')
             snapshot.workers.forEach { worker ->
                 sb.append("• ").append(worker.name)
                     .append(": ").append(Util.fmtRate(worker.hashrate))
-                    .append(" (5m ").append(Util.fmtRate(worker.hashrate5m)).append(")").append('\n')
+                    .append(" (5m ").append(Util.fmtRate(worker.hashrate5m)).append(")").append('\\n')
             }
             sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
-                .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
-            if (snapshot.workers.isEmpty()) sb.append("ഈ wallet-ൽ OCEAN worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\n")
+                .format(java.util.Date(snapshot.fetchedAtMillis))).append('\\n')
+            if (snapshot.workers.isEmpty()) {
+                if (snapshot.notice != null) {
+                    sb.append("OCEAN API: ഓൺലൈൻ · ഈ വിലാസത്തിൽ active OCEAN worker ഇല്ല.\\n")
+                    if (!host.contains("ocean.xyz")) {
+                        sb.append("ഫോൺ CKPool-ലാണ് mining ചെയ്യുന്നത്; CKPool worker-കൾ OCEAN പട്ടികയിൽ വരില്ല.\\n")
+                    } else {
+                        sb.append("OCEAN-ൽ accepted worker share ലഭിക്കുന്നതുവരെ external worker കണക്കുകൾ ശൂന്യമായിരിക്കും.\\n")
+                    }
+                } else {
+                    sb.append("ഈ wallet-ൽ OCEAN worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\\n")
+                }
+            }
             when {
                 externalError != null -> {
-                    sb.append("API refresh failed: ").append(externalError).append('\n')
-                    sb.append("Last successful snapshot is shown for reference only; excluded from combined total.\n")
+                    sb.append("API refresh failed: ").append(externalError).append('\\n')
+                    sb.append("Last successful snapshot is shown for reference only; excluded from combined total.\\n")
                 }
                 !snapshotFresh -> {
-                    sb.append("Snapshot stale; excluded from combined total until a fresh response arrives.\n")
+                    sb.append("Snapshot stale; excluded from combined total until a fresh response arrives.\\n")
                 }
                 host.contains("ocean.xyz") -> {
-                    sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
+                    sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\\n")
                 }
                 else -> {
                     sb.append("Combined total (phone + OCEAN external workers): ")
-                        .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
+                        .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\\n')
                 }
             }
         } else {
-            sb.append("External hashrate: --\n")
-            sb.append(if (externalError == null) "API പരിശോധിക്കുന്നു…" else "API unavailable: $externalError").append('\n')
-            sb.append("External workers ലഭിക്കുന്നതുവരെ total-ൽ ചേർക്കില്ല.\n")
+            sb.append("External hashrate: --\\n")
+            sb.append(if (externalError == null) "API പരിശോധിക്കുന്നു…" else "API unavailable: $externalError").append('\\n')
+            sb.append("External workers ലഭിക്കുന്നതുവരെ total-ൽ ചേർക്കില്ല.\\n")
         }
         sb.append("കുറിപ്പ്: OCEAN API-യിൽ കണ്ടെത്തിയ യഥാർത്ഥ worker കണക്കുകൾ മാത്രം. API monitoring സൗജന്യമാണ്; mining power ലഭ്യമാക്കുന്നില്ല.")
         tvExternalStats.text = sb.toString()
+    }
+
+    private fun formatExpectedShareInterval(seconds: Double): String {
+        if (!seconds.isFinite() || seconds <= 0.0) return "N/A"
+        return when {
+            seconds >= 86_400.0 -> String.format(Locale.US, "~%.0f ദിവസം", seconds / 86_400.0)
+            seconds >= 3_600.0 -> String.format(Locale.US, "~%.1f മണിക്കൂർ", seconds / 3_600.0)
+            seconds >= 60.0 -> String.format(Locale.US, "~%.0f മിനിറ്റ്", seconds / 60.0)
+            else -> String.format(Locale.US, "~%.0f സെക്കൻഡ്", seconds)
+        }
     }
 
     private fun startMining() {
@@ -276,6 +297,11 @@ class MainActivity : AppCompatActivity() {
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
+        if (s.hashrate > 0.0 && s.poolDiff > 0.0) {
+            val expectedSeconds = s.poolDiff * 4_294_967_296.0 / s.hashrate
+            sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\\n')
+            sb.append("ഇത് feedback share-ന്റെ ശരാശരി മാത്രം; block/payout ഉറപ്പല്ല.\\n")
+        }
         sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
         sb.append("Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
         sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
