@@ -260,7 +260,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvProfitability.text = "Profitability data unavailable: ${e.message ?: e.javaClass.simpleName}\\nLast data is not reused as live. Try refresh later."
+                    tvProfitability.text = "Profitability data unavailable: ${e.message ?: e.javaClass.simpleName}\nLast data is not reused as live. Try refresh later."
                     profitabilityFetchInFlight = false
                     btnRefreshProfitability.isEnabled = true
                 }
