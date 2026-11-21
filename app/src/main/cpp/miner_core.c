@@ -55,22 +55,14 @@ static void digest_bytes(const uint32_t d[8], uint8_t h[32]) {
     }
 }
 
-/* hash <= target ? hash is a little-endian number (h[31] most significant), target is big-endian. */
-static int leq_target(const uint8_t h[32], const uint8_t t[32]) {
-    for (int i = 0; i < 32; i++) {
-        uint8_t a = h[31 - i], b = t[i];
-        if (a < b) return 1;
-        if (a > b) return 0;
-    }
-    return 1;
-}
-
-static int hash_less(const uint8_t a[32], const uint8_t b[32]) {
-    for (int i = 31; i >= 0; i--) {
-        if (a[i] < b[i]) return 1;
-        if (a[i] > b[i]) return 0;
-    }
-    return 0;
+/*
+ * The displayed Bitcoin hash is the byte-reversed SHA-256 digest. Convert
+ * the digest state directly to eight big-endian numeric words in that order.
+ * This avoids writing a temporary 32-byte digest for every nonce in the hot
+ * scan loop. Words are compared from most-significant to least-significant.
+ */
+static void digest_numeric_words(const uint32_t digest[8], uint32_t words[8]) {
+    for (int i = 0; i < 8; i++) words[i] = __builtin_bswap32(digest[7 - i]);
 }
 
 static void hash_with(compress_fn_t fn, const uint8_t header[80], uint8_t out[32]) {
@@ -117,9 +109,11 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
     w3[8] = 0x80000000u;
     w3[15] = 256;
 
+    uint32_t target_words[8], best_words[8];
+    for (int i = 0; i < 8; i++) target_words[i] = be32(target + 4 * i);
+
     double bd = 0.0;
     uint32_t bn = 0, nfound = 0, total_found = 0;
-    uint8_t best_hash[32];
     int have_best = 0;
 
     for (uint32_t i = 0; i < count; i++) {
@@ -132,17 +126,38 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
         memcpy(d, IV, 32);
         fn(d, w3);
 
-        uint8_t h[32];
-        digest_bytes(d, h);
-        if (leq_target(h, target)) {
+        /*
+         * Compare the nonce hash with the pool target and current best hash
+         * directly as 32-bit words. Only a new best hash needs conversion to
+         * floating point, and only a pool hit is later re-hashed for submit.
+         */
+        int target_order = 0;
+        int best_order = 0;
+        for (int word = 0; word < 8; word++) {
+            const uint32_t value = __builtin_bswap32(d[7 - word]);
+            if (target_order == 0) {
+                if (value < target_words[word]) target_order = -1;
+                else if (value > target_words[word]) target_order = 1;
+            }
+            if (have_best && best_order == 0) {
+                if (value < best_words[word]) best_order = -1;
+                else if (value > best_words[word]) best_order = 1;
+            }
+            if (target_order != 0 && (!have_best || best_order != 0)) break;
+        }
+
+        if (target_order <= 0) {
             if (nfound < max_found) found[nfound++] = n;
             if (total_found < UINT32_MAX) total_found++;
         }
-        if (!have_best || hash_less(h, best_hash)) {
-            memcpy(best_hash, h, sizeof(best_hash));
+
+        if (!have_best || best_order < 0) {
+            digest_numeric_words(d, best_words);
             have_best = 1;
             double v = 0.0;
-            for (int j = 31; j >= 0; j--) v = v * 256.0 + h[j];
+            for (int word = 0; word < 8; word++) {
+                v = v * 4294967296.0 + (double)best_words[word];
+            }
             double diff = v > 0.0 ? DIFF1 / v : 1e300;
             if (diff > bd) { bd = diff; bn = n; }
         }

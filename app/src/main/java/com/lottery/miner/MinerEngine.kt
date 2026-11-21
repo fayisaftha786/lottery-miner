@@ -408,12 +408,17 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             } else if (temp >= cfg.maxTemp - 3.0) {
                 target = maxOf(1, cfg.threads / 2); reason = "ചൂട് കൂടുന്നു, ത്രെഡ് കുറച്ചു"
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Apply Android thermal caps only when another safety rule has not
+            // already paused mining. Otherwise a moderate thermal status would
+            // overwrite the real pause reason (for example, "not charging")
+            // while the effective worker count remains zero.
+            if (target > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val thermal = (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
                 if (thermal >= PowerManager.THERMAL_STATUS_SEVERE) {
                     target = 0; reason = "Android thermal protection: high temperature"
                 } else if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) {
-                    target = minOf(target, maxOf(1, cfg.threads / 2)); reason = "Android thermal status moderate; worker reduced"
+                    target = minOf(target, maxOf(1, cfg.threads / 2))
+                    if (target > 0) reason = "Android thermal status moderate; worker reduced"
                 }
             }
             activeThreads = target
