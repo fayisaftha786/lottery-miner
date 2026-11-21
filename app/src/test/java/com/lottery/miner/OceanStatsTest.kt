@@ -60,6 +60,15 @@ class OceanStatsTest {
         assertTrue(snapshot.notice?.contains("no active workers") == true)
     }
 
+    @Test fun treatsNoSuchUserOrWorkerAsValidEmptyWorkerResponse() {
+        val snapshot = OceanStats.parseResponse(
+            """{"error":"No such user/worker"}"""
+        )
+        assertTrue(snapshot.workers.isEmpty())
+        assertEquals(0.0, snapshot.totalHashrate, 0.0)
+        assertEquals("No such user/worker", snapshot.notice)
+    }
+
     @Test(expected = IllegalStateException::class)
     fun doesNotHideUnexpectedOceanApiErrorsAsInactiveWallets() {
         OceanStats.parseResponse("""{"error":"database unavailable"}""")
