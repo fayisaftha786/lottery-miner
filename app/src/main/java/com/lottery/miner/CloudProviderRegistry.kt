@@ -103,7 +103,8 @@ object CloudProviderRegistry {
             name = "OpenMetal cloud",
             policy = MiningPolicy.WRITTEN_APPROVAL_REQUIRED,
             policyUrl = "https://openmetal.io/cloud-services-agreement/",
-            note = "Prior written approval is required; crypto-mining may trigger separate pricing with no grace period. Free trial eligibility for mining is not verified."
+            note = "A discretionary free trial exists, but mining requires prior written approval and may trigger separate pricing with no grace period; a free mining quota is not verified.",
+            isFreeOffer = true
         ),
         Provider(
             name = "GPU Cloud HQ workstation GPUs",
