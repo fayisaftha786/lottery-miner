@@ -58,14 +58,14 @@ object ProfitabilityEngine {
         require(usdInr.isFinite() && usdInr in 1.0..10_000.0) {
             "USD/INR rate is invalid"
         }
-        require(hashpriceUsdPerThDay.isFinite() && hashpriceUsdPerThDay in 0.0..1_000.0) {
-            "BTC hashprice is invalid"
+        require(hashpriceUsdPerPhDay.isFinite() && hashpriceUsdPerPhDay in 0.0..1_000.0) {
+            "BTC hashprice (USD/PH/day) is invalid"
         }
         require(poolFeePercent.isFinite() && poolFeePercent in 0.0..100.0) {
             "Pool fee must be between 0 and 100%"
         }
 
-        val grossUsd = (hashrateHps / HPS_PER_PHPS) * hashpriceUsdPerThDay
+        val grossUsd = (hashrateHps / HPS_PER_PHPS) * hashpriceUsdPerPhDay
         val afterFeeUsd = grossUsd * (1.0 - poolFeePercent / 100.0)
         val afterFeeInr = afterFeeUsd * usdInr
         val energyKwh = powerWatts * HOURS_PER_DAY / WH_PER_KWH
@@ -73,8 +73,8 @@ object ProfitabilityEngine {
         val netInr = afterFeeInr - electricityInr
 
         val contributionPerHashrateInr =
-            (hashpriceUsdPerThDay * (1.0 - poolFeePercent / 100.0) * usdInr) /
-                HPS_PER_THPS
+            (hashpriceUsdPerPhDay * (1.0 - poolFeePercent / 100.0) * usdInr) /
+                HPS_PER_PHPS
         val breakEven = if (contributionPerHashrateInr > 0.0) {
             electricityInr / contributionPerHashrateInr
         } else {
@@ -154,7 +154,7 @@ object ProfitabilityMarketData {
             val code = connection.responseCode
             if (code !in 200..299) throw IOException("Market-data HTTP $code")
             val body = connection.inputStream.bufferedReader(Charsets.UTF_8)
-                .use(BufferedReader::readText)
+                .use { it.readText() }
             if (body.length > 256_000) throw IOException("Market-data response too large")
             return JSONObject(body)
         } finally {
