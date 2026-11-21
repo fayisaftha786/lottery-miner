@@ -148,11 +148,14 @@ class MainActivity : AppCompatActivity() {
         val host = etHost.text.toString().trim().lowercase(Locale.US)
         val sb = StringBuilder()
         sb.append("EXTERNAL WORKER MONITOR · OCEAN BTC\n")
+        sb.append("Auto refresh: 30 sec while app is open\n")
         if (snapshot != null) {
             sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
             sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
             snapshot.workers.forEach { worker ->
-                sb.append("• ").append(worker.name).append(": ").append(Util.fmtRate(worker.hashrate)).append('\n')
+                sb.append("• ").append(worker.name)
+                    .append(": ").append(Util.fmtRate(worker.hashrate))
+                    .append(" (5m ").append(Util.fmtRate(worker.hashrate5m)).append(")").append('\n')
             }
             sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
                 .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
