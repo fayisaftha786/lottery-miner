@@ -37,6 +37,24 @@ object CloudProviderRegistry {
             policy = MiningPolicy.PROHIBITED,
             policyUrl = "https://www.kaggle.com/terms",
             note = "Terms expressly prohibit cryptomining."
+        ),
+        Provider(
+            name = "AWS Free Tier",
+            policy = MiningPolicy.PROHIBITED,
+            policyUrl = "https://aws.amazon.com/free/terms/",
+            note = "Free Tier offers may not be used for cryptocurrency mining."
+        ),
+        Provider(
+            name = "Oracle Cloud",
+            policy = MiningPolicy.PROHIBITED,
+            policyUrl = "https://www.oracle.com/il-en/contracts/docs/cloud_csa_online_v062223_us_eng.pdf",
+            note = "Cloud Services Agreement prohibits cryptocurrency mining."
+        ),
+        Provider(
+            name = "Azure Lab Services",
+            policy = MiningPolicy.PROHIBITED,
+            policyUrl = "https://www.microsoft.com/licensing/terms/en-US/productoffering/MicrosoftAzureServices/OVOVS",
+            note = "Azure Lab Services terms prohibit cryptocurrency mining."
         )
     )
 
