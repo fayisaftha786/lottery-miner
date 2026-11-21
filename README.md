@@ -48,7 +48,7 @@ Never commit the keystore or passwords.
 
 The in-app Mining Economics panel estimates Bitcoin SHA-256d expected revenue against electricity cost:
 
-- BTC hashprice is read from Startmining's public `/api/market-summary` endpoint in **USD per PH/s per day**. The documented free tier is 100 requests/day; the app refreshes only when the user taps the button and caches a successful response for 30 minutes.
+- BTC hashprice is read from Startmining's public `/api/market-summary` endpoint in **USD per PH/s per day**. The documented free tier is 100 requests/day; the app refreshes only when the user taps the button and caches a successful response for 60 minutes.
 - USD/INR is read from ExchangeRate-API's open `/v6/latest/USD` endpoint. Its open rate is refreshed daily and attribution is shown in-app.
 - Hashrate comes from the live native miner or the last real device hashrate recorded by the app. It is never fabricated.
 - The user supplies measured *incremental mining power* in watts, the electricity tariff in INR/kWh, and the pool fee percentage. Android battery percentage/temperature are not a reliable wattmeter.
