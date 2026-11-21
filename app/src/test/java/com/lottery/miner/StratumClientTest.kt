@@ -24,6 +24,7 @@ class StratumClientTest {
         @Volatile var difficulty = 0.0
         @Volatile var job: Job? = null
         @Volatile var accepted: Boolean? = null
+        @Volatile var submitted = 0
         val jobReceived = CountDownLatch(1)
         val authorizedLatch = CountDownLatch(1)
         val statuses = CopyOnWriteArrayList<String>()
@@ -36,6 +37,7 @@ class StratumClientTest {
         override fun onAuthorized() { authorized = true; authorizedLatch.countDown() }
         override fun onDifficulty(diff: Double) { difficulty = diff }
         override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
+        override fun onShareSubmitted() { submitted++ }
         override fun onShareResult(accepted: Boolean, reason: String?) { this.accepted = accepted }
         override fun onShareUnknown(count: Int) { unknownShares += count }
         override fun onShareDropped(count: Int) { droppedShares += count }
@@ -63,6 +65,7 @@ class StratumClientTest {
             assertTrue(listener.authorized)
             assertEquals(2.0, listener.difficulty, 0.0)
             assertEquals("test-job", listener.job?.id)
+            assertEquals(1, listener.submitted)
             assertEquals(true, listener.accepted)
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
@@ -87,6 +90,7 @@ class StratumClientTest {
             clientThread.join(3000)
             worker.join(3000)
 
+            assertEquals(1, listener.submitted)
             assertEquals(1, listener.unknownShares)
             assertEquals(null, listener.accepted)
         }
