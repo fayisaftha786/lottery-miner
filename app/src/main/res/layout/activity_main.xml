@@ -110,6 +110,80 @@
             android:text="CKPool Live Statistics തുറക്കുക" />
 
         <Button
+            android:id="@+id/btnBenchmark"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Run safe SHA-256d benchmark" />
+
+        <TextView
+            android:id="@+id/tvBenchmark"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#18242D"
+            android:text="ADAPTIVE MINING LAB\nSHA-256d is the only installed algorithm. Benchmark runs locally while mining is stopped; no pool shares are submitted."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="BITCOIN PROFITABILITY ESTIMATOR"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Live network difficulty, block subsidy and BTC/INR are fetched on request. Enter mining-only power from a USB meter and your electricity tariff."
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/etMiningPower"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mining power draw (W) — measured"
+            android:inputType="numberDecimal"
+            android:singleLine="true" />
+
+        <EditText
+            android:id="@+id/etElectricityTariff"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Electricity tariff (₹ per kWh)"
+            android:inputType="numberDecimal"
+            android:singleLine="true" />
+
+        <EditText
+            android:id="@+id/etPoolFee"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Pool fee (%) — CKPool default 2"
+            android:inputType="numberDecimal"
+            android:singleLine="true" />
+
+        <Button
+            android:id="@+id/btnRefreshProfitability"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Refresh live BTC profitability estimate" />
+
+        <TextView
+            android:id="@+id/tvProfitability"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#18242D"
+            android:text="PROFITABILITY: Not calculated\nRun a benchmark and enter measured power + tariff."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <Button
             android:id="@+id/btnExportDiagnostics"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
