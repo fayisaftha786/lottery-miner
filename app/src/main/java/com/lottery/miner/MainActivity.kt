@@ -172,6 +172,8 @@ class MainActivity : AppCompatActivity() {
         sb.append("EXTERNAL WORKER MONITOR · OCEAN BTC\n")
         sb.append("Auto refresh: 30 sec while app is open\n")
         if (snapshot != null) {
+            val ageMs = System.currentTimeMillis() - snapshot.fetchedAtMillis
+            val snapshotFresh = externalError == null && ageMs in 0..120_000L
             sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
             sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
             snapshot.workers.forEach { worker ->
@@ -182,11 +184,21 @@ class MainActivity : AppCompatActivity() {
             sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
                 .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
             if (snapshot.workers.isEmpty()) sb.append("ഈ wallet-ൽ OCEAN worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\n")
-            if (host.contains("ocean.xyz")) {
-                sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
-            } else {
-                sb.append("Combined total (phone + OCEAN external workers): ")
-                    .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
+            when {
+                externalError != null -> {
+                    sb.append("API refresh failed: ").append(externalError).append('\n')
+                    sb.append("Last successful snapshot is shown for reference only; excluded from combined total.\n")
+                }
+                !snapshotFresh -> {
+                    sb.append("Snapshot stale; excluded from combined total until a fresh response arrives.\n")
+                }
+                host.contains("ocean.xyz") -> {
+                    sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
+                }
+                else -> {
+                    sb.append("Combined total (phone + OCEAN external workers): ")
+                        .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
+                }
             }
         } else {
             sb.append("External hashrate: --\n")
