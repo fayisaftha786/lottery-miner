@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         if (!Util.isValidBitcoinAddress(address)) {
             externalSnapshot = null
             externalError = null
-            tvExternalStats.text = "FREE EXTERNAL MINING (SoloFury BTC)\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; അവിടെ പ്രവർത്തിക്കുന്ന worker-കളുടെ മാത്രം കണക്കാണ്."
+            tvExternalStats.text = "FREE EXTERNAL MINING (OCEAN BTC)\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; OCEAN-ൽ ഇതിനകം പ്രവർത്തിക്കുന്ന worker-കളുടെ കണക്കാണ്."
             return
         }
         val now = System.currentTimeMillis()
@@ -126,7 +126,7 @@ class MainActivity : AppCompatActivity() {
         lastExternalPollAt = now
         Thread {
             try {
-                val result = SoloFuryStats.fetch(address)
+                val result = OceanStats.fetch(address.substringBefore('.'))
                 runOnUiThread {
                     externalSnapshot = result
                     externalError = null
@@ -147,7 +147,7 @@ class MainActivity : AppCompatActivity() {
         val snapshot = externalSnapshot
         val host = etHost.text.toString().trim().lowercase(Locale.US)
         val sb = StringBuilder()
-        sb.append("FREE EXTERNAL MINING · SOLOFURY BTC\n")
+        sb.append("EXTERNAL WORKER MONITOR · OCEAN BTC\n")
         if (snapshot != null) {
             sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
             sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
@@ -156,11 +156,11 @@ class MainActivity : AppCompatActivity() {
             }
             sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
                 .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
-            if (snapshot.workers.isEmpty()) sb.append("ഈ wallet-ൽ SoloFury worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\n")
-            if (host.endsWith("solofury.com")) {
-                sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker ഇതേ pool total-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
+            if (snapshot.workers.isEmpty()) sb.append("ഈ wallet-ൽ OCEAN worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\n")
+            if (host.contains("ocean.xyz")) {
+                sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
             } else {
-                sb.append("Combined total (phone + verified SoloFury workers): ")
+                sb.append("Combined total (phone + OCEAN external workers): ")
                     .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
             }
         } else {
@@ -168,7 +168,7 @@ class MainActivity : AppCompatActivity() {
             sb.append(if (externalError == null) "API പരിശോധിക്കുന്നു…" else "API unavailable: $externalError").append('\n')
             sb.append("External workers ലഭിക്കുന്നതുവരെ total-ൽ ചേർക്കില്ല.\n")
         }
-        sb.append("കുറിപ്പ്: ഇത് SoloFury-യിൽ യഥാർത്ഥമായി connect ചെയ്ത workers മാത്രം; free rented power അല്ല.")
+        sb.append("കുറിപ്പ്: OCEAN API-യിൽ കണ്ടെത്തിയ യഥാർത്ഥ worker കണക്കുകൾ മാത്രം. API monitoring സൗജന്യമാണ്; mining power ലഭ്യമാക്കുന്നില്ല.")
         tvExternalStats.text = sb.toString()
     }
 
