@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cbCharging: CheckBox
     private lateinit var btn: Button
     private lateinit var btnPoolStats: Button
+    private lateinit var btnExportDiagnostics: Button
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
@@ -65,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         cbCharging = findViewById(R.id.cbCharging)
         btn = findViewById(R.id.btnToggle)
         btnPoolStats = findViewById(R.id.btnPoolStats)
+        btnExportDiagnostics = findViewById(R.id.btnExportDiagnostics)
         tvStats = findViewById(R.id.tvStats)
         tvExternalStats = findViewById(R.id.tvExternalStats)
         tvLog = findViewById(R.id.tvLog)
@@ -86,6 +88,7 @@ class MainActivity : AppCompatActivity() {
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
         btnPoolStats.setOnClickListener { openPoolStatistics() }
+        btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -111,6 +114,53 @@ class MainActivity : AppCompatActivity() {
         val statsUri = Uri.parse("https://stats.ckpool.org/users/").buildUpon()
             .appendPath(address).build()
         startActivity(Intent(Intent.ACTION_VIEW, statsUri))
+    }
+
+    private fun exportVerificationReport() {
+        val s = MinerState
+        val address = etAddress.text.toString().trim().substringBefore('.')
+        val maskedAddress = if (address.length >= 12) address.take(5) + "…" + address.takeLast(5)
+            else if (address.isNotEmpty()) "provided (masked)" else "not set"
+        val df = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.US)
+        fun time(v: Long) = if (v > 0L) df.format(java.util.Date(v)) else "never"
+        val version = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown" } catch (_: Exception) { "unknown" }
+        val report = buildString {
+            appendLine("LOTTERY MINER — REAL DEVICE VERIFICATION")
+            appendLine("Generated: ${df.format(java.util.Date())}")
+            appendLine("App version: $version")
+            appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine("ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
+            appendLine("CPU cores: ${Runtime.getRuntime().availableProcessors()}")
+            appendLine("Wallet (masked): $maskedAddress")
+            appendLine("Pool: ${etHost.text.toString().trim()}:${etPort.text}")
+            appendLine("Running: ${s.running}; authorized: ${s.connected}; status: ${s.status}")
+            appendLine("Connection attempts: ${s.connectionAttempts.get()}")
+            appendLine("Last connection attempt: ${time(s.lastConnectAttemptAt)}")
+            appendLine("Last authorization: ${time(s.authorizedAt)}")
+            appendLine("Last job: ${time(s.lastJobAt)}")
+            appendLine("Last share submitted: ${time(s.lastShareSubmittedAt)}")
+            appendLine("Last share response: ${time(s.lastShareResponseAt)}")
+            appendLine("Shares submitted/accepted/rejected: ${s.submittedShares.get()}/${s.accepted.get()}/${s.rejected.get()}")
+            appendLine("Unknown/dropped shares: ${s.unknownShares.get()}/${s.droppedShares.get()}")
+            appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
+            appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
+            appendLine("Battery: ${if (s.batteryAvailable) "${s.battery}%" else "unavailable"}; charging: ${s.plugged}")
+            appendLine("Battery temperature: ${if (s.tempAvailable) "${s.tempC} C" else "unavailable"}")
+            appendLine("Thermal state: ${s.pauseReason.ifBlank { "none" }}")
+            appendLine("Last disconnect: ${s.lastDisconnectReason.ifBlank { "none recorded" }}")
+            appendLine("Last pool event: ${s.lastPoolEvent.ifBlank { "none" }}")
+            appendLine("Recent log:")
+            appendLine(s.logText().ifBlank { "No log entries" })
+            appendLine("Privacy: full wallet address and credentials are excluded.")
+            appendLine("Pool-side accepted share is the strongest external proof of submission.")
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Lottery Miner real-device verification")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        startActivity(Intent.createChooser(send, "Share verification report"))
     }
 
     private fun pollExternalStatsIfNeeded() {
@@ -302,6 +352,7 @@ class MainActivity : AppCompatActivity() {
             sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\n')
             sb.append("ഇത് feedback share-ന്റെ ശരാശരി മാത്രം; block/payout ഉറപ്പല്ല.\n")
         }
+        sb.append("Pool-ലേക്ക് അയച്ചത്: ").append(s.submittedShares.get()).append("\n")
         sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
         sb.append("Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
         sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')

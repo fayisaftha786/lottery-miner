@@ -146,6 +146,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
     override fun onAuthorized() {
         MinerState.connected = true
+        MinerState.authorizedAt = System.currentTimeMillis()
+        MinerState.lastDisconnectReason = ""
         MinerState.activeThreads = 0
         MinerState.status = "Pool അംഗീകരിച്ചു; ജോബിനായി കാത്തിരിക്കുന്നു"
         MinerState.log("Pool authorization ശരി")
@@ -162,6 +164,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
     override fun onJob(job: Job) {
         synchronized(workLock) {
+            MinerState.lastJobAt = System.currentTimeMillis()
             current = null
             jobGeneration.incrementAndGet()
             shareTarget = difficultyTargets.activateForNextJob()
@@ -171,6 +174,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             current = job
         }
     }
+    override fun onShareSubmitted() {
+        MinerState.submittedShares.incrementAndGet()
+        MinerState.lastShareSubmittedAt = System.currentTimeMillis()
+        MinerState.log("Share pool-ലേക്ക് അയച്ചു; response കാത്തിരിക്കുന്നു")
+    }
+
     override fun onShareUnknown(count: Int) {
         if (count > 0) {
             MinerState.unknownShares.addAndGet(count)
@@ -185,6 +194,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         }
     }
     override fun onShareResult(accepted: Boolean, reason: String?) {
+        MinerState.lastShareResponseAt = System.currentTimeMillis()
         if (accepted) {
             MinerState.accepted.incrementAndGet()
             MinerState.log("share സ്വീകരിച്ചു ✓")
@@ -195,6 +205,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onStatus(msg: String) {
+        MinerState.lastPoolEvent = msg
+        MinerState.lastPoolEventAt = System.currentTimeMillis()
         MinerState.log(msg)
     }
 
@@ -208,10 +220,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val c = StratumClient(cfg.host, cfg.port, cfg.address, this)
             client = c
             val attemptStartedAt = System.nanoTime()
+            MinerState.connectionAttempts.incrementAndGet()
+            MinerState.lastConnectAttemptAt = System.currentTimeMillis()
             try {
                 c.connectAndRun()
                 if (running) MinerState.log("Pool socket അടഞ്ഞു; വീണ്ടും കണക്ട് ചെയ്യും")
             } catch (e: Exception) {
+                MinerState.lastDisconnectReason = e.message ?: e.javaClass.simpleName
                 if (running) MinerState.log("കണക്ഷൻ പിശക്: ${e.message}")
             } finally {
                 if (client === c) client = null
@@ -220,6 +235,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                     jobGeneration.incrementAndGet()
                     MinerState.connected = false
                     MinerState.activeThreads = 0
+                    if (MinerState.lastDisconnectReason.isBlank()) MinerState.lastDisconnectReason = "Pool socket closed"
                 }
             }
             if (!running) break

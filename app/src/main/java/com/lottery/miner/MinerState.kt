@@ -16,6 +16,16 @@ object MinerState {
     val rejected = AtomicInteger(0)
     val unknownShares = AtomicInteger(0)
     val droppedShares = AtomicInteger(0)
+    val submittedShares = AtomicInteger(0)
+    val connectionAttempts = AtomicInteger(0)
+    @Volatile var lastConnectAttemptAt = 0L
+    @Volatile var authorizedAt = 0L
+    @Volatile var lastJobAt = 0L
+    @Volatile var lastShareSubmittedAt = 0L
+    @Volatile var lastShareResponseAt = 0L
+    @Volatile var lastDisconnectReason = ""
+    @Volatile var lastPoolEvent = ""
+    @Volatile var lastPoolEventAt = 0L
     @Volatile var bestDiff = 0.0
     @Volatile var poolDiff = 0.0
     @Volatile var netDiff = 0.0
@@ -59,6 +69,16 @@ object MinerState {
         rejected.set(0)
         unknownShares.set(0)
         droppedShares.set(0)
+        submittedShares.set(0)
+        connectionAttempts.set(0)
+        lastConnectAttemptAt = 0L
+        authorizedAt = 0L
+        lastJobAt = 0L
+        lastShareSubmittedAt = 0L
+        lastShareResponseAt = 0L
+        lastDisconnectReason = ""
+        lastPoolEvent = ""
+        lastPoolEventAt = 0L
         bestDiff = 0.0
         poolDiff = 0.0
         netDiff = 0.0

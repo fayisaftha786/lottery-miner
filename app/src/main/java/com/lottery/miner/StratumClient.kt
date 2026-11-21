@@ -24,6 +24,7 @@ class StratumClient(
         fun onAuthorized()
         fun onDifficulty(diff: Double)
         fun onJob(job: Job)
+        fun onShareSubmitted()
         fun onShareResult(accepted: Boolean, reason: String?)
         fun onShareUnknown(count: Int)
         fun onShareDropped(count: Int)
@@ -113,6 +114,7 @@ class StratumClient(
         pendingSubmits.add(id)
         try {
             send(id, "mining.submit", JSONArray().put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex))
+            listener.onShareSubmitted()
         } catch (e: Exception) {
             pendingSubmits.remove(id)
             listener.onShareUnknown(1)
