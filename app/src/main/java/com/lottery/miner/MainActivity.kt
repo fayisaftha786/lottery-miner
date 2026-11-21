@@ -24,6 +24,7 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_POOL_HOST = "stratum.ckpool.org"
         const val DEFAULT_POOL_PORT = 3333
         private const val LEGACY_DEFAULT_POOL_HOST = "solo.ckpool.org"
+        private const val EXTERNAL_REFRESH_MS = 30_000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -37,7 +38,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btn: Button
     private lateinit var btnPoolStats: Button
     private lateinit var tvStats: TextView
+    private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
+    @Volatile private var externalPollInFlight = false
+    private var lastExternalPollAt = 0L
+    private var externalSnapshot: ExternalMiningSnapshot? = null
+    private var externalError: String? = null
 
     private val refresher = object : Runnable {
         override fun run() {
@@ -59,21 +65,19 @@ class MainActivity : AppCompatActivity() {
         btn = findViewById(R.id.btnToggle)
         btnPoolStats = findViewById(R.id.btnPoolStats)
         tvStats = findViewById(R.id.tvStats)
+        tvExternalStats = findViewById(R.id.tvExternalStats)
         tvLog = findViewById(R.id.tvLog)
 
         val cores = Runtime.getRuntime().availableProcessors()
         val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
         etAddress.setText(p.getString("address", ""))
         val savedHost = p.getString("host", null)
-        // Migrate only the previous app default. Preserve any custom pool hostname.
         val configuredHost = if (savedHost.isNullOrBlank() ||
             savedHost.equals(LEGACY_DEFAULT_POOL_HOST, ignoreCase = true)
         ) DEFAULT_POOL_HOST else savedHost
         etHost.setText(configuredHost)
         etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
-        if (configuredHost != savedHost) {
-            p.edit().putString("host", configuredHost).apply()
-        }
+        if (configuredHost != savedHost) p.edit().putString("host", configuredHost).apply()
         etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
@@ -84,9 +88,7 @@ class MainActivity : AppCompatActivity() {
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-        }
+        ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
     }
 
     override fun onResume() {
@@ -106,9 +108,68 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val statsUri = Uri.parse("https://stats.ckpool.org/users/").buildUpon()
-            .appendPath(address)
-            .build()
+            .appendPath(address).build()
         startActivity(Intent(Intent.ACTION_VIEW, statsUri))
+    }
+
+    private fun pollExternalStatsIfNeeded() {
+        val address = etAddress.text.toString().trim()
+        if (!Util.isValidBitcoinAddress(address)) {
+            externalSnapshot = null
+            externalError = null
+            tvExternalStats.text = "FREE EXTERNAL MINING (SoloFury BTC)\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; അവിടെ പ്രവർത്തിക്കുന്ന worker-കളുടെ മാത്രം കണക്കാണ്."
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (externalPollInFlight || now - lastExternalPollAt < EXTERNAL_REFRESH_MS) return
+        externalPollInFlight = true
+        lastExternalPollAt = now
+        Thread {
+            try {
+                val result = SoloFuryStats.fetch(address)
+                runOnUiThread {
+                    externalSnapshot = result
+                    externalError = null
+                    externalPollInFlight = false
+                    renderExternalStats()
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    externalError = error.message ?: "Connection unavailable"
+                    externalPollInFlight = false
+                    renderExternalStats()
+                }
+            }
+        }.start()
+    }
+
+    private fun renderExternalStats() {
+        val snapshot = externalSnapshot
+        val host = etHost.text.toString().trim().lowercase(Locale.US)
+        val sb = StringBuilder()
+        sb.append("FREE EXTERNAL MINING · SOLOFURY BTC\n")
+        if (snapshot != null) {
+            sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
+            sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
+            snapshot.workers.forEach { worker ->
+                sb.append("• ").append(worker.name).append(": ").append(Util.fmtRate(worker.hashrate)).append('\n')
+            }
+            sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
+                .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
+            if (snapshot.workers.isEmpty()) sb.append("ഈ wallet-ൽ SoloFury worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\n")
+            if (host.endsWith("solofury.com")) {
+                sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker ഇതേ pool total-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
+            } else {
+                sb.append("Combined total (phone + verified SoloFury workers): ")
+                    .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
+            }
+        } else {
+            sb.append("External hashrate: --\n")
+            sb.append(if (externalError == null) "API പരിശോധിക്കുന്നു…" else "API unavailable: $externalError").append('\n')
+            sb.append("External workers ലഭിക്കുന്നതുവരെ total-ൽ ചേർക്കില്ല.\n")
+        }
+        sb.append("കുറിപ്പ്: ഇത് SoloFury-യിൽ യഥാർത്ഥമായി connect ചെയ്ത workers മാത്രം; free rented power അല്ല.")
+        tvExternalStats.text = sb.toString()
     }
 
     private fun startMining() {
@@ -144,7 +205,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val onlyCharging = cbCharging.isChecked
-
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
             .putString("address", addr).putString("host", host).putInt("port", port)
             .putInt("threads", threads).putFloat("maxTemp", maxTemp.toFloat())
@@ -167,13 +227,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
+        pollExternalStatsIfNeeded()
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
-        sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
-        sb.append("വേഗത      : ").append(Util.fmtRate(s.hashrate))
+        sb.append("PHONE MINING: ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
+        sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
@@ -188,6 +249,7 @@ class MainActivity : AppCompatActivity() {
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
         tvStats.text = sb.toString()
+        renderExternalStats()
         tvLog.text = s.logText()
     }
 }
