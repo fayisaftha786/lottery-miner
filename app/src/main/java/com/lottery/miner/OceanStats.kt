@@ -13,7 +13,9 @@ data class ExternalWorker(val name: String, val hashrate: Double, val hashrate5m
 data class ExternalMiningSnapshot(
     val workers: List<ExternalWorker>,
     val totalHashrate: Double,
-    val fetchedAtMillis: Long
+    val fetchedAtMillis: Long,
+    /** Non-null when OCEAN is reachable but reports no active workers for this user. */
+    val notice: String? = null
 )
 
 object OceanStats {
@@ -60,7 +62,24 @@ object OceanStats {
         }
         val root = JSONObject(body)
         val workersJson = root.optJSONArray("workers")
-            ?: throw IllegalStateException("OCEAN response missing workers array")
+        if (workersJson == null) {
+            val apiError = root.optString("error", "").trim()
+            val inactiveResponse = apiError.contains("inactive", ignoreCase = true) ||
+                apiError.contains("no active workers", ignoreCase = true) ||
+                apiError.equals("No such user", ignoreCase = true)
+            if (inactiveResponse) {
+                // OCEAN returns an error object (HTTP 200) for a valid user with no active workers.
+                // This is a normal empty result, not an API outage or a parser failure.
+                return ExternalMiningSnapshot(
+                    workers = emptyList(),
+                    totalHashrate = 0.0,
+                    fetchedAtMillis = System.currentTimeMillis(),
+                    notice = apiError
+                )
+            }
+            if (apiError.isNotEmpty()) throw IllegalStateException("OCEAN API: $apiError")
+            throw IllegalStateException("OCEAN response missing workers array")
+        }
         val workers = buildList {
             for (index in 0 until workersJson.length()) {
                 val item = workersJson.optJSONObject(index) ?: continue
