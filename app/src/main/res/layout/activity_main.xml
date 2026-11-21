@@ -110,6 +110,17 @@
             android:text="CKPool Live Statistics തുറക്കുക" />
 
         <TextView
+            android:id="@+id/tvExternalStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:padding="12dp"
+            android:background="#18242D"
+            android:text="FREE EXTERNAL MINING · SOLOFURY BTC\nWallet address നൽകുക."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
             android:id="@+id/tvStats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
