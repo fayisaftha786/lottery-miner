@@ -147,6 +147,14 @@ object Util {
 
     fun networkDifficulty(nbitsHex: String): Double = DIFF1.toDouble() / nbitsToTarget(nbitsHex).toDouble()
 
+    /** Expected pool feedback-share interval; this is not a block-finding or payout estimate. */
+    fun expectedShareIntervalSeconds(difficulty: Double, hashRate: Double): Double {
+        require(difficulty.isFinite() && difficulty > 0.0) { "difficulty must be positive and finite" }
+        require(hashRate.isFinite() && hashRate > 0.0) { "hashrate must be positive and finite" }
+        return difficulty * 4_294_967_296.0 / hashRate
+    }
+
+
     fun fmtRate(hps: Double): String = when {
         hps >= 1e9 -> String.format(Locale.US, "%.2f GH/s", hps / 1e9)
         hps >= 1e6 -> String.format(Locale.US, "%.2f MH/s", hps / 1e6)
