@@ -7,11 +7,11 @@ import org.junit.Test
 class ProfitabilityEngineTest {
     @Test fun calculatesExpectedBitcoinRevenueAndElectricityCost() {
         val result = ProfitabilityEngine.estimateBitcoin(
-            hashrateHps = 1_000_000_000_000.0,
+            hashrateHps = 1_000_000_000_000_000.0,
             powerWatts = 100.0,
             tariffInrPerKwh = 10.0,
             usdInr = 90.0,
-            hashpriceUsdPerThDay = 0.0274,
+            hashpriceUsdPerPhDay = 27.4,
             poolFeePercent = 2.0
         )
 
