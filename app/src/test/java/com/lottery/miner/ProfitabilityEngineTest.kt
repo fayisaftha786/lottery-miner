@@ -62,13 +62,13 @@ class ProfitabilityEngineTest {
             ProfitabilityEngine.estimateBitcoin(-1.0, 100.0, 10.0, 90.0, 27.4, 2.0)
         }.isFailure)
         assertTrue(runCatching {
-            ProfitabilityEngine.estimateBitcoin(1e6, Double.NaN, 10.0, 90.0, 0.0274, 2.0)
+            ProfitabilityEngine.estimateBitcoin(1e6, Double.NaN, 10.0, 90.0, 27.4, 2.0)
         }.isFailure)
         assertTrue(runCatching {
-            ProfitabilityEngine.estimateBitcoin(1e6, 100.0, -1.0, 90.0, 0.0274, 2.0)
+            ProfitabilityEngine.estimateBitcoin(1e6, 100.0, -1.0, 90.0, 27.4, 2.0)
         }.isFailure)
         assertTrue(runCatching {
-            ProfitabilityEngine.estimateBitcoin(1e6, 100.0, 10.0, 0.0, 0.0274, 2.0)
+            ProfitabilityEngine.estimateBitcoin(1e6, 100.0, 10.0, 0.0, 27.4, 2.0)
         }.isFailure)
         assertTrue(runCatching {
             ProfitabilityEngine.estimateBitcoin(1e6, 100.0, 10.0, 90.0, 27.4, 101.0)
