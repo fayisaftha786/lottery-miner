@@ -25,3 +25,15 @@ GitHub Actions runs JVM tests and builds an APK artifact. It is debug-signed for
 - Thermal and battery safeguards reduce risk but cannot guarantee device safety. Do not bypass these limits.
 - Hashrate and share counters are measurements; block probability is a rough statistical estimate, not a prediction or reward guarantee.
 - Do not hard-code pool IP addresses: DNS records can change. Diagnose connection errors using the displayed log, host/port, and another device on the same network.
+
+
+## Cloud worker status (experimental)
+
+The app currently does **not** connect to cloud compute providers. Cloud auto-connect remains locked until a provider is verified to (1) expressly permit cryptocurrency mining, (2) offer a genuinely free quota for the intended workload, and (3) provide a supported user-authorized API. A free GPU or notebook offer alone is not permission to mine.
+
+Current policy checks:
+- Google Cloud Free Trial: prior written approval is required for cryptocurrency mining.
+- Google Colab managed runtimes: cryptocurrency mining is prohibited.
+- Kaggle: its Terms prohibit cryptomining.
+
+The app's fail-closed gate requires explicit mining permission, verified remaining free quota, and user authorization. No cloud instance is created and no paid quota is consumed by this feature. Do not enter cloud passwords, API keys, or wallet private keys into the app. An in-app OAuth login can be added only after a suitable provider and its official OAuth/API flow are verified.
