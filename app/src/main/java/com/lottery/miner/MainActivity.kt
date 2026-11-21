@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -19,6 +20,12 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        const val DEFAULT_POOL_HOST = "stratum.ckpool.org"
+        const val DEFAULT_POOL_PORT = 3333
+        private const val LEGACY_DEFAULT_POOL_HOST = "solo.ckpool.org"
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var etAddress: EditText
     private lateinit var etHost: EditText
@@ -28,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etBatt: EditText
     private lateinit var cbCharging: CheckBox
     private lateinit var btn: Button
+    private lateinit var btnPoolStats: Button
     private lateinit var tvStats: TextView
     private lateinit var tvLog: TextView
 
@@ -49,20 +57,30 @@ class MainActivity : AppCompatActivity() {
         etBatt = findViewById(R.id.etBatt)
         cbCharging = findViewById(R.id.cbCharging)
         btn = findViewById(R.id.btnToggle)
+        btnPoolStats = findViewById(R.id.btnPoolStats)
         tvStats = findViewById(R.id.tvStats)
         tvLog = findViewById(R.id.tvLog)
 
         val cores = Runtime.getRuntime().availableProcessors()
         val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
         etAddress.setText(p.getString("address", ""))
-        etHost.setText(p.getString("host", "solo.ckpool.org"))
-        etPort.setText(p.getInt("port", 3333).toString())
+        val savedHost = p.getString("host", null)
+        // Migrate only the previous app default. Preserve any custom pool hostname.
+        val configuredHost = if (savedHost.isNullOrBlank() ||
+            savedHost.equals(LEGACY_DEFAULT_POOL_HOST, ignoreCase = true)
+        ) DEFAULT_POOL_HOST else savedHost
+        etHost.setText(configuredHost)
+        etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
+        if (configuredHost != savedHost) {
+            p.edit().putString("host", configuredHost).apply()
+        }
         etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
+        btnPoolStats.setOnClickListener { openPoolStatistics() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -81,6 +99,18 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(refresher)
     }
 
+    private fun openPoolStatistics() {
+        val address = etAddress.text.toString().trim()
+        if (!Util.isValidBitcoinAddress(address)) {
+            Toast.makeText(this, "ആദ്യം ശരിയായ Bitcoin mainnet address നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val statsUri = Uri.parse("https://stats.ckpool.org/users/").buildUpon()
+            .appendPath(address)
+            .build()
+        startActivity(Intent(Intent.ACTION_VIEW, statsUri))
+    }
+
     private fun startMining() {
         val addr = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(addr)) {
@@ -88,7 +118,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val cores = Runtime.getRuntime().availableProcessors()
-        val host = etHost.text.toString().trim().ifEmpty { "solo.ckpool.org" }
+        val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
         if (host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
             Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
             return
@@ -146,16 +176,17 @@ class MainActivity : AppCompatActivity() {
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
-        sb.append("Shares    : ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
+        sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
         sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
         sb.append("Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
-        sb.append("Best hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
+        sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
         sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
         sb.append("ബാറ്ററി താപനില: ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
             .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
             .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
+        sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
         tvStats.text = sb.toString()
         tvLog.text = s.logText()
     }

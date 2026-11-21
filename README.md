@@ -12,9 +12,14 @@ Lottery Miner performs local CPU SHA-256d hashing and submits valid shares to a 
 - No simulated mining mode, fabricated hashrate, fabricated shares, or fabricated earnings are included.
 
 ## Pool setup
-The configured default is `solo.ckpool.org:3333`. Pool endpoints and availability may change; verify the current hostname and port with the pool operator. The app resolves the hostname through DNS and retries with backoff.
+The configured default is `stratum.ckpool.org:3333`, the CKPool-recommended automatic endpoint. The app migrates the previous default `solo.ckpool.org` to this endpoint on launch while preserving custom hostnames. Pool endpoints and availability may change; verify current details with the pool operator.
 
 Use your Bitcoin mainnet payout address as the Stratum username. An optional worker suffix may be used if supported by the pool. Password is `x`. Never enter a seed phrase or private key.
+
+The app's **CKPool statistics** button opens the graphical user page for the configured payout address at `https://stats.ckpool.org/users/<address>`. Statistics may not appear immediately at low hashrates because CKPool applies a minimum share difficulty. A missing statistics page is not proof of a payout or of a lost balance.
+
+## Payout and block verification
+This is CKPool solo mining: ordinary accepted shares are feedback and do not create proportional BTC earnings. A payout requires a valid block found by the miner, accepted by CKPool, and subsequently confirmed on the Bitcoin network. A local block candidate is not a confirmed block. Verify any claimed payout independently using the block and transaction details in a trusted Bitcoin block explorer. CKPool charges a 2% fee on a found block reward plus transaction fees.
 
 ## Build and verification
 Requires JDK 17, Android SDK 34, NDK 26.1.10909125, CMake 3.22.1, and Gradle 8.7.
