@@ -12,6 +12,16 @@ class Job(
     val ntimeHex: String,
     val clean: Boolean
 ) {
+    init {
+        require(id.isNotBlank() && id.length <= 128) { "invalid job id" }
+        require(prevHashHex.matches(Regex("[0-9a-fA-F]{64}"))) { "prevhash must be 32-byte hex" }
+        require(versionHex.matches(Regex("[0-9a-fA-F]{8}"))) { "version must be 4-byte hex" }
+        require(nbitsHex.matches(Regex("[0-9a-fA-F]{8}"))) { "nbits must be 4-byte hex" }
+        require(ntimeHex.matches(Regex("[0-9a-fA-F]{8}"))) { "ntime must be 4-byte hex" }
+        require(coinb1.size <= 100000 && coinb2.size <= 100000) { "coinbase fragment too large" }
+        require(merkle.size <= 32 && merkle.all { it.size == 32 }) { "invalid merkle branches" }
+    }
+
     /** Stratum sends prevhash with every 4-byte word byte-reversed; the header wants the internal order. */
     private val prevInternal: ByteArray = run {
         val p = Util.hexToBytes(prevHashHex)
@@ -38,7 +48,8 @@ class Job(
         val header = ByteArray(80)
         copyReversed(Util.hexToBytes(versionHex), header, 0)
         System.arraycopy(prevInternal, 0, header, 4, 32)
-        System.arraycopy(h, 0, header, 36, 32)
+        // Bitcoin serializes the merkle root as a little-endian uint256 in the block header.
+        copyReversed(h, header, 36)
         copyReversed(Util.hexToBytes(ntimeHex), header, 68)
         copyReversed(Util.hexToBytes(nbitsHex), header, 72)
         return header

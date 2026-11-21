@@ -10,7 +10,7 @@ object Native {
 
     /**
      * Scans nonces [start, start+count). Returns number of shares found (nonces in [found]).
-     * best[0] = best share difficulty seen in this call, best[1] = its nonce.
+     * best[0] = best share difficulty, best[1] = its nonce, best[2] = extra hits beyond found buffer.
      */
     external fun scan(
         header: ByteArray, start: Int, count: Int, target: ByteArray,

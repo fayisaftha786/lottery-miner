@@ -4,8 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
+import android.os.PowerManager
 import android.os.Process
 import java.math.BigInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 data class MinerConfig(
@@ -22,7 +25,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
-        private const val CHUNK = 1L shl 18
+        private const val CHUNK = 1L shl 15
     }
 
     @Volatile private var running = false
@@ -30,13 +33,25 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var current: Job? = null
     @Volatile private var en1 = ByteArray(0)
     @Volatile private var en2Size = 4
-    @Volatile private var shareTarget: ByteArray = Util.difficultyToTarget(1.0)
+    private var hasExtranonceAllocation = false
+    private val difficultyTargets = PoolDifficultyTargets()
+    @Volatile private var shareTarget: ByteArray = difficultyTargets.activeTarget()
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
+    private val jobGeneration = AtomicLong(0)
+    private val workLock = Any()
+    private val extranonceEpoch = AtomicLong(0)
+    private val reconnectingForExhaustion = AtomicBoolean(false)
     private val threads = ArrayList<Thread>()
 
-    fun start() {
+    @Synchronized fun start() {
+        threads.removeAll { !it.isAlive }
         if (running) return
+        if (threads.any { it.isAlive }) {
+            MinerState.status = "മുൻ worker-കൾ പൂർണ്ണമായി നിർത്തിയിട്ടില്ല"
+            MinerState.log("പഴയ worker thread അവസാനിക്കുന്നതുവരെ restart തടഞ്ഞു")
+            return
+        }
         running = true
         MinerState.reset()
         MinerState.running = true
@@ -68,11 +83,25 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         pol.start()
     }
 
-    fun stop() {
+    @Synchronized fun stop() {
         running = false
+        synchronized(workLock) {
+            current = null
+            jobGeneration.incrementAndGet()
+        }
         client?.close()
-        for (t in threads) t.interrupt()
-        threads.clear()
+        val stopping = threads.toList()
+        stopping.forEach { it.interrupt() }
+        val deadline = System.nanoTime() + 3_000_000_000L
+        for (t in stopping) {
+            if (t !== Thread.currentThread()) {
+                val remainingNanos = deadline - System.nanoTime()
+                if (remainingNanos <= 0L) break
+                try { t.join(maxOf(1L, remainingNanos / 1_000_000L)) }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            }
+        }
+        threads.removeAll { !it.isAlive }
         MinerState.running = false
         MinerState.connected = false
         MinerState.hashrate = 0.0
@@ -81,30 +110,80 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
-        en1 = extranonce1
-        en2Size = extranonce2Size
-        MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്)")
+        synchronized(workLock) {
+            if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
+                MinerState.status = "Pool invalid extranonce അയച്ചു"
+                client?.close()
+                return
+            }
+            val allocationChanged = !hasExtranonceAllocation || !ExtranonceAllocation(en1, en2Size).matches(extranonce1, extranonce2Size)
+            if (reconnectingForExhaustion.get() && !allocationChanged) {
+                MinerState.status = "Pool reused exhausted extranonce; mining stopped to prevent duplicate work"
+                MinerState.pauseReason = "Pool വീണ്ടും അതേ exhausted extranonce നൽകി; duplicate shares ഒഴിവാക്കാൻ mining നിർത്തി"
+                MinerState.running = false
+                running = false
+                MinerState.activeThreads = 0
+                MinerState.log("Pool reused the exhausted extranonce allocation; stopped safely")
+                client?.close()
+                return
+            }
+            if (allocationChanged) {
+                // A changed extranonce allocation invalidates old coinbase/header work.
+                // An identical repeat must not interrupt a valid active job.
+                current = null
+                jobGeneration.incrementAndGet()
+                MinerState.activeThreads = 0
+                if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
+                en1 = extranonce1.copyOf()
+                en2Size = extranonce2Size
+                hasExtranonceAllocation = true
+                extranonceEpoch.incrementAndGet()
+            }
+            reconnectingForExhaustion.set(false)
+            val allocationStatus = if (allocationChanged) "പുതിയത്" else "തുടരുന്നു"
+            MinerState.log("subscribe ശരി (extranonce2 = $extranonce2Size ബൈറ്റ്; allocation $allocationStatus)")
+        }
     }
-
     override fun onAuthorized() {
         MinerState.connected = true
+        MinerState.activeThreads = 0
         MinerState.status = "Pool അംഗീകരിച്ചു; ജോബിനായി കാത്തിരിക്കുന്നു"
         MinerState.log("Pool authorization ശരി")
     }
 
     override fun onDifficulty(diff: Double) {
-        shareTarget = Util.difficultyToTarget(diff)
-        MinerState.poolDiff = diff
-        MinerState.log("പൂൾ difficulty = $diff")
+        synchronized(workLock) {
+            // Stratum V1 difficulty changes take effect on the next mining.notify.
+            // Keep the current job and its target active until that job arrives.
+            difficultyTargets.stage(diff)
+            MinerState.poolDiff = diff
+            MinerState.log("പൂൾ difficulty = $diff (അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ)")
+        }
     }
-
     override fun onJob(job: Job) {
-        MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
-        MinerState.status = if (activeThreads > 0) "മൈനിംഗ് നടക്കുന്നു" else "നിർത്തിവെച്ചു"
-        if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
-        current = job
+        synchronized(workLock) {
+            current = null
+            jobGeneration.incrementAndGet()
+            shareTarget = difficultyTargets.activateForNextJob()
+            MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
+            MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
+            if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
+            current = job
+        }
+    }
+    override fun onShareUnknown(count: Int) {
+        if (count > 0) {
+            MinerState.unknownShares.addAndGet(count)
+            MinerState.log("കണക്ഷൻ നഷ്ടപ്പെട്ടു: $count share response അറിയില്ല; accepted ആയി കണക്കാക്കിയിട്ടില്ല")
+        }
     }
 
+    override fun onShareDropped(count: Int) {
+        if (count > 0) {
+            MinerState.droppedShares.addAndGet(count)
+            MinerState.log("$count share(s) not submitted: pool response queue full")
+        }
+    }
     override fun onShareResult(accepted: Boolean, reason: String?) {
         if (accepted) {
             MinerState.accepted.incrementAndGet()
@@ -134,8 +213,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             } catch (e: Exception) {
                 MinerState.log("കണക്ഷൻ പിശക്: ${e.message}")
             }
-            current = null
-            MinerState.connected = false
+            synchronized(workLock) {
+                current = null
+                jobGeneration.incrementAndGet()
+                MinerState.connected = false
+                MinerState.activeThreads = 0
+            }
             if (!running) break
             MinerState.status = "വീണ്ടും കണക്ട് ചെയ്യുന്നു…"
             sleepMs(retryDelay)
@@ -155,31 +238,85 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun workerLoop(idx: Int) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
-        val best = DoubleArray(2)
+        val best = DoubleArray(3)
         var counter = idx.toLong()
+        var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
+            val epoch = extranonceEpoch.get()
+            if (epoch != seenExtranonceEpoch) {
+                counter = idx.toLong()
+                seenExtranonceEpoch = epoch
+            }
             if (idx >= activeThreads) { sleepMs(500); continue }
             val j = current
             if (j == null) { sleepMs(300); continue }
 
-            val en2 = encodeEn2(counter, en2Size)
-            counter += cfg.threads
-            val header = j.buildHeader(en1, en2)
-            val target = shareTarget
+            val size = en2Size
+            val maxCounter = if (size < 8) (1L shl (size * 8)) - 1L else Long.MAX_VALUE
+            if (counter < 0L || counter > maxCounter) {
+                MinerState.status = "Extranonce2 പരിധി തീർന്നു; pool reconnect ചെയ്യുന്നു"
+                if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
+                sleepMs(500)
+                continue
+            }
+            val generation = jobGeneration.get()
+            val en1Snapshot = en1.copyOf()
+            val en2 = encodeEn2(counter, size)
+            counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
+            val header = j.buildHeader(en1Snapshot, en2)
+            val target = shareTarget.copyOf()
 
             var start = 0L
-            while (running && current === j && idx < activeThreads && start < SPACE) {
+            while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
                 val count = minOf(CHUNK, SPACE - start).toInt()
-                val nf = Native.scan(header, start.toInt(), count, target, found, best)
-                totalHashes.addAndGet(count.toLong())
-                if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
-                for (k in 0 until nf) handleShare(j, header, found[k], en2)
+                scanRange(j, generation, target, header, en2, start, count, found, best)
                 start += count
             }
         }
     }
 
-    private fun handleShare(j: Job, header: ByteArray, nonce: Int, en2: ByteArray) {
+    /**
+     * If the native result buffer overflows, discard the partial result and rescan
+     * the range as smaller non-overlapping chunks so every pool-target hit is submitted.
+     * Hash accounting includes the extra real work performed by retry scans.
+     */
+    private fun scanRange(
+        j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
+        start: Long, count: Int, found: IntArray, best: DoubleArray
+    ) {
+        if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
+        val nf = Native.scan(header, start.toInt(), count, target, found, best)
+        if (nf < 0 || nf > found.size) {
+            MinerState.status = "Native scan error; mining stopped"
+            MinerState.log("Native scan returned invalid result: $nf")
+            running = false
+            MinerState.running = false
+            MinerState.activeThreads = 0
+            MinerState.pauseReason = "Native scan error"
+            client?.close()
+            return
+        }
+        totalHashes.addAndGet(count.toLong())
+        if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
+        if (best[2] > 0.0) {
+            if (count == 1) {
+                MinerState.log("Native scan reported impossible overflow for a one-nonce range")
+                running = false
+                MinerState.running = false
+                client?.close()
+                return
+            }
+            MinerState.log("Native result buffer full; splitting range to submit every hit")
+            val firstCount = count / 2
+            scanRange(j, generation, target, header, en2, start, firstCount, found, best)
+            scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
+            return
+        }
+        for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
+    }
+
+    private fun handleShare(j: Job, generation: Long, target: ByteArray, header: ByteArray, nonce: Int, en2: ByteArray) {
+        if (!running || current !== j || jobGeneration.get() != generation) return
         val h = header.copyOf()
         h[76] = nonce.toByte()
         h[77] = (nonce ushr 8).toByte()
@@ -188,16 +325,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val digest = Native.sha256dHeader(h)
         val value = BigInteger(1, digest.reversedArray())
-        if (value > BigInteger(1, shareTarget)) return
+        if (value > BigInteger(1, target)) return
         val nonceHex = String.format(java.util.Locale.US, "%08x", nonce)
         val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
-        if (isBlock) {
-            MinerState.blockFound = true
-            MinerState.log("🎉🎉 Block candidate found; submitting share nonce $nonceHex")
+        synchronized(workLock) {
+            if (!running || current !== j || jobGeneration.get() != generation) return
+            if (isBlock) {
+                MinerState.blockCandidateDetected = true
+                MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
+            }
+            client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
         }
-        client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
     }
-
     private fun policyLoop() {
         var lastHashes = 0L
         var lastTime = System.nanoTime()
@@ -208,19 +347,23 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             var pct = MinerState.battery
             var plugged = MinerState.plugged
             var temp = MinerState.tempC
+            var batteryAvailable = false
+            var tempAvailable = false
             if (bi != null) {
                 val level = bi.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                 val scale = bi.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
-                if (level >= 0 && scale > 0) pct = level * 100 / scale
+                if (level >= 0 && scale > 0) { pct = level * 100 / scale; batteryAvailable = true }
                 plugged = bi.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
-                val rawTemp = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
-                if (rawTemp > 0) temp = rawTemp / 10.0
+                val rawTemp = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
+                if (rawTemp > 0) { temp = rawTemp / 10.0; tempAvailable = true }
             }
             MinerState.battery = pct
+            MinerState.batteryAvailable = batteryAvailable
             MinerState.plugged = plugged
-            MinerState.tempC = temp
+            MinerState.tempAvailable = tempAvailable
+            MinerState.tempC = if (tempAvailable) temp else Double.NaN
 
-            if (temp >= cfg.maxTemp) hot = true else if (temp <= cfg.maxTemp - 4.0) hot = false
+            if (tempAvailable && temp >= cfg.maxTemp) hot = true else if (tempAvailable && temp <= cfg.maxTemp - 4.0) hot = false
             // A limit of 100 means "no battery limit"; otherwise pause at the limit and resume 2% below it.
             if (cfg.maxBattery >= 100) full = false
             else if (pct >= cfg.maxBattery) full = true
@@ -230,20 +373,34 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             var reason = ""
             if (cfg.onlyCharging && !plugged) {
                 target = 0; reason = "ചാർജിൽ അല്ല"
+            } else if (!batteryAvailable) {
+                target = 0; reason = "ബാറ്ററി നില ലഭ്യമല്ല; സുരക്ഷയ്ക്കായി mining pause ചെയ്തു"
             } else if (full) {
                 target = 0; reason = "ബാറ്ററി പരിധി എത്തി"
             } else if (hot) {
                 target = 0; reason = "ഫോൺ ചൂടായി, തണുക്കാൻ കാത്തിരിക്കുന്നു"
+            } else if (!tempAvailable) {
+                target = minOf(1, cfg.threads); reason = "താപനില ലഭ്യമല്ല; സുരക്ഷയ്ക്കായി ഒരു worker മാത്രം"
             } else if (temp >= cfg.maxTemp - 3.0) {
                 target = maxOf(1, cfg.threads / 2); reason = "ചൂട് കൂടുന്നു, ത്രെഡ് കുറച്ചു"
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val thermal = (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
+                if (thermal >= PowerManager.THERMAL_STATUS_SEVERE) {
+                    target = 0; reason = "Android thermal protection: high temperature"
+                } else if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) {
+                    target = minOf(target, maxOf(1, cfg.threads / 2)); reason = "Android thermal status moderate; worker reduced"
+                }
+            }
             activeThreads = target
-            MinerState.activeThreads = target
+            MinerState.activeThreads = if (target > 0 && current != null && MinerState.connected) target else 0
             MinerState.pauseReason = reason
-            // The status line must tell the truth: never say "mining" while no thread is hashing.
+            // The UI reports eligible workers only when an authorized pool job is actually active.
             if (target == 0 && MinerState.connected) MinerState.status = "നിർത്തിവെച്ചു"
-            else if (target > 0 && MinerState.status == "നിർത്തിവെച്ചു") {
-                MinerState.status = if (current != null) "മൈനിംഗ് നടക്കുന്നു" else "ജോബിനായി കാത്തിരിക്കുന്നു"
+            else if (MinerState.connected && current == null) {
+                MinerState.status = "ജോബിനായി കാത്തിരിക്കുന്നു"
+            } else if (target > 0 && current != null && MinerState.connected) {
+                MinerState.status = "മൈനിംഗ് നടക്കുന്നു"
             }
 
             sleepMs(2000)
@@ -252,7 +409,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val total = totalHashes.get()
             val elapsed = (now - lastTime) / 1e9
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
-            MinerState.hashrate = if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
+            MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
             lastHashes = total
             lastTime = now

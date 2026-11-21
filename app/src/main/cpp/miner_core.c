@@ -65,6 +65,14 @@ static int leq_target(const uint8_t h[32], const uint8_t t[32]) {
     return 1;
 }
 
+static int hash_less(const uint8_t a[32], const uint8_t b[32]) {
+    for (int i = 31; i >= 0; i--) {
+        if (a[i] < b[i]) return 1;
+        if (a[i] > b[i]) return 0;
+    }
+    return 0;
+}
+
 static void hash_with(compress_fn_t fn, const uint8_t header[80], uint8_t out[32]) {
     uint32_t w1[16], w2[16], w3[16], mid[8], s[8], d[8];
     for (int i = 0; i < 16; i++) w1[i] = be32(header + 4 * i);
@@ -90,7 +98,7 @@ static void hash_with(compress_fn_t fn, const uint8_t header[80], uint8_t out[32
 
 static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t start, uint32_t count,
                           const uint8_t target[32], uint32_t *found, uint32_t max_found,
-                          double *best_diff, uint32_t *best_nonce) {
+                          double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
     const double DIFF1 = 65535.0 * 0x1p208;
     uint32_t w1[16], w2[16], w3[16], mid[8];
     for (int i = 0; i < 16; i++) w1[i] = be32(header + 4 * i);
@@ -109,10 +117,10 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
     w3[8] = 0x80000000u;
     w3[15] = 256;
 
-    const uint32_t t_top = be32(target);
-    uint32_t best_top = 0xFFFFFFFFu;
     double bd = 0.0;
-    uint32_t bn = 0, nfound = 0;
+    uint32_t bn = 0, nfound = 0, total_found = 0;
+    uint8_t best_hash[32];
+    int have_best = 0;
 
     for (uint32_t i = 0; i < count; i++) {
         uint32_t n = start + i;
@@ -124,15 +132,15 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
         memcpy(d, IV, 32);
         fn(d, w3);
 
-        /* top 32 bits of the hash as a number */
-        uint32_t top = __builtin_bswap32(d[7]);
-        if (top > t_top && top >= best_top) continue;
-
         uint8_t h[32];
         digest_bytes(d, h);
-        if (top <= t_top && leq_target(h, target) && nfound < max_found) found[nfound++] = n;
-        if (top < best_top) {
-            best_top = top;
+        if (leq_target(h, target)) {
+            if (nfound < max_found) found[nfound++] = n;
+            if (total_found < UINT32_MAX) total_found++;
+        }
+        if (!have_best || hash_less(h, best_hash)) {
+            memcpy(best_hash, h, sizeof(best_hash));
+            have_best = 1;
             double v = 0.0;
             for (int j = 31; j >= 0; j--) v = v * 256.0 + h[j];
             double diff = v > 0.0 ? DIFF1 / v : 1e300;
@@ -141,6 +149,7 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
     }
     *best_diff = bd;
     *best_nonce = bn;
+    if (overflow_count != NULL) *overflow_count = total_found - nfound;
     return nfound;
 }
 
@@ -179,9 +188,9 @@ static int selftest(compress_fn_t fn) {
     tgt[4] = 0xff;
     tgt[5] = 0xff;
     hdr[76] = hdr[77] = hdr[78] = hdr[79] = 0;
-    uint32_t found[4], bn;
+    uint32_t found[4], bn, overflow = 0;
     double bd;
-    uint32_t nf = scan_impl(fn, hdr, 2083236893u - 40u, 100u, tgt, found, 4, &bd, &bn);
+    uint32_t nf = scan_impl(fn, hdr, 2083236893u - 40u, 100u, tgt, found, 4, &bd, &bn, &overflow);
     return nf == 1 && found[0] == 2083236893u && bn == 2083236893u;
 }
 
@@ -204,6 +213,6 @@ void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]) { hash_with
 
 uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
-                    double *best_diff, uint32_t *best_nonce) {
-    return scan_impl(g_fn, header, start, count, target, found, max_found, best_diff, best_nonce);
+                    double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
+    return scan_impl(g_fn, header, start, count, target, found, max_found, best_diff, best_nonce, overflow_count);
 }

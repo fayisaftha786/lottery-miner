@@ -36,6 +36,12 @@ class MinerService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
+            if (engine != null && !MinerState.running) {
+                stopMining()
+                stopSelf()
+                return
+            }
+            updateWakeLock()
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIF_ID, buildNotification())
             handler.postDelayed(this, 5000)
@@ -61,7 +67,7 @@ class MinerService : Service() {
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
         }
         ServiceCompat.startForeground(
-            this, NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            this, NOTIF_ID, buildNotification(), if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         )
         if (engine != null) return
 
@@ -73,7 +79,7 @@ class MinerService : Service() {
             host = i.getStringExtra(EXTRA_HOST) ?: "solo.ckpool.org",
             port = i.getIntExtra(EXTRA_PORT, 3333),
             threads = i.getIntExtra(EXTRA_THREADS, 1),
-            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, false),
+            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, true),
             maxTemp = i.getDoubleExtra(EXTRA_MAX_TEMP, 40.0),
             maxBattery = i.getIntExtra(EXTRA_MAX_BATT, 100)
         )
@@ -83,6 +89,17 @@ class MinerService : Service() {
         handler.postDelayed(ticker, 5000)
     }
 
+    private fun updateWakeLock() {
+        if (MinerState.activeThreads > 0) {
+            if (wakeLock?.isHeld != true) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lotteryminer:cpu").also { it.acquire() }
+            }
+        } else {
+            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) { }
+            wakeLock = null
+        }
+    }
     private fun stopMining() {
         handler.removeCallbacks(ticker)
         engine?.stop()

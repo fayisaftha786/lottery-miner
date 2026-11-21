@@ -127,6 +127,7 @@ object Util {
     fun difficultyToTarget(diff: Double): ByteArray {
         require(diff.isFinite() && diff > 0.0) { "difficulty must be positive and finite" }
         val target = BigDecimal(DIFF1).divide(BigDecimal(diff), 0, RoundingMode.FLOOR).toBigInteger()
+        require(target.signum() > 0) { "difficulty is too high to represent a non-zero target" }
         return toBytes32(if (target > MAX256) MAX256 else target)
     }
 
@@ -138,7 +139,9 @@ object Util {
         require((bits and 0x00800000L) == 0L && mantissa != 0L && exponent in 1..32) { "invalid compact target" }
         val target = if (exponent <= 3) BigInteger.valueOf(mantissa ushr (8 * (3 - exponent)))
         else BigInteger.valueOf(mantissa).shiftLeft(8 * (exponent - 3))
+        require(target.signum() > 0) { "compact target rounds to zero" }
         require(target <= MAX256) { "target exceeds 256 bits" }
+        require(target <= DIFF1) { "compact target exceeds Bitcoin mainnet proof-of-work limit" }
         return target
     }
 
@@ -150,4 +153,31 @@ object Util {
         hps >= 1e3 -> String.format(Locale.US, "%.2f kH/s", hps / 1e3)
         else -> String.format(Locale.US, "%.0f H/s", hps)
     }
+}
+
+
+/**
+ * Keeps the active share target stable for the current Stratum job.
+ * Difficulty notifications are staged and only take effect when the next
+ * mining.notify arrives, as required by Stratum V1 job semantics.
+ */
+class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
+    @Volatile private var active: ByteArray = Util.difficultyToTarget(initialDifficulty)
+    @Volatile private var pending: ByteArray? = null
+
+    @Synchronized fun stage(difficulty: Double) {
+        // Validate and compute before mutating pending state.
+        val target = Util.difficultyToTarget(difficulty)
+        pending = target
+    }
+
+    @Synchronized fun activateForNextJob(): ByteArray {
+        pending?.let {
+            active = it
+            pending = null
+        }
+        return active.copyOf()
+    }
+
+    @Synchronized fun activeTarget(): ByteArray = active.copyOf()
 }

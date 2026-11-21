@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity() {
         etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
-        cbCharging.isChecked = p.getBoolean("onlyCharging", false)
+        cbCharging.isChecked = p.getBoolean("onlyCharging", true)
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
 
@@ -93,18 +93,26 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
-        val port = etPort.text.toString().toIntOrNull() ?: 3333
-        if (port !in 1..65535) {
+        val port = etPort.text.toString().trim().toIntOrNull()
+        if (port == null || port !in 1..65535) {
             Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
-        val threads = (etThreads.text.toString().toIntOrNull() ?: maxOf(1, cores / 2)).coerceIn(1, cores)
-        val maxTemp = etTemp.text.toString().toDoubleOrNull() ?: 40.0
-        if (!maxTemp.isFinite() || maxTemp !in 30.0..45.0) {
-            Toast.makeText(this, "സുരക്ഷയ്ക്കായി പരമാവധി താപനില 30–45°C ഇടയിൽ തിരഞ്ഞെടുക്കുക.", Toast.LENGTH_LONG).show()
+        val threads = etThreads.text.toString().trim().toIntOrNull()
+        if (threads == null || threads !in 1..cores) {
+            Toast.makeText(this, "Worker thread എണ്ണം 1 മുതൽ $cores വരെ നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
-        val maxBatt = (etBatt.text.toString().toIntOrNull() ?: 100).coerceIn(10, 100)
+        val maxTemp = etTemp.text.toString().trim().toDoubleOrNull()
+        if (maxTemp == null || !maxTemp.isFinite() || maxTemp !in 30.0..45.0) {
+            Toast.makeText(this, "സുരക്ഷയ്ക്കായി പരമാവധി താപനില 30–45°C ഇടയിൽ നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val maxBatt = etBatt.text.toString().trim().toIntOrNull()
+        if (maxBatt == null || maxBatt !in 10..100) {
+            Toast.makeText(this, "ബാറ്ററി പരിധി 10–100% ഇടയിൽ നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
         val onlyCharging = cbCharging.isChecked
 
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
@@ -132,27 +140,22 @@ class MainActivity : AppCompatActivity() {
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
-        if (s.blockFound) sb.append("🎉🎉 ബ്ലോക്ക് കണ്ടെത്തി! 🎉🎉\n")
+        if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("വേഗത      : ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Shares    : ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
-            .append("  (പൂൾ diff ").append(s.poolDiff).append(")\n")
-        sb.append("Best share: ").append(String.format(Locale.US, "%.4g", s.bestDiff)).append('\n')
-        sb.append("Network diff: ").append(String.format(Locale.US, "%.4e", s.netDiff)).append('\n')
-        sb.append("താപനില    : ").append(String.format(Locale.US, "%.1f°C", s.tempC))
-            .append("   ബാറ്ററി ").append(s.battery).append('%')
-            .append(if (s.plugged) " ⚡" else "").append('\n')
+            .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
+        sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
+        sb.append("Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
+        sb.append("Best hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
+        sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
+        sb.append("ബാറ്ററി താപനില: ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
+            .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
+            .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
-        if (s.netDiff > 0 && s.hashrate > 0) {
-            val perBlock = s.netDiff * 4294967296.0
-            val years = perBlock / s.hashrate / 31557600.0
-            val pSoFar = -Math.expm1(-s.totalHashes.toDouble() / perBlock) * 100.0
-            sb.append("ഒരു ബ്ലോക്കിന് ശരാശരി ≈ ").append(String.format(Locale.US, "%.3e", years)).append(" വർഷം\n")
-            sb.append("ഇതുവരെ ജയിക്കാനുള്ള സാധ്യത: ").append(String.format(Locale.US, "%.3e", pSoFar)).append(" %\n")
-        }
         tvStats.text = sb.toString()
         tvLog.text = s.logText()
     }

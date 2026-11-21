@@ -17,12 +17,13 @@ void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]);
 /*
  * Scan nonces [start, start+count) (wrapping mod 2^32). The nonce is written little-endian into header[76..79].
  * target: 32 bytes, big-endian. A nonce is a share if hash <= target.
- * found: receives up to max_found share nonces. Returns number found.
+ * found: receives up to max_found share nonces. Returns number stored in found.
+ * overflow_count: additional target hits beyond max_found (may be NULL).
  * best_diff / best_nonce: best (lowest) hash seen in this call, expressed as difficulty (diff1 / hash).
  */
 uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
-                    double *best_diff, uint32_t *best_nonce);
+                    double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
 
 extern const uint32_t SHA256_K[64];
 
