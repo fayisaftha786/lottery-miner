@@ -58,7 +58,7 @@ object ProfitabilityEngine {
         require(usdInr.isFinite() && usdInr in 1.0..10_000.0) {
             "USD/INR rate is invalid"
         }
-        require(hashpriceUsdPerPhDay.isFinite() && hashpriceUsdPerPhDay in 0.0..1_000.0) {
+        require(hashpriceUsdPerPhDay.isFinite() && hashpriceUsdPerPhDay in 0.0..1_000_000.0) {
             "BTC hashprice (USD/PH/day) is invalid"
         }
         require(poolFeePercent.isFinite() && poolFeePercent in 0.0..100.0) {
