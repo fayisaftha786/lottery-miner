@@ -284,7 +284,7 @@ class MainActivity : AppCompatActivity() {
                     powerWatts = power!!,
                     tariffInrPerKwh = tariff!!,
                     usdInr = snapshot.usdInr,
-                    hashpriceUsdPerThDay = snapshot.btcHashpriceUsdPerPhDay,
+                    hashpriceUsdPerPhDay = snapshot.btcHashpriceUsdPerPhDay,
                     poolFeePercent = fee!!
                 )
                 sb.append("Gross expected value: $")
