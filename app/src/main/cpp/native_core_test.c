@@ -63,6 +63,42 @@ int main(void) {
                         &best_diff, &best_nonce, &overflow);
     assert(stored == 0);
 
+    /*
+     * Exercise the optimized word comparison with several unrelated digest
+     * patterns. An exact digest target must pass; target-1 must fail.
+     */
+    for (uint32_t trial = 0; trial < 4; trial++) {
+        for (size_t i = 0; i < sizeof(header); i++) {
+            header[i] = (uint8_t)(i * 37u + trial * 53u);
+        }
+        const uint32_t nonce = 0x10203040u + trial * 0x01010101u;
+        header[76] = (uint8_t)nonce;
+        header[77] = (uint8_t)(nonce >> 8);
+        header[78] = (uint8_t)(nonce >> 16);
+        header[79] = (uint8_t)(nonce >> 24);
+
+        miner_sha256d_header(header, digest_le);
+        for (size_t i = 0; i < 32; i++) exact_target[i] = digest_le[31 - i];
+
+        stored = miner_scan(header, nonce, 1, exact_target, &genesis_nonce, 1,
+                            &best_diff, &best_nonce, &overflow);
+        assert(stored == 1 && genesis_nonce == nonce);
+
+        int decremented = 0;
+        for (int i = 31; i >= 0; i--) {
+            if (exact_target[i] != 0) {
+                exact_target[i]--;
+                decremented = 1;
+                break;
+            }
+            exact_target[i] = 0xff;
+        }
+        assert(decremented);
+        stored = miner_scan(header, nonce, 1, exact_target, &genesis_nonce, 1,
+                            &best_diff, &best_nonce, &overflow);
+        assert(stored == 0);
+    }
+
     /* Nonce range wraps modulo 2^32 and visits both boundary values. */
     memset(target, 0xff, sizeof(target));
     stored = miner_scan(header, UINT32_MAX, 2, target, found, 2,
