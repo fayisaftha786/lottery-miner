@@ -117,6 +117,77 @@
             android:text="Export real-device verification report" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="MINING ECONOMICS · PROFIT PER WATT"
+            android:textStyle="bold"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Live BTC hashprice + നിങ്ങളുടെ അളന്ന power draw + electricity tariff ഉപയോഗിച്ച് expected net estimate. Phone power draw സ്വയം അളക്കില്ല; USB power meter ഉപയോഗിച്ച് അളന്നാൽ കൂടുതൽ നല്ലത്."
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etPowerWatts"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Power W"
+                android:inputType="numberDecimal"
+                android:singleLine="true" />
+
+            <EditText
+                android:id="@+id/etTariffInr"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="₹ / kWh"
+                android:inputType="numberDecimal"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etPoolFeePercent"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Pool fee %"
+                android:inputType="numberDecimal"
+                android:singleLine="true" />
+
+            <Button
+                android:id="@+id/btnRefreshEconomics"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Refresh market data" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvEconomics"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#18242D"
+            android:text="Mining economics: Refresh market data; then enter measured phone watts and your electricity tariff."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
             android:id="@+id/tvExternalStats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
