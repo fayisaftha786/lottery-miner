@@ -111,10 +111,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
         synchronized(workLock) {
-            current = null
-            jobGeneration.incrementAndGet()
-            MinerState.activeThreads = 0
-            if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
             if (extranonce2Size !in 1..16 || extranonce1.size > 32) {
                 MinerState.status = "Pool invalid extranonce അയച്ചു"
                 client?.close()
@@ -132,6 +128,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 return
             }
             if (allocationChanged) {
+                // A changed extranonce allocation invalidates old coinbase/header work.
+                // An identical repeat must not interrupt a valid active job.
+                current = null
+                jobGeneration.incrementAndGet()
+                MinerState.activeThreads = 0
+                if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
                 en1 = extranonce1.copyOf()
                 en2Size = extranonce2Size
                 hasExtranonceAllocation = true
