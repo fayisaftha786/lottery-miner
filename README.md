@@ -36,4 +36,9 @@ Current policy checks:
 - Google Colab managed runtimes: cryptocurrency mining is prohibited.
 - Kaggle: its Terms prohibit cryptomining.
 
+
+- AWS Free Tier offers: cryptocurrency mining is prohibited; violations may trigger standard charges or suspension.
+- Oracle Cloud Services Agreement: cryptocurrency mining is prohibited.
+- Azure Lab Services: cryptocurrency mining is prohibited.
+
 The app's fail-closed gate requires explicit mining permission, verified remaining free quota, and user authorization. No cloud instance is created and no paid quota is consumed by this feature. Do not enter cloud passwords, API keys, or wallet private keys into the app. An in-app OAuth login can be added only after a suitable provider and its official OAuth/API flow are verified.
