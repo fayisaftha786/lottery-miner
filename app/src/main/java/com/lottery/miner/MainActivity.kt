@@ -249,7 +249,7 @@ class MainActivity : AppCompatActivity() {
         sb.append("MINING ECONOMICS · BTC SHA-256d\n")
         sb.append("BTC hashprice: $")
             .append(String.format(Locale.US, "%.5f", snapshot.btcHashpriceUsdPerPhDay))
-            .append(" / TH/s / day\n")
+            .append(" / PH/s / day\n")
         snapshot.btcPriceUsd?.let {
             sb.append("BTC spot reference: $")
                 .append(String.format(Locale.US, "%.2f", it)).append('\n')
@@ -259,6 +259,12 @@ class MainActivity : AppCompatActivity() {
             .append(" (FX date ").append(fxDate).append(")\n")
         sb.append("Market snapshot age: ")
             .append(String.format(Locale.US, "%.1f hours", hashAgeHours)).append('\n')
+        snapshot.hashpriceUpdatedAtMillis?.let {
+            sb.append("Hashprice provider timestamp: ")
+                .append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US)
+                    .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                    .format(java.util.Date(it))).append('\n')
+        }
         sb.append("Status: ").append(economicsStatus).append('\n')
         if (hashAgeHours > 24.0) {
             sb.append("WARNING: hashprice snapshot is older than 24 hours; treat this estimate as stale.\n")
