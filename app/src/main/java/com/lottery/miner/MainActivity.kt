@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         btnBenchmark.isEnabled = false
-        tvBenchmark.text = "ADAPTIVE MINING LAB\\nSHA-256d benchmark നടക്കുന്നു…\\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
+        tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
         Thread {
             try {
                 val result = Sha256dBenchmark.run(5_000L)
