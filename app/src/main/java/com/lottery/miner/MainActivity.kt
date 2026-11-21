@@ -236,6 +236,12 @@ class MainActivity : AppCompatActivity() {
         val savedPrefs = getSharedPreferences("economics", Context.MODE_PRIVATE)
         val savedRate = savedPrefs.getString("lastMeasuredHashrateHps", null)?.toDoubleOrNull()
             ?.takeIf { it.isFinite() && it > 0.0 }
+        val savedRateAt = savedPrefs.getLong("lastMeasuredHashrateAt", 0L)
+        val savedRateAgeHours = if (savedRateAt > 0L) {
+            (now - savedRateAt).coerceAtLeast(0L) / 3_600_000.0
+        } else {
+            Double.POSITIVE_INFINITY
+        }
         val rate = currentRate ?: savedRate
         val rateSource = if (currentRate != null) "live miner measurement" else "last saved real-device measurement"
 
@@ -281,6 +287,16 @@ class MainActivity : AppCompatActivity() {
         } else {
             sb.append("Hashrate used: ").append(Util.fmtRate(rate))
                 .append(" (").append(rateSource).append(")\n")
+        }
+
+        if (rate != null && currentRate == null) {
+            sb.append("Last real-device hashrate age: ")
+                .append(if (savedRateAgeHours.isFinite()) {
+                    String.format(Locale.US, "%.1f hours", savedRateAgeHours)
+                } else "unknown").append('\n')
+            if (savedRateAgeHours > 24.0) {
+                sb.append("WARNING: hashrate measurement is older than 24 hours; rerun phone mining to refresh it.\n")
+            }
         }
 
         val missing = mutableListOf<String>()
