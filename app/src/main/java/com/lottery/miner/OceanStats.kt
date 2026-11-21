@@ -46,8 +46,8 @@ object OceanStats {
         val workers = buildList {
             for (index in 0 until workersJson.length()) {
                 val item = workersJson.optJSONObject(index) ?: continue
-                val rate60 = firstNumber(item, "hashrate_60s")
-                val rate300 = firstNumber(item, "hashrate_300s")
+                val rate60 = firstNumber(item, "hashrate_60s") ?: Double.NaN
+                val rate300 = firstNumber(item, "hashrate_300s") ?: Double.NaN
                 val name = firstString(item, "worker", "worker_name", "name", "username")
                     .ifBlank { "worker-${index + 1}" }
                 if (rate60.isFinite() && rate60 >= 0.0 && rate300.isFinite() && rate300 >= 0.0) {
