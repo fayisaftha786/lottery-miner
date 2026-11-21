@@ -224,8 +224,14 @@ class MainActivity : AppCompatActivity() {
         if (snapshot != null) {
             val ageMs = System.currentTimeMillis() - snapshot.fetchedAtMillis
             val snapshotFresh = externalError == null && ageMs in 0..120_000L
-            sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
-            sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
+            val oceanUserNotFound = snapshot.notice?.contains("no such user", ignoreCase = true) == true
+            if (oceanUserNotFound) {
+                sb.append("External worker hashrate: N/A (OCEAN user/worker record not found)\\n")
+                sb.append("Workers detected: സ്ഥിരീകരിക്കാനാവില്ല\\n")
+            } else {
+                sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\\n')
+                sb.append("Workers detected: ").append(snapshot.workers.size).append('\\n')
+            }
             snapshot.workers.forEach { worker ->
                 sb.append("• ").append(worker.name)
                     .append(": ").append(Util.fmtRate(worker.hashrate))
@@ -234,8 +240,14 @@ class MainActivity : AppCompatActivity() {
             sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
                 .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
             if (snapshot.workers.isEmpty()) {
-                if (snapshot.notice != null) {
-                    sb.append("OCEAN API: ഓൺലൈൻ · ഈ വിലാസത്തിൽ active OCEAN worker ഇല്ല.\n")
+                if (oceanUserNotFound) {
+                    sb.append("OCEAN API: ഓൺലൈൻ · ഈ വിലാസത്തിന് OCEAN user/worker record കണ്ടെത്തിയില്ല.\n")
+                    sb.append("ഇത് API outage അല്ല; external hashrate സ്ഥിരീകരിക്കാനാവില്ല.\n")
+                    if (!host.contains("ocean.xyz")) {
+                        sb.append("ഫോൺ CKPool-ലാണ് mining ചെയ്യുന്നത്; CKPool worker-കൾ OCEAN പട്ടികയിൽ വരില്ല.\n")
+                    }
+                } else if (snapshot.notice != null) {
+                    sb.append("OCEAN API: ഓൺലൈൻ · active OCEAN worker കണ്ടെത്തിയില്ല.\n")
                     if (!host.contains("ocean.xyz")) {
                         sb.append("ഫോൺ CKPool-ലാണ് mining ചെയ്യുന്നത്; CKPool worker-കൾ OCEAN പട്ടികയിൽ വരില്ല.\n")
                     } else {
@@ -252,6 +264,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 !snapshotFresh -> {
                     sb.append("Snapshot stale; excluded from combined total until a fresh response arrives.\n")
+                }
+                oceanUserNotFound -> {
+                    sb.append("Combined total: OCEAN worker status സ്ഥിരീകരിക്കാത്തതിനാൽ കണക്കാക്കുന്നില്ല.\n")
                 }
                 host.contains("ocean.xyz") -> {
                     sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
