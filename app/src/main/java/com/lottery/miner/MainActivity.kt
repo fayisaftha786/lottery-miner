@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
         val btcPrice = prefs.getString("btcPriceUsd", null)?.toDoubleOrNull()
         val hashUpdated = prefs.getLong("hashpriceUpdatedAt", 0L).takeIf { it > 0L }
         return MiningMarketSnapshot(
-            btcHashpriceUsdPerThDay = hashprice,
+            btcHashpriceUsdPerPhDay = hashprice,
             btcPriceUsd = btcPrice,
             usdInr = usdInr,
             hashpriceUpdatedAtMillis = hashUpdated,
@@ -154,7 +154,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveMarketSnapshot(snapshot: MiningMarketSnapshot) {
         getSharedPreferences("economics", Context.MODE_PRIVATE).edit()
-            .putString("hashprice", snapshot.btcHashpriceUsdPerThDay.toString())
+            .putString("hashprice", snapshot.btcHashpriceUsdPerPhDay.toString())
             .putString("btcPriceUsd", snapshot.btcPriceUsd?.toString().orEmpty())
             .putString("usdInr", snapshot.usdInr.toString())
             .putLong("hashpriceUpdatedAt", snapshot.hashpriceUpdatedAtMillis ?: 0L)
@@ -248,7 +248,7 @@ class MainActivity : AppCompatActivity() {
         val sb = StringBuilder()
         sb.append("MINING ECONOMICS · BTC SHA-256d\n")
         sb.append("BTC hashprice: $")
-            .append(String.format(Locale.US, "%.5f", snapshot.btcHashpriceUsdPerThDay))
+            .append(String.format(Locale.US, "%.5f", snapshot.btcHashpriceUsdPerPhDay))
             .append(" / TH/s / day\n")
         snapshot.btcPriceUsd?.let {
             sb.append("BTC spot reference: $")
@@ -284,7 +284,7 @@ class MainActivity : AppCompatActivity() {
                     powerWatts = power!!,
                     tariffInrPerKwh = tariff!!,
                     usdInr = snapshot.usdInr,
-                    hashpriceUsdPerThDay = snapshot.btcHashpriceUsdPerThDay,
+                    hashpriceUsdPerThDay = snapshot.btcHashpriceUsdPerPhDay,
                     poolFeePercent = fee!!
                 )
                 sb.append("Gross expected value: $")
