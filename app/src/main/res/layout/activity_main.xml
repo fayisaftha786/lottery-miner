@@ -123,7 +123,7 @@
             android:layout_marginTop="8dp"
             android:padding="12dp"
             android:background="#18242D"
-            android:text="ADAPTIVE MINING LAB\nRun a local benchmark while mining is stopped. No pool shares are submitted."
+            android:text="ADAPTIVE MINING LAB\nSHA-256d is the only installed algorithm. Benchmark runs locally while mining is stopped; no pool shares are submitted."
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
