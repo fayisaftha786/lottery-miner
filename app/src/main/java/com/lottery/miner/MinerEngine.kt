@@ -34,7 +34,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var en1 = ByteArray(0)
     @Volatile private var en2Size = 4
     private var hasExtranonceAllocation = false
-    @Volatile private var shareTarget: ByteArray = Util.difficultyToTarget(1.0)
+    private val difficultyTargets = PoolDifficultyTargets()
+    @Volatile private var shareTarget: ByteArray = difficultyTargets.activeTarget()
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
     private val jobGeneration = AtomicLong(0)
@@ -150,19 +151,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     override fun onDifficulty(diff: Double) {
         synchronized(workLock) {
-            current = null
-            jobGeneration.incrementAndGet()
-            MinerState.activeThreads = 0
-            if (MinerState.connected) MinerState.status = "പുതിയ pool difficulty; പുതിയ job കാത്തിരിക്കുന്നു"
-            shareTarget = Util.difficultyToTarget(diff)
+            // Stratum V1 difficulty changes take effect on the next mining.notify.
+            // Keep the current job and its target active until that job arrives.
+            difficultyTargets.stage(diff)
             MinerState.poolDiff = diff
-            MinerState.log("പൂൾ difficulty = $diff")
+            MinerState.log("പൂൾ difficulty = $diff (അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ)")
         }
     }
     override fun onJob(job: Job) {
         synchronized(workLock) {
             current = null
             jobGeneration.incrementAndGet()
+            shareTarget = difficultyTargets.activateForNextJob()
             MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
             MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
             if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
