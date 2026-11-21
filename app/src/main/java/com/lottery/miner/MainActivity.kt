@@ -226,11 +226,11 @@ class MainActivity : AppCompatActivity() {
             val snapshotFresh = externalError == null && ageMs in 0..120_000L
             val oceanUserNotFound = snapshot.notice?.contains("no such user", ignoreCase = true) == true
             if (oceanUserNotFound) {
-                sb.append("External worker hashrate: N/A (OCEAN user/worker record not found)\\n")
-                sb.append("Workers detected: സ്ഥിരീകരിക്കാനാവില്ല\\n")
+                sb.append("External worker hashrate: N/A (OCEAN user/worker record not found)\n")
+                sb.append("Workers detected: സ്ഥിരീകരിക്കാനാവില്ല\n")
             } else {
-                sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\\n')
-                sb.append("Workers detected: ").append(snapshot.workers.size).append('\\n')
+                sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
+                sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
             }
             snapshot.workers.forEach { worker ->
                 sb.append("• ").append(worker.name)
