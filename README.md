@@ -52,7 +52,7 @@ The in-app Mining Economics panel estimates Bitcoin SHA-256d expected revenue ag
 - USD/INR is read from ExchangeRate-API's open `/v6/latest/USD` endpoint. Its open rate is refreshed daily and attribution is shown in-app.
 - Hashrate comes from the live native miner or the last real device hashrate recorded by the app. It is never fabricated.
 - The user supplies measured *incremental mining power* in watts, the electricity tariff in INR/kWh, and the pool fee percentage. Android battery percentage/temperature are not a reliable wattmeter.
-- The estimate shows expected gross value, post-fee value, daily energy, electricity cost, expected net value, and break-even hashrate.
+- The estimate shows expected gross value, post-fee value, daily energy, electricity cost, expected net value, break-even hashrate, and break-even electricity tariff.
 
 Formula:
 - Expected gross USD/day = (measured H/s ÷ 10^15) × hashprice USD/(PH/s)/day.
