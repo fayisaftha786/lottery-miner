@@ -242,7 +242,8 @@ class MainActivity : AppCompatActivity() {
         val power = etPowerWatts.text.toString().trim().toDoubleOrNull()
         val tariff = etTariffInr.text.toString().trim().toDoubleOrNull()
         val fee = etPoolFeePercent.text.toString().trim().toDoubleOrNull()
-        val hashAgeHours = ((now - snapshot.downloadedAtMillis).coerceAtLeast(0L) / 3_600_000.0)
+        val marketReferenceTime = snapshot.hashpriceUpdatedAtMillis ?: snapshot.downloadedAtMillis
+        val hashAgeHours = ((now - marketReferenceTime).coerceAtLeast(0L) / 3_600_000.0)
         val fxDate = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
             .format(java.util.Date(snapshot.fxUpdatedAtMillis))
         val sb = StringBuilder()
@@ -257,8 +258,14 @@ class MainActivity : AppCompatActivity() {
         sb.append("USD/INR reference: ")
             .append(String.format(Locale.US, "%.4f", snapshot.usdInr))
             .append(" (FX date ").append(fxDate).append(")\n")
-        sb.append("Market snapshot age: ")
-            .append(String.format(Locale.US, "%.1f hours", hashAgeHours)).append('\n')
+        sb.append(if (snapshot.hashpriceUpdatedAtMillis == null) {
+            "Market data retrieved: "
+        } else {
+            "Hashprice provider update age: "
+        }).append(String.format(Locale.US, "%.1f hours", hashAgeHours)).append('\n')
+        if (snapshot.hashpriceUpdatedAtMillis == null) {
+            sb.append("Provider update timestamp unavailable; age is measured from retrieval time only.\n")
+        }
         snapshot.hashpriceUpdatedAtMillis?.let {
             sb.append("Hashprice provider timestamp: ")
                 .append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US)
@@ -315,10 +322,15 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     "Model result: NOT PROFITABLE at these power and electricity inputs.\n"
                 })
-                sb.append("Break-even hashrate: ")
+                sb.append("Break-even hashrate at this power cost: ")
                     .append(if (estimate.breakEvenHashrateHps.isFinite()) {
                         Util.fmtRate(estimate.breakEvenHashrateHps)
                     } else "unreachable at this hashprice/fee")
+                    .append('\n')
+                sb.append("Break-even electricity tariff: ")
+                    .append(if (estimate.breakEvenTariffInrPerKwh.isFinite()) {
+                        String.format(Locale.US, "₹%.4f/kWh", estimate.breakEvenTariffInrPerKwh)
+                    } else "N/A at zero energy use")
                     .append('\n')
             } catch (error: IllegalArgumentException) {
                 sb.append("Input error: ").append(error.message ?: "invalid economics input").append('\n')
@@ -327,7 +339,7 @@ class MainActivity : AppCompatActivity() {
         sb.append("Pool fee is user-configured; CKPool's documented fee is 2% on a found block reward plus transaction fees.\n")
         sb.append("WARNING: hashprice is expected network revenue, NOT a promised CKPool payment. Solo-mining payouts are rare block events; accepted shares are not paid shares.\n")
         sb.append("Excludes battery wear, charger loss, cooling, internet, device depreciation, and opportunity cost. Enter incremental mining watts, not the phone's idle draw.\n")
-        sb.append("Sources: Startmining public API; Rates By Exchange Rate API.")
+        sb.append("Sources: Startmining public API; Rates By ExchangeRate-API (https://www.exchangerate-api.com).")
         tvEconomics.text = sb.toString()
     }
 
