@@ -65,14 +65,6 @@ static void digest_numeric_words(const uint32_t digest[8], uint32_t words[8]) {
     for (int i = 0; i < 8; i++) words[i] = __builtin_bswap32(digest[7 - i]);
 }
 
-static int compare_words_be(const uint32_t a[8], const uint32_t b[8]) {
-    for (int i = 0; i < 8; i++) {
-        if (a[i] < b[i]) return -1;
-        if (a[i] > b[i]) return 1;
-    }
-    return 0;
-}
-
 static void hash_with(compress_fn_t fn, const uint8_t header[80], uint8_t out[32]) {
     uint32_t w1[16], w2[16], w3[16], mid[8], s[8], d[8];
     for (int i = 0; i < 16; i++) w1[i] = be32(header + 4 * i);
