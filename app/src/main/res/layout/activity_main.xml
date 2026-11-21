@@ -109,6 +109,13 @@
             android:layout_marginTop="8dp"
             android:text="CKPool Live Statistics തുറക്കുക" />
 
+        <Button
+            android:id="@+id/btnExportDiagnostics"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Export real-device verification report" />
+
         <TextView
             android:id="@+id/tvExternalStats"
             android:layout_width="match_parent"
