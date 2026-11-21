@@ -110,6 +110,24 @@
             android:text="CKPool Live Statistics തുറക്കുക" />
 
         <Button
+            android:id="@+id/btnBenchmark"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Run safe SHA-256d benchmark" />
+
+        <TextView
+            android:id="@+id/tvBenchmark"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#18242D"
+            android:text="ADAPTIVE MINING LAB\nRun a local benchmark while mining is stopped. No pool shares are submitted."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <Button
             android:id="@+id/btnExportDiagnostics"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
