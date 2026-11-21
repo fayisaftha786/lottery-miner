@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class MiningMarketSnapshot(
-    val btcHashpriceUsdPerThDay: Double,
+    val btcHashpriceUsdPerPhDay: Double,
     val btcPriceUsd: Double?,
     val usdInr: Double,
     val hashpriceUpdatedAtMillis: Long?,
@@ -34,7 +34,7 @@ data class BitcoinProfitEstimate(
  * probabilistic; ordinary accepted shares do not pay out.
  */
 object ProfitabilityEngine {
-    private const val HPS_PER_THPS = 1_000_000_000_000.0
+    private const val HPS_PER_PHPS = 1_000_000_000_000_000.0
     private const val HOURS_PER_DAY = 24.0
     private const val WH_PER_KWH = 1000.0
 
@@ -43,7 +43,7 @@ object ProfitabilityEngine {
         powerWatts: Double,
         tariffInrPerKwh: Double,
         usdInr: Double,
-        hashpriceUsdPerThDay: Double,
+        hashpriceUsdPerPhDay: Double,
         poolFeePercent: Double
     ): BitcoinProfitEstimate {
         require(hashrateHps.isFinite() && hashrateHps >= 0.0) {
@@ -65,7 +65,7 @@ object ProfitabilityEngine {
             "Pool fee must be between 0 and 100%"
         }
 
-        val grossUsd = (hashrateHps / HPS_PER_THPS) * hashpriceUsdPerThDay
+        val grossUsd = (hashrateHps / HPS_PER_PHPS) * hashpriceUsdPerThDay
         val afterFeeUsd = grossUsd * (1.0 - poolFeePercent / 100.0)
         val afterFeeInr = afterFeeUsd * usdInr
         val energyKwh = powerWatts * HOURS_PER_DAY / WH_PER_KWH
@@ -133,7 +133,7 @@ object ProfitabilityMarketData {
             ?: System.currentTimeMillis()
 
         return MiningMarketSnapshot(
-            btcHashpriceUsdPerThDay = hashprice,
+            btcHashpriceUsdPerPhDay = hashprice,
             btcPriceUsd = btcPrice,
             usdInr = usdInr,
             hashpriceUpdatedAtMillis = hashFetchedAt,
