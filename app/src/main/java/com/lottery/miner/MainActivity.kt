@@ -131,14 +131,14 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun runSafeBenchmark() {
-        if (MinerState.running || benchmarkRunning) {
+        if (MinerState.running || benchmarkRunning || Sha256dBenchmark.isRunning()) {
             Toast.makeText(this, "Benchmark നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
         btn.isEnabled = false
-        tvBenchmark.text = "ADAPTIVE MINING LAB\\nSHA-256d benchmark നടക്കുന്നു…\\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
+        tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
         Thread {
             try {
                 val result = Sha256dBenchmark.run(5_000L)
@@ -179,7 +179,15 @@ class MainActivity : AppCompatActivity() {
             tvProfitability.text = "ഈ estimator നിലവിൽ CKPool solo Bitcoin mining-നു മാത്രമാണ്. മറ്റൊരു pool payout model ഇതിൽ ഉൾപ്പെടുത്തിയിട്ടില്ല."
             return
         }
-        val liveRate = MinerState.hashrate.takeIf { MinerState.running && it.isFinite() && it > 0.0 }
+        val liveRate = if (MinerState.running) {
+            MinerState.hashrate.takeIf { it.isFinite() && it > 0.0 }
+        } else {
+            null
+        }
+        if (MinerState.running && liveRate == null) {
+            tvProfitability.text = "Mining ഇപ്പോൾ 0 H/s ആണ്. Worker വീണ്ടും പ്രവർത്തിക്കുന്നതായി ഉറപ്പാക്കിയ ശേഷം estimate പുതുക്കുക."
+            return
+        }
         val rate = liveRate ?: lastBenchmarkHps
         if (!rate.isFinite() || rate <= 0.0) {
             tvProfitability.text = "ആദ്യം mining തുടങ്ങുകയോ Mining നിർത്തിയ ശേഷം safe SHA-256d benchmark നടത്തുകയോ ചെയ്യുക."
@@ -470,7 +478,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMining() {
-        if (benchmarkRunning) {
+        if (benchmarkRunning || Sha256dBenchmark.isRunning()) {
             Toast.makeText(this, "Benchmark പൂർത്തിയായതിന് ശേഷം mining start ചെയ്യുക.", Toast.LENGTH_LONG).show()
             return
         }
