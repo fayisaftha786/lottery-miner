@@ -1,9 +1,9 @@
 package com.lottery.miner
 
 /**
- * A candidate is selectable only when its native implementation is present and
- * the live economics snapshot is fresh. Algorithm hashrates are never compared
- * across different algorithms.
+ * A candidate may be selected only when its native implementation exists,
+ * its device benchmark is real, and the market/network snapshot is fresh.
+ * Hashrates from different algorithms are never compared directly.
  */
 data class AlgorithmCandidate(
     val id: String,
@@ -13,23 +13,35 @@ data class AlgorithmCandidate(
     val deviceBenchmarkHps: Double? = null
 )
 
+enum class PayoutModel {
+    /** Expected value of rare network-block payouts; not a daily cash payment. */
+    SOLO_BLOCK_REWARD,
+    /** Proportional share-based pool payout model. */
+    PROPORTIONAL_POOL
+}
+
 data class MiningEconomicsInput(
     val deviceHashrate: Double,
     val networkHashrate: Double,
     val dailyNetworkRewardCoins: Double,
-    val coinPriceUsd: Double,
+    val coinPriceFiat: Double,
     val powerWatts: Double,
-    val electricityUsdPerKwh: Double,
+    val electricityFiatPerKwh: Double,
     val poolFeePercent: Double,
-    val snapshotAgeSeconds: Long
+    val snapshotAgeSeconds: Long,
+    val networkBlocksPerDay: Double = 144.0,
+    val payoutModel: PayoutModel = PayoutModel.SOLO_BLOCK_REWARD
 )
 
 data class MiningEconomicsResult(
-    val grossUsdPerDay: Double,
-    val electricityUsdPerDay: Double,
-    val poolFeeUsdPerDay: Double,
-    val netUsdPerDay: Double,
-    val isFresh: Boolean
+    val grossFiatPerDay: Double,
+    val electricityFiatPerDay: Double,
+    val poolFeeFiatPerDay: Double,
+    val netFiatPerDay: Double,
+    val expectedBlocksFoundPerDay: Double,
+    val expectedDaysPerBlock: Double,
+    val isFresh: Boolean,
+    val payoutModel: PayoutModel
 )
 
 object MiningStrategy {
@@ -39,23 +51,33 @@ object MiningStrategy {
         require(input.deviceHashrate.isFinite() && input.deviceHashrate > 0.0)
         require(input.networkHashrate.isFinite() && input.networkHashrate > 0.0)
         require(input.dailyNetworkRewardCoins.isFinite() && input.dailyNetworkRewardCoins >= 0.0)
-        require(input.coinPriceUsd.isFinite() && input.coinPriceUsd >= 0.0)
+        require(input.coinPriceFiat.isFinite() && input.coinPriceFiat >= 0.0)
         require(input.powerWatts.isFinite() && input.powerWatts >= 0.0)
-        require(input.electricityUsdPerKwh.isFinite() && input.electricityUsdPerKwh >= 0.0)
+        require(input.electricityFiatPerKwh.isFinite() && input.electricityFiatPerKwh >= 0.0)
         require(input.poolFeePercent.isFinite() && input.poolFeePercent in 0.0..100.0)
         require(input.snapshotAgeSeconds >= 0L)
+        require(input.networkBlocksPerDay.isFinite() && input.networkBlocksPerDay > 0.0)
 
         val share = (input.deviceHashrate / input.networkHashrate).coerceIn(0.0, 1.0)
-        val gross = share * input.dailyNetworkRewardCoins * input.coinPriceUsd
+        val gross = share * input.dailyNetworkRewardCoins * input.coinPriceFiat
         val fee = gross * input.poolFeePercent / 100.0
-        val electricity = input.powerWatts / 1000.0 * 24.0 * input.electricityUsdPerKwh
+        val electricity = input.powerWatts / 1000.0 * 24.0 * input.electricityFiatPerKwh
         val fresh = input.snapshotAgeSeconds <= MAX_SNAPSHOT_AGE_SECONDS
+        val expectedBlocksPerDay = share * input.networkBlocksPerDay
+        val expectedDaysPerBlock = if (expectedBlocksPerDay > 0.0) {
+            1.0 / expectedBlocksPerDay
+        } else {
+            Double.POSITIVE_INFINITY
+        }
         return MiningEconomicsResult(
-            grossUsdPerDay = gross,
-            electricityUsdPerDay = electricity,
-            poolFeeUsdPerDay = fee,
-            netUsdPerDay = if (fresh) gross - fee - electricity else Double.NaN,
-            isFresh = fresh
+            grossFiatPerDay = gross,
+            electricityFiatPerDay = electricity,
+            poolFeeFiatPerDay = fee,
+            netFiatPerDay = if (fresh) gross - fee - electricity else Double.NaN,
+            expectedBlocksFoundPerDay = expectedBlocksPerDay,
+            expectedDaysPerBlock = expectedDaysPerBlock,
+            isFresh = fresh,
+            payoutModel = input.payoutModel
         )
     }
 
@@ -66,10 +88,11 @@ object MiningStrategy {
         .filter { (candidate, result) ->
             candidate.installed && result.isFresh &&
                 candidate.deviceBenchmarkHps != null &&
+                candidate.deviceBenchmarkHps.isFinite() &&
                 candidate.deviceBenchmarkHps > 0.0 &&
-                result.netUsdPerDay.isFinite() && result.netUsdPerDay > 0.0
+                result.netFiatPerDay.isFinite() && result.netFiatPerDay > 0.0
         }
-        .maxByOrNull { it.second.netUsdPerDay }
+        .maxByOrNull { it.second.netFiatPerDay }
         ?.first
 }
 
@@ -77,9 +100,9 @@ object MiningStrategy {
 object MiningAlgorithms {
     val candidates = listOf(
         AlgorithmCandidate("sha256d", "Bitcoin SHA-256d", "SHA-256d", installed = true),
-        AlgorithmCandidate("randomx", "Monero RandomX", "RandomX", installed = false),
         AlgorithmCandidate("verushash", "VerusHash 2.2", "VerusHash", installed = false),
-        AlgorithmCandidate("ghostrider", "Raptoreum GhostRider", "GhostRider", installed = false),
-        AlgorithmCandidate("astrobwt", "DERO AstroBWT", "AstroBWT", installed = false)
+        AlgorithmCandidate("randomx", "Monero RandomX", "RandomX", installed = false),
+        AlgorithmCandidate("scrypt", "Scrypt", "Scrypt", installed = false),
+        AlgorithmCandidate("ghostrider", "Raptoreum GhostRider", "GhostRider", installed = false)
     )
 }
