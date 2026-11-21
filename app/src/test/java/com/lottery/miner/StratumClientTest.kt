@@ -42,7 +42,7 @@ class StratumClientTest {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4).toString()).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
         assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
