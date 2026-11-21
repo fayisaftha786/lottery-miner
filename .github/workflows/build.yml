@@ -30,7 +30,7 @@ jobs:
           SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -1)
           test -n "$SDKM"
           yes | "$SDKM" --licenses >/dev/null || true
-          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Configure protected release signing
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
@@ -64,6 +64,31 @@ jobs:
 
       - name: Assemble release APK
         run: gradle assembleRelease --no-daemon
+
+      - name: Verify 16 KB native ELF and APK alignment
+        run: |
+          APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$APK"
+          READELF="$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
+          test -x "$READELF"
+          test -x "$ZIPALIGN"
+          TMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TMP_DIR"' EXIT
+          for ABI in arm64-v8a x86_64; do
+            LIB="$TMP_DIR/libminercore-$ABI.so"
+            unzip -p "$APK" "lib/$ABI/libminercore.so" > "$LIB"
+            test -s "$LIB"
+            ALIGNMENTS=$("$READELF" -lW "$LIB" | awk '$1 == "LOAD" { print $NF }')
+            test -n "$ALIGNMENTS"
+            while IFS= read -r ALIGN; do
+              if (( ALIGN < 0x4000 )); then
+                echo "16 KB ELF alignment failure: $ABI LOAD segment is $ALIGN"
+                exit 1
+              fi
+            done <<< "$ALIGNMENTS"
+          done
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK"
 
       - name: Verify APK signing state
         run: |

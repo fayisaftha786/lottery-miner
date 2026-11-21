@@ -52,3 +52,13 @@ The app uses an explicitly user-started special-use foreground service for susta
 - Thermal and battery safeguards reduce risk but cannot guarantee device safety. Stop mining if the device becomes hot, unstable, or uncomfortable to hold.
 - Phone CPU mining has an astronomically low chance of finding a Bitcoin block compared with modern ASIC miners. Accepted pool shares do not guarantee a payout in solo mode.
 - Automated tests cannot verify live pool availability, pool-side share acceptance, device thermal stability, or an actual block confirmation. These require real-device testing and independent pool/network evidence.
+
+
+## Remote cloud worker eligibility (not connected)
+
+The app currently hashes on the Android device and reads OCEAN's public worker-statistics API. OCEAN monitoring does not provide or create external hashpower.
+
+Cloud auto-connect is deliberately **LOCKED**. The current reviewed provider list contains no provider that has all required evidence at once: mining permission (including written approval where required), a verified free mining quota for this workload, a supported provisioning API, and explicit user authorization. A free trial, free notebook, or free GPU offer is not proof that cryptocurrency mining is allowed.
+
+The in-app provider registry is an eligibility guard only. It does not implement OAuth, create cloud instances, rent hardware, coordinate remote workers, or charge an account. Passwords, API tokens, wallet private keys, and seed phrases must never be entered into the miner. Re-review the provider's current terms and obtain written approval before changing any provider's policy state.
+

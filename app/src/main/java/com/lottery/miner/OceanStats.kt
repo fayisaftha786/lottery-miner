@@ -2,6 +2,7 @@ package com.lottery.miner
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -16,6 +17,7 @@ data class ExternalMiningSnapshot(
 )
 
 object OceanStats {
+    internal const val MAX_RESPONSE_BYTES = 1_048_576
     private const val BASE_URL = "https://api.ocean.xyz/v1/user_hashrate_full/"
 
     fun fetch(address: String): ExternalMiningSnapshot {
@@ -30,9 +32,22 @@ object OceanStats {
         }
         try {
             val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) throw IllegalStateException("OCEAN API HTTP $code")
+            val body = connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_RESPONSE_BYTES) {
+                        throw IllegalStateException("OCEAN API response exceeds 1 MiB safety limit")
+                    }
+                    output.write(buffer, 0, count)
+                }
+                output.toString(Charsets.UTF_8.name())
+            }
             return parseResponse(body)
         } finally {
             connection.disconnect()
@@ -40,6 +55,9 @@ object OceanStats {
     }
 
     internal fun parseResponse(body: String): ExternalMiningSnapshot {
+        require(body.toByteArray(Charsets.UTF_8).size <= MAX_RESPONSE_BYTES) {
+            "OCEAN API response exceeds 1 MiB safety limit"
+        }
         val root = JSONObject(body)
         val workersJson = root.optJSONArray("workers")
             ?: throw IllegalStateException("OCEAN response missing workers array")

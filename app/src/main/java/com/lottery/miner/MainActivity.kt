@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var externalPollInFlight = false
     private var lastExternalPollAt = 0L
     private var externalSnapshot: ExternalMiningSnapshot? = null
+    private var externalSnapshotAddress: String? = null
     private var externalError: String? = null
 
     private val refresher = object : Runnable {
@@ -116,27 +117,47 @@ class MainActivity : AppCompatActivity() {
         val address = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(address)) {
             externalSnapshot = null
+            externalSnapshotAddress = null
             externalError = null
             tvExternalStats.text = "FREE EXTERNAL MINING (OCEAN BTC)\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; OCEAN-ൽ ഇതിനകം പ്രവർത്തിക്കുന്ന worker-കളുടെ കണക്കാണ്."
             return
         }
         val now = System.currentTimeMillis()
         if (externalPollInFlight || now - lastExternalPollAt < EXTERNAL_REFRESH_MS) return
+        val requestedAddress = address.substringBefore('.')
         externalPollInFlight = true
         lastExternalPollAt = now
         Thread {
             try {
-                val result = OceanStats.fetch(address.substringBefore('.'))
+                val result = OceanStats.fetch(requestedAddress)
                 runOnUiThread {
-                    externalSnapshot = result
-                    externalError = null
+                    val currentAddress = etAddress.text.toString().trim().substringBefore('.')
                     externalPollInFlight = false
+                    if (Util.isValidBitcoinAddress(currentAddress) && currentAddress == requestedAddress) {
+                        externalSnapshot = result
+                        externalSnapshotAddress = requestedAddress
+                        externalError = null
+                    } else {
+                        // Never display an old wallet's asynchronous response for a newly edited address.
+                        externalSnapshot = null
+                        externalSnapshotAddress = null
+                        externalError = null
+                        lastExternalPollAt = 0L
+                    }
                     renderExternalStats()
                 }
             } catch (error: Exception) {
                 runOnUiThread {
-                    externalError = error.message ?: "Connection unavailable"
+                    val currentAddress = etAddress.text.toString().trim().substringBefore('.')
                     externalPollInFlight = false
+                    if (currentAddress == requestedAddress) {
+                        externalError = error.message ?: "Connection unavailable"
+                    } else {
+                        externalSnapshot = null
+                        externalSnapshotAddress = null
+                        externalError = null
+                        lastExternalPollAt = 0L
+                    }
                     renderExternalStats()
                 }
             }
@@ -144,12 +165,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderExternalStats() {
-        val snapshot = externalSnapshot
+        val currentAddress = etAddress.text.toString().trim().substringBefore('.')
+        val snapshot = externalSnapshot.takeIf { externalSnapshotAddress == currentAddress }
         val host = etHost.text.toString().trim().lowercase(Locale.US)
         val sb = StringBuilder()
         sb.append("EXTERNAL WORKER MONITOR · OCEAN BTC\n")
         sb.append("Auto refresh: 30 sec while app is open\n")
         if (snapshot != null) {
+            val ageMs = System.currentTimeMillis() - snapshot.fetchedAtMillis
+            val snapshotFresh = externalError == null && ageMs in 0..120_000L
             sb.append("External worker hashrate: ").append(Util.fmtRate(snapshot.totalHashrate)).append('\n')
             sb.append("Workers detected: ").append(snapshot.workers.size).append('\n')
             snapshot.workers.forEach { worker ->
@@ -160,11 +184,21 @@ class MainActivity : AppCompatActivity() {
             sb.append("Updated: ").append(java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
                 .format(java.util.Date(snapshot.fetchedAtMillis))).append('\n')
             if (snapshot.workers.isEmpty()) sb.append("ഈ wallet-ൽ OCEAN worker ഒന്നും ഇതുവരെ കണ്ടെത്തിയിട്ടില്ല.\n")
-            if (host.contains("ocean.xyz")) {
-                sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
-            } else {
-                sb.append("Combined total (phone + OCEAN external workers): ")
-                    .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
+            when {
+                externalError != null -> {
+                    sb.append("API refresh failed: ").append(externalError).append('\n')
+                    sb.append("Last successful snapshot is shown for reference only; excluded from combined total.\n")
+                }
+                !snapshotFresh -> {
+                    sb.append("Snapshot stale; excluded from combined total until a fresh response arrives.\n")
+                }
+                host.contains("ocean.xyz") -> {
+                    sb.append("Combined total: സുരക്ഷിതമായി കണക്കാക്കാനാവില്ല — phone worker OCEAN-ൽ ഉൾപ്പെട്ടിരിക്കാം.\n")
+                }
+                else -> {
+                    sb.append("Combined total (phone + OCEAN external workers): ")
+                        .append(Util.fmtRate(MinerState.hashrate + snapshot.totalHashrate)).append('\n')
+                }
             }
         } else {
             sb.append("External hashrate: --\n")
@@ -251,6 +285,8 @@ class MainActivity : AppCompatActivity() {
             .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
+        sb.append("\nCLOUD WORKERS\n")
+        sb.append(CloudProviderRegistry.summary()).append('\n')
         tvStats.text = sb.toString()
         renderExternalStats()
         tvLog.text = s.logText()

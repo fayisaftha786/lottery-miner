@@ -31,4 +31,12 @@ class MinerUtilTest {
         assertEquals("000fff", Util.bytesToHex(byteArrayOf(0, 15, -1)))
         assertFalse(runCatching { Util.hexToBytes("0g") }.isSuccess)
     }
+    @Test fun rejectsCompactTargetsAboveBitcoinMainnetProofOfWorkLimit() {
+        assertFalse(runCatching { Util.nbitsToTarget("1e00ffff") }.isSuccess)
+    }
+
+    @Test fun rejectsDifficultyTooLargeToRepresentAsNonZeroTarget() {
+        assertFalse(runCatching { Util.difficultyToTarget(Double.MAX_VALUE) }.isSuccess)
+    }
+
 }

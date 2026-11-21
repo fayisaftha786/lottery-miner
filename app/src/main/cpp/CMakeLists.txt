@@ -14,6 +14,13 @@ else()
     endif()
 endif()
 
+if(ANDROID)
+    # NDK r26 defaults to 4 KB ELF segment alignment. Explicitly build 16 KB
+    # compatible shared libraries for modern arm64/x86_64 Android devices.
+    target_link_options(minercore PRIVATE "-Wl,-z,max-page-size=16384")
+    target_compile_definitions(minercore PRIVATE __BIONIC_NO_PAGE_SIZE_MACRO=1)
+endif()
+
 if(ANDROID_ABI STREQUAL "arm64-v8a")
     # ARMv8 Crypto Extension (hardware SHA-256). Chosen at runtime only if the CPU reports it
     # and the built-in self-test (Bitcoin genesis block) passes.
