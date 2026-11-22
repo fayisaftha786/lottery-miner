@@ -65,11 +65,11 @@ class JobTest {
         )
 
         assertEquals(
-            "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc388a51323a9fb8aa4b1e5e4a",
+            "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a",
             Util.bytesToHex(Util.sha256d(genesisCoinbase))
         )
         assertArrayEquals(
-            Util.hexToBytes("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc388a51323a9fb8aa4b1e5e4a"),
+            Util.hexToBytes("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a"),
             genesisJob.buildHeader(byteArrayOf(), byteArrayOf()).copyOfRange(36, 68)
         )
     }
