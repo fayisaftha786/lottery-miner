@@ -97,6 +97,7 @@ class StratumClientTest {
     }
 
     @Test fun reportsSharesDroppedWhenPendingQueueIsFull() {
+        val difficultyRequestReceived = CountDownLatch(1)
         ServerSocket(0).use { server ->
             val serverFailure = AtomicReference<Throwable?>()
             val worker = thread {
@@ -113,6 +114,7 @@ class StratumClientTest {
                         val difficultyRequest = JSONObject(input.readLine())
                         assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
                         assertEquals(1, difficultyRequest.getJSONArray("params").getInt(0))
+                        difficultyRequestReceived.countDown()
                         repeat(256) {
                             val line = input.readLine() ?: throw AssertionError("socket closed before all queued submits arrived")
                             assertEquals("mining.submit", JSONObject(line).getString("method"))
@@ -127,6 +129,8 @@ class StratumClientTest {
             val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
             val clientThread = thread { client.connectAndRun() }
             assertTrue("pool authorization timed out", listener.authorizedLatch.await(3, TimeUnit.SECONDS))
+            assertTrue("pool did not receive post-authorization difficulty request",
+                difficultyRequestReceived.await(3, TimeUnit.SECONDS))
             repeat(257) { client.submit("test-job", "00000000", "495fab29", "%08x".format(it)) }
             assertEquals(1, listener.droppedShares)
             client.close()
