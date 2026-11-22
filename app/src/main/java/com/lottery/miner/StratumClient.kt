@@ -205,7 +205,7 @@ class StratumClient(
                 } catch (e: Exception) {
                     throw ProtocolException("Invalid pool subscribe response: ${e.message}")
                 }
-                send(3, "mining.suggest_difficulty", JSONArray().put(1))
+                // CKPool ignores mining.suggest_difficulty until the client is authorised.
                 send(2, "mining.authorize", JSONArray().put(user).put("x"))
             }
             2 -> {
@@ -215,6 +215,9 @@ class StratumClient(
                     throw ProtocolException("Pool authorization rejected; check BTC address/worker. ${error ?: "invalid result"}")
                 }
                 listener.onAuthorized()
+                // Request low-difficulty feedback only after authorization succeeds.
+                // The pool's mining.set_difficulty notification is the source of truth.
+                send(3, "mining.suggest_difficulty", JSONArray().put(1))
             }
             else -> if (id >= 100 && pendingSubmits.remove(id)) {
                 val result = message.opt("result")
