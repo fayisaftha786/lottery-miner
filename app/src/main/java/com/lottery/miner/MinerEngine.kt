@@ -215,13 +215,14 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     }
 
     private fun connectionLoop() {
-        var retryDelay = 5000L
+        val reconnectBackoff = ReconnectBackoff()
         while (running) {
             val c = StratumClient(cfg.host, cfg.port, cfg.address, this)
             client = c
             val attemptStartedAt = System.nanoTime()
+            val attemptStartedWall = System.currentTimeMillis()
             MinerState.connectionAttempts.incrementAndGet()
-            MinerState.lastConnectAttemptAt = System.currentTimeMillis()
+            MinerState.lastConnectAttemptAt = attemptStartedWall
             try {
                 c.connectAndRun()
                 if (running) MinerState.log("Pool socket അടഞ്ഞു; വീണ്ടും കണക്ട് ചെയ്യും")
@@ -240,13 +241,15 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
             if (!running) break
 
-            // Reset backoff only after a sustained session. A quick EOF/abort must
-            // not cause endless reconnects at the minimum interval.
+            // A long-lived but unauthenticated/socket-only session is not healthy.
+            // Reset backoff only after an authenticated session has also received a job.
             val sessionMs = (System.nanoTime() - attemptStartedAt) / 1_000_000L
-            if (sessionMs >= 60_000L) retryDelay = 5000L
+            val healthySession =
+                MinerState.authorizedAt >= attemptStartedWall &&
+                MinerState.lastJobAt >= attemptStartedWall
+            val retryDelay = reconnectBackoff.nextDelayAfter(sessionMs, healthySession)
             MinerState.status = "Pool ബന്ധം നഷ്ടപ്പെട്ടു; ${retryDelay / 1000}s കഴിഞ്ഞ് വീണ്ടും കണക്ട് ചെയ്യും"
             sleepMs(retryDelay)
-            retryDelay = minOf(30000L, retryDelay * 2)
         }
     }
 
