@@ -107,10 +107,12 @@ class StratumClientTest {
                         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
                         output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
                         output.flush()
-                        input.readLine() // suggest difficulty
-                        input.readLine() // authorize request
+                        assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
                         output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
                         output.flush()
+                        val difficultyRequest = JSONObject(input.readLine())
+                        assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
+                        assertEquals(1, difficultyRequest.getJSONArray("params").getInt(0))
                         repeat(256) {
                             val line = input.readLine() ?: throw AssertionError("socket closed before all queued submits arrived")
                             assertEquals("mining.submit", JSONObject(line).getString("method"))
@@ -140,9 +142,10 @@ class StratumClientTest {
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
         output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
-        input.readLine() // suggest difficulty
-        input.readLine() // authorize request
+        assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
         output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        output.flush()
+        assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
         val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
             .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
         output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
@@ -158,9 +161,12 @@ class StratumClientTest {
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
         output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
-        assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
         output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        output.flush()
+        val difficultyRequest = JSONObject(input.readLine())
+        assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
+        assertEquals(1, difficultyRequest.getJSONArray("params").getInt(0))
         output.write(JSONObject().put("method", "mining.set_extranonce").put("params", JSONArray().put("cafe").put(4)).toString() + "\n")
         output.write(JSONObject().put("method", "mining.set_difficulty").put("params", JSONArray().put(2.0)).toString() + "\n")
         val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
