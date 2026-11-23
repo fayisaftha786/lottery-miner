@@ -3,6 +3,7 @@ package com.lottery.miner
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -164,6 +165,23 @@ class MainActivity : AppCompatActivity() {
 
 
 
+    private fun benchmarkThermallySafe(): Boolean {
+        val configuredLimit = etTemp.text.toString().trim().toDoubleOrNull()
+            ?.takeIf { it.isFinite() && it in 30.0..45.0 } ?: 40.0
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val thermal = runCatching {
+                (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus
+            }.getOrNull() ?: return false
+            return thermal < android.os.PowerManager.THERMAL_STATUS_MODERATE
+        }
+        val battery = runCatching {
+            registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }.getOrNull() ?: return false
+        val rawTemp = battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1)
+        if (rawTemp <= 0) return false
+        return rawTemp / 10.0 < minOf(configuredLimit - 3.0, 38.0)
+    }
+
     private fun runSafeBenchmark() {
         if (MinerState.running || benchmarkRunning || Sha256dBenchmark.isRunning()) {
             Toast.makeText(this, "Benchmark നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
@@ -176,6 +194,10 @@ class MainActivity : AppCompatActivity() {
             host.any { it.isWhitespace() } || host.contains('/') || port == null || port !in 1..65535
         ) {
             Toast.makeText(this, "യഥാർത്ഥ pool job ലഭിക്കാൻ ശരിയായ Bitcoin address, pool host, port നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!benchmarkThermallySafe()) {
+            Toast.makeText(this, "Thermal status/temperature സുരക്ഷിതമോ ലഭ്യമോ അല്ല. തണുത്തതിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -225,14 +247,9 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "A/B test നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val thermal = runCatching {
-                (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus
-            }.getOrNull()
-            if (thermal != null && thermal >= android.os.PowerManager.THERMAL_STATUS_MODERATE) {
-                Toast.makeText(this, "ഫോൺ thermal status Moderate ആണ്. തണുത്തതിന് ശേഷം മാത്രം benchmark നടത്തുക.", Toast.LENGTH_LONG).show()
-                return
-            }
+        if (!benchmarkThermallySafe()) {
+            Toast.makeText(this, "Thermal status/temperature സുരക്ഷിതമോ ലഭ്യമോ അല്ല. തണുത്തതിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.", Toast.LENGTH_LONG).show()
+            return
         }
         val address = etAddress.text.toString().trim()
         val host = etHost.text.toString().trim()
@@ -241,6 +258,11 @@ class MainActivity : AppCompatActivity() {
             host.any { it.isWhitespace() } || host.contains('/') || port == null || port !in 1..65535
         ) {
             Toast.makeText(this, "യഥാർത്ഥ pool job ലഭിക്കാൻ ശരിയായ Bitcoin address, pool host, port നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (!benchmarkThermallySafe()) {
+            Toast.makeText(this, "Thermal status/temperature സുരക്ഷിതമോ ലഭ്യമോ അല്ല. തണുത്തതിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.", Toast.LENGTH_LONG).show()
             return
         }
 
