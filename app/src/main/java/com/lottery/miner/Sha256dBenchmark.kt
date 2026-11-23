@@ -60,8 +60,7 @@ object Sha256dBenchmark {
                     check(result >= 0 && result <= found.size) { "Scanner failed: $result" }
                     check(best[2] == 0.0) { "Unexpected zero-target hit/overflow" }
                     hashes += count.toLong()
-                    nonce += count
-                    if (nonce > Int.MAX_VALUE - count) nonce = 0
+                    if (nonce >= Int.MAX_VALUE - count) nonce = 0 else nonce += count
                 }
                 val elapsedNanos = (System.nanoTime() - start).coerceAtLeast(1L)
                 check(hashes > 0L) { "Benchmark completed no hashes" }
