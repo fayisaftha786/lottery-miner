@@ -17,4 +17,8 @@ object CkpoolHosts {
         val normalized = host.trim().trimEnd('.').lowercase(Locale.ROOT)
         return normalized in officialSoloEndpoints
     }
+
+    /** This Stratum V1 client uses CKPool's standard solo port, not its rental-only high-difficulty port. */
+    fun isSupportedSoloEndpoint(host: String, port: Int): Boolean =
+        port == 3333 && isOfficialSoloEndpoint(host)
 }
