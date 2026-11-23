@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPoolStats: Button
     private lateinit var btnExportDiagnostics: Button
     private lateinit var btnBenchmark: Button
+    private lateinit var btnDualBenchmark: Button
     private lateinit var tvBenchmark: TextView
     private lateinit var etMiningPower: EditText
     private lateinit var etElectricityTariff: EditText
@@ -83,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         btnPoolStats = findViewById(R.id.btnPoolStats)
         btnExportDiagnostics = findViewById(R.id.btnExportDiagnostics)
         btnBenchmark = findViewById(R.id.btnBenchmark)
+        btnDualBenchmark = findViewById(R.id.btnDualBenchmark)
         tvBenchmark = findViewById(R.id.tvBenchmark)
         etMiningPower = findViewById(R.id.etMiningPower)
         etElectricityTariff = findViewById(R.id.etElectricityTariff)
@@ -116,6 +118,7 @@ class MainActivity : AppCompatActivity() {
         btnPoolStats.setOnClickListener { openPoolStatistics() }
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
         btnBenchmark.setOnClickListener { runSafeBenchmark() }
+        btnDualBenchmark.setOnClickListener { runDualBenchmark() }
         btnRefreshProfitability.setOnClickListener { refreshBitcoinProfitability() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -168,6 +171,7 @@ class MainActivity : AppCompatActivity() {
         }
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
+        btnDualBenchmark.isEnabled = false
         btn.isEnabled = false
         tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
         Thread {
@@ -190,6 +194,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     benchmarkRunning = false
                     btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
                     btn.isEnabled = true
                 }
             } catch (e: Exception) {
@@ -197,6 +202,60 @@ class MainActivity : AppCompatActivity() {
                     tvBenchmark.text = "Benchmark failed: ${e.message ?: e.javaClass.simpleName}"
                     benchmarkRunning = false
                     btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
+                    btn.isEnabled = true
+                }
+            }
+        }.start()
+    }
+
+
+    private fun runDualBenchmark() {
+        if (MinerState.running || benchmarkRunning || Sha256dBenchmark.isRunning()) {
+            Toast.makeText(this, "A/B test നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
+            return
+        }
+        benchmarkRunning = true
+        btnBenchmark.isEnabled = false
+        btnDualBenchmark.isEnabled = false
+        btn.isEnabled = false
+        tvBenchmark.text = "LOTTO-DUAL EXPERIMENT\nScalar vs dual-lane SHA256d comparison…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
+        Thread {
+            try {
+                val result = Sha256dBenchmark.compareDual(1_000L)
+                runOnUiThread {
+                    val verdict = when {
+                        result.speedupPercent >= 5.0 ->
+                            "INITIAL PASS: dual-lane 5%+ faster in this short A/B test. Sustained thermal validation is still required."
+                        result.speedupPercent > 0.0 ->
+                            "NOT YET: small gain only. Need repeatable sustained improvement before production."
+                        else ->
+                            "NO GAIN: current single-lane engine is faster in this A/B test. Keep dual-lane disabled."
+                    }
+                    val hwText = if (result.hardwareSha) "ON" else "OFF"
+                    val dualText = if (result.dualSelfTestPassed) "PASS" else "FAIL"
+                    tvBenchmark.text = buildString {
+                        appendLine("LOTTO-DUAL · REAL DEVICE A/B BENCHMARK")
+                        appendLine("ARM hardware SHA-256: $hwText")
+                        appendLine("Dual differential self-test: $dualText")
+                        appendLine("Single-lane median: \${Util.fmtRate(result.singleMedianHps)}")
+                        appendLine("Dual-lane median: \${Util.fmtRate(result.dualMedianHps)}")
+                        appendLine("Measured change: \${String.format(Locale.US, "%+.2f", result.speedupPercent)}%")
+                        appendLine("Samples: \${result.rounds} rounds per engine · \${result.roundDurationMillis} ms each")
+                        appendLine(verdict)
+                        appendLine("Synthetic zero-target test only: no shares, block, or payout.")
+                    }
+                    benchmarkRunning = false
+                    btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
+                    btn.isEnabled = true
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    tvBenchmark.text = "LOTTO-DUAL unavailable or failed: \${e.message ?: e.javaClass.simpleName}\nProduction mining continues to use the proven scanner."
+                    benchmarkRunning = false
+                    btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
                     btn.isEnabled = true
                 }
             }
