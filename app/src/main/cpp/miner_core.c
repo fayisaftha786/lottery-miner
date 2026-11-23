@@ -306,6 +306,22 @@ static int dual_scan_selftest(void) {
         single_best_nonce != dual_best_nonce || single_best_diff != dual_best_diff ||
         memcmp(single_found, dual_found, sn * sizeof(uint32_t)) != 0) return 0;
 
+    /* Decrement the exact big-endian target by one; inclusive boundary must now reject that nonce. */
+    for (int i = 31; i >= 0; i--) {
+        if (target[i] != 0) {
+            target[i]--;
+            break;
+        }
+        target[i] = 0xff;
+    }
+    sn = scan_impl(compress_arm, header, 0x1230u, 32u, target, single_found, 300,
+                   &single_best_diff, &single_best_nonce, &single_overflow);
+    dn = scan_dual_impl(header, 0x1230u, 32u, target, dual_found, 300,
+                        &dual_best_diff, &dual_best_nonce, &dual_overflow);
+    if (sn != dn || single_overflow != dual_overflow ||
+        single_best_nonce != dual_best_nonce || single_best_diff != dual_best_diff ||
+        memcmp(single_found, dual_found, sn * sizeof(uint32_t)) != 0) return 0;
+
     memset(target, 0, sizeof(target));
     sn = scan_impl(compress_arm, header, 0x1230u, 33u, target, single_found, 300,
                    &single_best_diff, &single_best_nonce, &single_overflow);
