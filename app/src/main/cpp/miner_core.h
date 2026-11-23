@@ -27,7 +27,7 @@ uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
 
-/* Returns UINT32_MAX unless the experimental ARM dual implementation passed its differential self-test. */
+/* ARM Android builds return UINT32_MAX unless the hardware dual path passed self-test; host builds use scalar paired compression for reference tests. */
 uint32_t miner_scan_dual(const uint8_t header[80], uint32_t start, uint32_t count,
                          const uint8_t target[32], uint32_t *found, uint32_t max_found,
                          double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
