@@ -62,6 +62,27 @@ class MiningStrategyTest {
         }.isFailure)
     }
 
+    @Test fun blockProbabilityUsesPoissonChanceAndIncreasesWithHashrateAndTime() {
+        val oneDay = MiningStrategy.blockProbability(100.0, 10_000.0, 1.0)
+        val month = MiningStrategy.blockProbability(100.0, 10_000.0, 30.0)
+        val faster = MiningStrategy.blockProbability(200.0, 10_000.0, 1.0)
+        assertTrue(oneDay > 0.0)
+        assertTrue(month > oneDay)
+        assertTrue(faster > oneDay)
+        assertTrue(oneDay < 1.0)
+    }
+
+    @Test fun requiredHashrateInvertsTheProbabilityCalculation() {
+        val required = MiningStrategy.requiredHashrateForProbability(0.50, 10_000.0, 365.0)
+        assertEquals(0.50, MiningStrategy.blockProbability(required, 10_000.0, 365.0), 1e-12)
+    }
+
+    @Test fun probabilityInputsRejectInvalidValues() {
+        assertTrue(runCatching { MiningStrategy.blockProbability(-1.0, 10_000.0, 1.0) }.isFailure)
+        assertTrue(runCatching { MiningStrategy.blockProbability(1.0, 0.0, 1.0) }.isFailure)
+        assertTrue(runCatching { MiningStrategy.requiredHashrateForProbability(1.1, 10_000.0, 365.0) }.isFailure)
+    }
+
     @Test fun expectedSoloBlockIntervalGrowsWhenDeviceHashrateFalls() {
         val slow = MiningStrategy.estimate(input().copy(deviceHashrate = 1.0))
         val fast = MiningStrategy.estimate(input().copy(deviceHashrate = 100.0))
