@@ -21,6 +21,10 @@ The app's **CKPool statistics** button opens the graphical user page for the con
 ## Payout and block verification
 This is CKPool solo mining: ordinary accepted shares are feedback and do not create proportional BTC earnings. A payout requires a valid block found by the miner, accepted by CKPool, and subsequently confirmed on the Bitcoin network. A local block candidate is not a confirmed block. Verify any claimed payout independently using the block and transaction details in a trusted Bitcoin block explorer. CKPool charges a 2% fee on a found block reward plus transaction fees.
 
+## Test APK installation
+
+GitHub Actions debug test APKs use a separate `com.lottery.miner.debug` application ID and are labelled **Lottery Miner TEST**. They install alongside the production package and do not replace its private app data. The release application ID remains `com.lottery.miner`.
+
 ## Build and verification
 Requires JDK 17, Android SDK 36 (Android 16), NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.9.1, and Gradle 8.11.1.
 
