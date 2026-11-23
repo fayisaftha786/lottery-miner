@@ -43,7 +43,7 @@ internal object StratumBenchmarkWorkProvider {
         var extranonce2Size = 0
         var authorized = false
         var pendingDifficulty: Double? = null
-        var activeDifficulty: Double? = null
+        var activeDifficulty: Double? = 1.0
         var currentJob: Job? = null
         var lastStatus = "Pool closed before a usable job arrived"
 
