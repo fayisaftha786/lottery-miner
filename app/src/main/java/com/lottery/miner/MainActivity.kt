@@ -238,10 +238,10 @@ class MainActivity : AppCompatActivity() {
                         appendLine("LOTTO-DUAL · REAL DEVICE A/B BENCHMARK")
                         appendLine("ARM hardware SHA-256: $hwText")
                         appendLine("Dual differential self-test: $dualText")
-                        appendLine("Single-lane median: \${Util.fmtRate(result.singleMedianHps)}")
-                        appendLine("Dual-lane median: \${Util.fmtRate(result.dualMedianHps)}")
-                        appendLine("Measured change: \${String.format(Locale.US, "%+.2f", result.speedupPercent)}%")
-                        appendLine("Samples: \${result.rounds} rounds per engine · \${result.roundDurationMillis} ms each")
+                        appendLine("Single-lane median: ${Util.fmtRate(result.singleMedianHps)}")
+                        appendLine("Dual-lane median: ${Util.fmtRate(result.dualMedianHps)}")
+                        appendLine("Measured change: ${String.format(Locale.US, "%+.2f", result.speedupPercent)}%")
+                        appendLine("Samples: ${result.rounds} rounds per engine · ${result.roundDurationMillis} ms each")
                         appendLine(verdict)
                         appendLine("Synthetic zero-target test only: no shares, block, or payout.")
                     }
@@ -252,7 +252,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvBenchmark.text = "LOTTO-DUAL unavailable or failed: \${e.message ?: e.javaClass.simpleName}\nProduction mining continues to use the proven scanner."
+                    tvBenchmark.text = "LOTTO-DUAL unavailable or failed: ${e.message ?: e.javaClass.simpleName}\nProduction mining continues to use the proven scanner."
                     benchmarkRunning = false
                     btnBenchmark.isEnabled = true
                     btnDualBenchmark.isEnabled = true
