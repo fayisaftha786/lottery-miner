@@ -12,7 +12,7 @@ Lottery Miner performs local CPU SHA-256d hashing and submits valid shares to a 
 - No simulated mining mode, fabricated hashrate, fabricated shares, or fabricated earnings are included.
 
 ## Pool setup
-The configured default is `stratum.ckpool.org:3333`, the CKPool-recommended automatic endpoint. The app migrates the previous default `solo.ckpool.org` to this endpoint on launch while preserving custom hostnames. Pool endpoints and availability may change; verify current details with the pool operator.
+The configured default is `stratum.ckpool.org:3333`, the CKPool-recommended automatic endpoint. The app migrates the previous default `solo.ckpool.org` to this endpoint on launch. This Stratum V1 build supports only CKPool's published solo endpoints on port `3333` because its authorization password is `x` (CKPool ignores the password); it does not claim compatibility with arbitrary pools or the rental-only high-difficulty port. Pool endpoints and availability may change; verify current details with the pool operator.
 
 Use your Bitcoin mainnet payout address as the Stratum username. An optional worker suffix may be used if supported by the pool. Password is `x`. Never enter a seed phrase or private key.
 
