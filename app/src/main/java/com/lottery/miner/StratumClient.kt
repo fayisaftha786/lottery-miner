@@ -67,7 +67,13 @@ class StratumClient(
     private val nextId = AtomicInteger(100)
     private val pendingSubmits: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
-    companion object { private const val MAX_PENDING_SUBMITS = 256; private const val MAX_LINE_CHARS = 65536 }
+    companion object {
+        private const val MAX_PENDING_SUBMITS = 256
+        private const val MAX_LINE_CHARS = 65536
+        private const val CONNECT_TIMEOUT_MS = 10_000
+        private const val TLS_HANDSHAKE_TIMEOUT_MS = 10_000
+        private const val VIABTC_TLS_PORT = 551
+    }
 
     fun connectAndRun() {
         require(port in 1..65535) { "Pool port must be 1..65535" }
@@ -115,26 +121,31 @@ class StratumClient(
             val candidate = Socket()
             try {
                 listener.onStatus("Connecting to $host (${address.hostAddress}):$port")
-                candidate.connect(InetSocketAddress(address, port), 10000)
-                if (closed) {
-                    candidate.close()
-                    throw java.io.IOException("Stratum client closed")
-                }
-                if (port == 551) {
-                    // ViaBTC documents 551 as its TLS Stratum endpoint. Keep the
-                    // original hostname for SNI and HTTPS endpoint identification;
-                    // never install a trust-all manager or disable verification.
-                    val tls = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(candidate, host, port, true) as SSLSocket
+                candidate.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
+                // Publish the in-flight socket before TLS negotiation so close()
+                // can interrupt a stalled connect/handshake during service shutdown.
+                socket = candidate
+                if (closed) throw java.io.IOException("Stratum client closed")
+                if (port == VIABTC_TLS_PORT) {
+                    // Keep the DNS hostname (not the resolved IP) as the TLS peer
+                    // so SNI and certificate hostname verification use the pool name.
+                    // Never install a trust-all manager or disable verification.
+                    candidate.soTimeout = TLS_HANDSHAKE_TIMEOUT_MS
+                    val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+                    val tls = factory.createSocket(candidate, host, port, true) as SSLSocket
+                    socket = tls
                     try {
+                        tls.soTimeout = TLS_HANDSHAKE_TIMEOUT_MS
                         tls.sslParameters = tls.sslParameters.apply {
                             endpointIdentificationAlgorithm = "HTTPS"
                         }
                         tls.startHandshake()
+                        if (closed) throw java.io.IOException("Stratum client closed")
+                        return tls
                     } catch (e: Exception) {
                         try { tls.close() } catch (_: Exception) { }
                         throw e
                     }
-                    return tls
                 }
                 return candidate
             } catch (e: Exception) {
