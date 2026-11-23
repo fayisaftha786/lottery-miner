@@ -188,4 +188,11 @@ class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
     }
 
     @Synchronized fun activeTarget(): ByteArray = active.copyOf()
+
+    /** Restore the new-session default and discard any staged difficulty. */
+    @Synchronized fun reset(initialDifficulty: Double = 1.0) {
+        val target = Util.difficultyToTarget(initialDifficulty)
+        active = target
+        pending = null
+    }
 }
