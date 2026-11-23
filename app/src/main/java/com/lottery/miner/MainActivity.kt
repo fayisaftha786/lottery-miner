@@ -541,6 +541,10 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
+        if (!ViaBtcPool.isValidEndpoint(host, port)) {
+            Toast.makeText(this, "ViaBTC SSL hostname ഉപയോഗിക്കുമ്പോൾ port 551 വേണം. TCP hostname btc.viabtc.io:3333 ആണ്.", Toast.LENGTH_LONG).show()
+            return
+        }
         val threads = etThreads.text.toString().trim().toIntOrNull()
         if (threads == null || threads !in 1..cores) {
             Toast.makeText(this, "Worker thread എണ്ണം 1 മുതൽ $cores വരെ നൽകുക.", Toast.LENGTH_LONG).show()
