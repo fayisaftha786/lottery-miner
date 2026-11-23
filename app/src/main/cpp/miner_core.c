@@ -38,6 +38,15 @@ static void compress_scalar(uint32_t st[8], const uint32_t win[16]) {
     st[4] += e; st[5] += f; st[6] += g; st[7] += h;
 }
 
+typedef void (*compress_dual_fn_t)(uint32_t state_a[8], const uint32_t w_a[16],
+                                      uint32_t state_b[8], const uint32_t w_b[16]);
+
+static void compress_scalar_dual(uint32_t state_a[8], const uint32_t w_a[16],
+                                 uint32_t state_b[8], const uint32_t w_b[16]) {
+    compress_scalar(state_a, w_a);
+    compress_scalar(state_b, w_b);
+}
+
 static compress_fn_t g_fn = compress_scalar;
 static int g_hw = 0;
 static int g_ok = 0;
@@ -170,7 +179,6 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
 }
 
 
-#ifdef HAVE_ARM_SHA2
 static int compare_words(const uint32_t left[8], const uint32_t right[8]) {
     for (int i = 0; i < 8; i++) {
         if (left[i] < right[i]) return -1;
@@ -213,14 +221,16 @@ static void record_dual_digest(const uint32_t digest[8], uint32_t nonce,
  * midstate. Each lane then computes its own nonce-dependent first SHA block
  * and second SHA block. Output ordering is kept nonce-ascending.
  */
-static uint32_t scan_dual_impl(const uint8_t header[80], uint32_t start, uint32_t count,
+static uint32_t scan_dual_impl(compress_fn_t compress_single,
+                               compress_dual_fn_t compress_pair,
+                               const uint8_t header[80], uint32_t start, uint32_t count,
                                const uint8_t target[32], uint32_t *found, uint32_t max_found,
                                double *best_diff, uint32_t *best_nonce,
                                uint32_t *overflow_count) {
     uint32_t first_words[16], mid[8];
     for (int i = 0; i < 16; i++) first_words[i] = be32(header + 4 * i);
     memcpy(mid, IV, sizeof(mid));
-    compress_arm(mid, first_words);
+    compress_single(mid, first_words);
 
     uint32_t target_words[8], best_words[8] = {0};
     for (int i = 0; i < 8; i++) target_words[i] = be32(target + 4 * i);
@@ -249,13 +259,13 @@ static uint32_t scan_dual_impl(const uint8_t header[80], uint32_t start, uint32_
         wb[3] = __builtin_bswap32(nonce_b);
         memcpy(sa, mid, sizeof(sa));
         memcpy(sb, mid, sizeof(sb));
-        compress_arm_dual(sa, wa, sb, wb);
+        compress_pair(sa, wa, sb, wb);
 
         memcpy(second_a, sa, sizeof(sa));
         memcpy(second_b, sb, sizeof(sb));
         memcpy(da, IV, sizeof(da));
         memcpy(db, IV, sizeof(db));
-        compress_arm_dual(da, second_a, db, second_b);
+        compress_pair(da, second_a, db, second_b);
 
         record_dual_digest(da, nonce_a, target_words, best_words, &have_best,
                            found, max_found, &stored, &total_found,
@@ -273,6 +283,7 @@ static uint32_t scan_dual_impl(const uint8_t header[80], uint32_t start, uint32_
     return stored;
 }
 
+#ifdef HAVE_ARM_SHA2
 static int dual_scan_selftest(void) {
     uint8_t header[80], digest[32], target[32];
     for (int i = 0; i < 80; i++) header[i] = (uint8_t)(i * 37 + 11);
@@ -287,7 +298,7 @@ static int dual_scan_selftest(void) {
     uint32_t sn = scan_impl(compress_arm, header, 0xfffffff0u, all_count, target,
                             single_found, 300, &single_best_diff, &single_best_nonce,
                             &single_overflow);
-    uint32_t dn = scan_dual_impl(header, 0xfffffff0u, all_count, target,
+    uint32_t dn = scan_dual_impl(compress_arm, compress_arm_dual, header, 0xfffffff0u, all_count, target,
                                  dual_found, 300, &dual_best_diff, &dual_best_nonce,
                                  &dual_overflow);
     if (sn != dn || single_overflow != dual_overflow ||
@@ -300,7 +311,7 @@ static int dual_scan_selftest(void) {
     for (int i = 0; i < 32; i++) target[i] = digest[31 - i];
     sn = scan_impl(compress_arm, header, 0x1230u, 32u, target, single_found, 300,
                    &single_best_diff, &single_best_nonce, &single_overflow);
-    dn = scan_dual_impl(header, 0x1230u, 32u, target, dual_found, 300,
+    dn = scan_dual_impl(compress_arm, compress_arm_dual, header, 0x1230u, 32u, target, dual_found, 300,
                         &dual_best_diff, &dual_best_nonce, &dual_overflow);
     if (sn != dn || single_overflow != dual_overflow ||
         single_best_nonce != dual_best_nonce || single_best_diff != dual_best_diff ||
@@ -319,7 +330,7 @@ static int dual_scan_selftest(void) {
     }
     sn = scan_impl(compress_arm, header, 0x1230u, 32u, target, single_found, 300,
                    &single_best_diff, &single_best_nonce, &single_overflow);
-    dn = scan_dual_impl(header, 0x1230u, 32u, target, dual_found, 300,
+    dn = scan_dual_impl(compress_arm, compress_arm_dual, header, 0x1230u, 32u, target, dual_found, 300,
                         &dual_best_diff, &dual_best_nonce, &dual_overflow);
     if (sn != dn || single_overflow != dual_overflow ||
         single_best_nonce != dual_best_nonce || single_best_diff != dual_best_diff ||
@@ -329,7 +340,7 @@ static int dual_scan_selftest(void) {
     memset(target, 0, sizeof(target));
     sn = scan_impl(compress_arm, header, 0x1230u, 33u, target, single_found, 300,
                    &single_best_diff, &single_best_nonce, &single_overflow);
-    dn = scan_dual_impl(header, 0x1230u, 33u, target, dual_found, 300,
+    dn = scan_dual_impl(compress_arm, compress_arm_dual, header, 0x1230u, 33u, target, dual_found, 300,
                         &dual_best_diff, &dual_best_nonce, &dual_overflow);
     return sn == dn && single_overflow == dual_overflow &&
            single_best_nonce == dual_best_nonce && single_best_diff == dual_best_diff &&
@@ -431,11 +442,13 @@ uint32_t miner_scan_dual(const uint8_t header[80], uint32_t start, uint32_t coun
 #ifdef HAVE_ARM_SHA2
     if (!g_hw || !g_dual_ok || header == NULL || count == 0 || found == NULL ||
         target == NULL || best_diff == NULL || best_nonce == NULL) return UINT32_MAX;
-    return scan_dual_impl(header, start, count, target, found, max_found,
+    return scan_dual_impl(compress_arm, compress_arm_dual, header, start, count, target, found, max_found,
                           best_diff, best_nonce, overflow_count);
 #else
-    (void)header; (void)start; (void)count; (void)target; (void)found;
-    (void)max_found; (void)best_diff; (void)best_nonce; (void)overflow_count;
-    return UINT32_MAX;
+    if (header == NULL || count == 0 || found == NULL ||
+        target == NULL || best_diff == NULL || best_nonce == NULL) return UINT32_MAX;
+    /* Host reference path: pair-scanner logic is exercised with two scalar streams. */
+    return scan_dual_impl(compress_scalar, compress_scalar_dual, header, start, count,
+                          target, found, max_found, best_diff, best_nonce, overflow_count);
 #endif
 }
