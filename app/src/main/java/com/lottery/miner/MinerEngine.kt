@@ -426,9 +426,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                     if (target > 0) reason = "Android thermal status moderate; worker reduced"
                 }
             }
-            // Safety policy determines the hard ceiling. Adaptive control only
-            // ramps upward one worker at a time; thermal/battery reductions stay immediate.
-            val safetyWorkerLimit = target
+            // Do not ramp while waiting for pool authorization or a mining job.
+            // Start conservatively only when real work is ready.
+            val hasReadyWork = MinerState.connected && current != null
+            val safetyWorkerLimit = if (hasReadyWork) target else 0
+
+            // Thermal/battery reductions apply immediately. Worker increases are
+            // limited to one every 45 seconds while an authorized job is active.
             target = adaptiveWorkerController.selectWorkerCount(
                 safetyWorkerLimit = safetyWorkerLimit,
                 currentWorkerCount = activeThreads,
@@ -439,7 +443,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
 
             activeThreads = target
-            MinerState.activeThreads = if (target > 0 && current != null && MinerState.connected) target else 0
+            MinerState.activeThreads = if (target > 0 && hasReadyWork) target else 0
             MinerState.pauseReason = reason
             // The UI reports eligible workers only when an authorized pool job is actually active.
             if (target == 0 && MinerState.connected) MinerState.status = "നിർത്തിവെച്ചു"
