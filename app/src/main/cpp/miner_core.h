@@ -27,6 +27,11 @@ uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
 
+/* Returns UINT32_MAX unless the experimental ARM dual implementation passed its differential self-test. */
+uint32_t miner_scan_dual(const uint8_t header[80], uint32_t start, uint32_t count,
+                         const uint8_t target[32], uint32_t *found, uint32_t max_found,
+                         double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
+
 extern const uint32_t SHA256_K[64];
 
 #ifdef HAVE_ARM_SHA2
