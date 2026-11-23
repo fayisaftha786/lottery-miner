@@ -32,6 +32,9 @@ object BitcoinMarketData {
     private const val MAX_RESPONSE_BYTES = 64 * 1024
 
     fun fetchSnapshot(): BitcoinProfitSnapshot {
+        // Timestamp the oldest request, not completion of the last endpoint.
+        // The three public APIs are sequential and do not expose one atomic snapshot time.
+        val snapshotStartedAt = System.currentTimeMillis()
         val difficulty = readText(DIFFICULTY_URL).trim().toDoubleOrNull()
             ?: throw IOException("Bitcoin difficulty response is invalid")
         val subsidySatoshis = readText(BLOCK_REWARD_URL).trim().toLongOrNull()
@@ -48,7 +51,7 @@ object BitcoinMarketData {
             networkHashrateHps = networkHashrateFromDifficulty(difficulty),
             blockSubsidyBtc = satoshisToBtc(subsidySatoshis.toDouble()),
             btcPriceInr = priceInr,
-            fetchedAtMillis = System.currentTimeMillis()
+            fetchedAtMillis = snapshotStartedAt
         )
     }
 
