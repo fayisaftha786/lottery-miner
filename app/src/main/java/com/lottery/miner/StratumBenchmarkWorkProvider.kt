@@ -135,6 +135,7 @@ internal object StratumBenchmarkWorkProvider {
             }
         }, "pool-benchmark-connect")
 
+        connection.isDaemon = true
         connection.start()
         try {
             if (!completed.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
