@@ -126,7 +126,7 @@ object Util {
 
     fun difficultyToTarget(diff: Double): ByteArray {
         require(diff.isFinite() && diff > 0.0) { "difficulty must be positive and finite" }
-        val target = BigDecimal(DIFF1).divide(BigDecimal(diff), 0, RoundingMode.FLOOR).toBigInteger()
+        val target = BigDecimal(DIFF1).divide(BigDecimal.valueOf(diff), 0, RoundingMode.FLOOR).toBigInteger()
         require(target.signum() > 0) { "difficulty is too high to represent a non-zero target" }
         return toBytes32(if (target > MAX256) MAX256 else target)
     }
