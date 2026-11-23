@@ -36,7 +36,6 @@ void compress_arm(uint32_t state[8], const uint32_t w[16]) {
     vst1q_u32(&state[0], vaddq_u32(s0, save0));
     vst1q_u32(&state[4], vaddq_u32(s1, save1));
 }
-#endif
 
 
 /*
@@ -88,3 +87,5 @@ void compress_arm_dual(uint32_t state_a[8], const uint32_t w_a[16],
     vst1q_u32(&state_b[0], vaddq_u32(b0, b_save0));
     vst1q_u32(&state_b[4], vaddq_u32(b1, b_save1));
 }
+
+#endif /* defined(__aarch64__) && defined(HAVE_ARM_SHA2) */
