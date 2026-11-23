@@ -26,6 +26,7 @@ The reviewed `main` source contains the following implemented paths:
 - Adaptive worker concurrency ramps conservatively only after pool authorization and job readiness. Safety reductions are applied immediately.
 - A local network-target hit is labelled as a candidate. A submitted share, accepted share, payout, and confirmed Bitcoin block remain distinct states.
 - The app includes a local benchmark and a read-only profitability estimator with freshness and input checks. Only SHA-256d is an executable miner; other algorithm names are research-only.
+- The current Android client uses Stratum V1 over plain TCP. It does not provide transport encryption or Stratum V2 support; users should avoid untrusted networks. CKPool publishes an SV2 endpoint, but this app cannot connect to it until an SV2 client is implemented and verified.
 - OCEAN is read-only external-worker monitoring. It does not provide free mining hashrate or provision remote workers.
 
 ## Scope and exclusions
