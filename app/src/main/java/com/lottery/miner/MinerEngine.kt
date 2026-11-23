@@ -163,8 +163,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             // Stratum V1 difficulty changes take effect on the next mining.notify.
             // Keep the current job and its target active until that job arrives.
             difficultyTargets.stage(diff)
-            MinerState.poolDiff = diff
-            MinerState.log("പൂൾ difficulty = $diff (അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ)")
+            MinerState.pendingPoolDiff = diff
+            MinerState.log("പൂൾ difficulty = $diff ലഭിച്ചു; അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ വരും")
         }
     }
     override fun onJob(job: Job) {
@@ -173,6 +173,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             current = null
             jobGeneration.incrementAndGet()
             shareTarget = difficultyTargets.activateForNextJob()
+            MinerState.poolDiff = difficultyTargets.activeDifficulty()
+            MinerState.pendingPoolDiff = 0.0
             MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
             MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
             if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
