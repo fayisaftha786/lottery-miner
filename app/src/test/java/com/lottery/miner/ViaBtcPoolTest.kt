@@ -20,6 +20,10 @@ class ViaBtcPoolTest {
 
     @Test fun requiresAccountAndWorkerSeparatedByDot() {
         assertTrue(ViaBtcPool.isValidWorker("account01.phone01"))
+        assertTrue(ViaBtcPool.isValidWorker("Account01.phone01"))
+        assertFalse(ViaBtcPool.isValidWorker("account01.Phone01"))
+        assertFalse(ViaBtcPool.isValidWorker("account_01.phone01"))
+        assertFalse(ViaBtcPool.isValidWorker("account01.phone_01"))
         assertFalse(ViaBtcPool.isValidWorker("account01"))
         assertFalse(ViaBtcPool.isValidWorker(".worker"))
         assertFalse(ViaBtcPool.isValidWorker("account."))
