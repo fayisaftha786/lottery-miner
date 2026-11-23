@@ -30,7 +30,7 @@ object BitcoinMarketData {
     private const val TICKER_URL = "https://blockchain.info/ticker"
     private const val TIMEOUT_MS = 8_000
 
-    fun fetchSnapshot(nowMillis: Long = System.currentTimeMillis()): BitcoinProfitSnapshot {
+    fun fetchSnapshot(): BitcoinProfitSnapshot {
         val difficulty = readText(DIFFICULTY_URL).trim().toDoubleOrNull()
             ?: throw IOException("Bitcoin difficulty response is invalid")
         val subsidySatoshis = readText(BLOCK_REWARD_URL).trim().toLongOrNull()
@@ -47,7 +47,7 @@ object BitcoinMarketData {
             networkHashrateHps = networkHashrateFromDifficulty(difficulty),
             blockSubsidyBtc = satoshisToBtc(subsidySatoshis.toDouble()),
             btcPriceInr = priceInr,
-            fetchedAtMillis = nowMillis
+            fetchedAtMillis = System.currentTimeMillis()
         )
     }
 
