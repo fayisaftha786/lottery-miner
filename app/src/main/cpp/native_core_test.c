@@ -32,6 +32,38 @@ static void assert_dual_scanner_matches_single(const uint8_t header[80],
     assert(memcmp(single_found, dual_found, single_count * sizeof(uint32_t)) == 0);
 }
 
+static int digest_numeric_less(const uint8_t left_internal[32], const uint8_t right_internal[32]) {
+    /* SHA256d output is internal little-endian uint256; compare from the top byte. */
+    for (int i = 31; i >= 0; i--) {
+        if (left_internal[i] < right_internal[i]) return 1;
+        if (left_internal[i] > right_internal[i]) return 0;
+    }
+    return 0;
+}
+
+static uint32_t independently_find_best_nonce(const uint8_t header_template[80],
+                                               uint32_t start, uint32_t count) {
+    uint8_t header[80], digest[32], best_digest[32];
+    uint32_t best_nonce = start;
+    int have_best = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const uint32_t nonce = start + i;
+        memcpy(header, header_template, sizeof(header));
+        header[76] = (uint8_t)nonce;
+        header[77] = (uint8_t)(nonce >> 8);
+        header[78] = (uint8_t)(nonce >> 16);
+        header[79] = (uint8_t)(nonce >> 24);
+        miner_sha256d_header(header, digest);
+        if (!have_best || digest_numeric_less(digest, best_digest)) {
+            memcpy(best_digest, digest, sizeof(best_digest));
+            best_nonce = nonce;
+            have_best = 1;
+        }
+    }
+    assert(have_best);
+    return best_nonce;
+}
+
 int main(void) {
     miner_core_init();
     assert(miner_core_selftest_ok() == 1);
@@ -47,6 +79,29 @@ int main(void) {
             pair_target[i] = (uint8_t)(i * 13u + trial * 17u);
         assert_dual_scanner_matches_single(pair_header,
             UINT32_MAX - 80u + trial, 257u - (trial % 2u), pair_target);
+    }
+
+
+    /* Independently verify the winning nonce using byte-wise full 256-bit hash ordering. */
+    for (uint32_t trial = 0; trial < 12; trial++) {
+        uint8_t best_header[80], best_target[32];
+        for (uint32_t i = 0; i < sizeof(best_header); i++)
+            best_header[i] = (uint8_t)(i * 31u + trial * 59u);
+        memset(best_target, 0, sizeof(best_target)); /* No hits; still track best hash. */
+        const uint32_t best_start = UINT32_MAX - 100u + trial;
+        const uint32_t best_length = 257u;
+        const uint32_t expected_best = independently_find_best_nonce(best_header, best_start, best_length);
+        uint32_t best_found[1], single_best_nonce = 0, dual_best_nonce = 0;
+        uint32_t single_overflow = 0, dual_overflow = 0;
+        double single_best_diff = 0.0, dual_best_diff = 0.0;
+        assert(miner_scan(best_header, best_start, best_length, best_target, best_found, 1,
+            &single_best_diff, &single_best_nonce, &single_overflow) == 0);
+        assert(miner_scan_dual(best_header, best_start, best_length, best_target, best_found, 1,
+            &dual_best_diff, &dual_best_nonce, &dual_overflow) == 0);
+        assert(single_best_nonce == expected_best);
+        assert(dual_best_nonce == expected_best);
+        assert(single_best_diff == dual_best_diff);
+        assert(single_overflow == 0 && dual_overflow == 0);
     }
 
     /* A candidate hash must pass at equality and fail with target-minus-one. */
