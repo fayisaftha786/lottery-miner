@@ -56,6 +56,12 @@ class MiningStrategyTest {
         assertNull(MiningStrategy.chooseBest(listOf(installed to loss)))
     }
 
+    @Test fun refusesProportionalPoolEstimateWithoutPoolSpecificData() {
+        assertTrue(runCatching {
+            MiningStrategy.estimate(input().copy(payoutModel = PayoutModel.PROPORTIONAL_POOL))
+        }.isFailure)
+    }
+
     @Test fun expectedSoloBlockIntervalGrowsWhenDeviceHashrateFalls() {
         val slow = MiningStrategy.estimate(input().copy(deviceHashrate = 1.0))
         val fast = MiningStrategy.estimate(input().copy(deviceHashrate = 100.0))

@@ -57,6 +57,9 @@ object MiningStrategy {
         require(input.poolFeePercent.isFinite() && input.poolFeePercent in 0.0..100.0)
         require(input.snapshotAgeSeconds >= 0L)
         require(input.networkBlocksPerDay.isFinite() && input.networkBlocksPerDay > 0.0)
+        require(input.payoutModel == PayoutModel.SOLO_BLOCK_REWARD) {
+            "Proportional pool estimates require pool-specific hashrate and payout data; network-wide data cannot be reused"
+        }
 
         val share = (input.deviceHashrate / input.networkHashrate).coerceIn(0.0, 1.0)
         val gross = share * input.dailyNetworkRewardCoins * input.coinPriceFiat

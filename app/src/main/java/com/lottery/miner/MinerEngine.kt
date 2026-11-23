@@ -7,6 +7,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
+import android.os.SystemClock
 import java.math.BigInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -42,6 +43,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val workLock = Any()
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
+    private val adaptiveWorkerController = AdaptiveWorkerController()
     private val threads = ArrayList<Thread>()
 
     @Synchronized fun start() {
@@ -424,8 +426,24 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                     if (target > 0) reason = "Android thermal status moderate; worker reduced"
                 }
             }
+            // Do not ramp while waiting for pool authorization or a mining job.
+            // Start conservatively only when real work is ready.
+            val hasReadyWork = MinerState.connected && current != null
+            val safetyWorkerLimit = if (hasReadyWork) target else 0
+
+            // Thermal/battery reductions apply immediately. Worker increases are
+            // limited to one every 45 seconds while an authorized job is active.
+            target = adaptiveWorkerController.selectWorkerCount(
+                safetyWorkerLimit = safetyWorkerLimit,
+                currentWorkerCount = activeThreads,
+                nowMillis = SystemClock.elapsedRealtime()
+            )
+            if (target > 0 && target < safetyWorkerLimit && reason.isBlank()) {
+                reason = "Adaptive worker ramp: $target/$safetyWorkerLimit"
+            }
+
             activeThreads = target
-            MinerState.activeThreads = if (target > 0 && current != null && MinerState.connected) target else 0
+            MinerState.activeThreads = if (target > 0 && hasReadyWork) target else 0
             MinerState.pauseReason = reason
             // The UI reports eligible workers only when an authorized pool job is actually active.
             if (target == 0 && MinerState.connected) MinerState.status = "നിർത്തിവെച്ചു"

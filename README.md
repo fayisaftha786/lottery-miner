@@ -81,3 +81,13 @@ Network hashrate is estimated from difficulty as `difficulty × 2^32 / 600 secon
 For CKPool solo mining the displayed net value is only a long-run mathematical expectation. It is not a daily payout forecast: a payout requires a valid network block, and the wait time at phone hashrates can be extraordinarily long. Accepted shares are feedback, not proportional BTC earnings. The estimator refuses to use snapshots older than 15 minutes and does not reuse failed market data as if it were live.
 
 Only SHA-256d has a native miner implementation in this application. VerusHash, RandomX, Scrypt, and other algorithm entries are research targets, not selectable or executable miners. Automatic multi-algorithm switching is disabled until a separately audited native engine, compatible pool protocol, license notices, per-device benchmarks, and network/economic data adapters are integrated and validated.
+
+## Adaptive mining controller (v1)
+
+The existing Bitcoin SHA-256d native engine is preserved. The adaptive controller now ramps worker concurrency conservatively: it starts with one worker, adds at most one worker every 45 seconds, and applies battery/temperature/Android thermal safety reductions immediately. If telemetry is unavailable, the existing fail-safe policy remains authoritative. This is a sustained-load controller, not a claim of higher hashes per watt.
+
+Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain disabled research entries until their native implementations, pool protocols, independent known-answer tests, licensing review, and device benchmarks are complete. The app must never switch to an algorithm that is only listed in the registry.
+
+Profitability estimates currently support Bitcoin solo expected value only. The estimator rejects the proportional-pool mode unless pool-specific hashrate and payout data are available; network-wide Bitcoin data must not be misrepresented as a pool payout estimate. Android battery temperature and percentage are not treated as measured wall power. A real net-profit decision requires an external meter's incremental mining watts, the user's actual electricity tariff, a fresh market/network snapshot, and the applicable pool fee.
+
+Automatic multi-algorithm selection and automatic profitability-based switching remain disabled until at least two independent native engines and their matching pool/economic adapters have passed device-level verification.
