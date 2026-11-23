@@ -198,4 +198,12 @@ class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
     @Synchronized fun activeDifficulty(): Double = activeDiff
 
     @Synchronized fun pendingDifficulty(): Double? = pendingDiff
+
+    @Synchronized fun reset(initialDifficulty: Double = 1.0) {
+        val target = Util.difficultyToTarget(initialDifficulty)
+        active = target
+        activeDiff = initialDifficulty
+        pending = null
+        pendingDiff = null
+    }
 }
