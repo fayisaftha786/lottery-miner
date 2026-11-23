@@ -301,15 +301,15 @@ class MainActivity : AppCompatActivity() {
             tvProfitability.text = "ഈ estimator CKPool solo Bitcoin mining-നു മാത്രമാണ്. ഈ host-നുള്ള payout model ലഭ്യമല്ല."
             return
         }
-        val liveRate = MinerState.hashrate.takeIf {
+        fun currentLiveRate(): Double? = MinerState.hashrate.takeIf {
             MinerState.running && MinerState.connected && MinerState.activeThreads > 0 &&
                 it.isFinite() && it > 0.0
         }
-        if (liveRate == null) {
-            tvProfitability.text = "LIVE HAShrate unavailable: pool authorization + active job + native worker scan ആവശ്യമാണ്. Stopped benchmark അല്ലെങ്കിൽ പഴയ saved rate profit കണക്കിന് ഉപയോഗിക്കില്ല."
+        if (currentLiveRate() == null) {
+            tvProfitability.text = "LIVE hashrate ലഭ്യമല്ല: pool authorization, active job, native worker scan എന്നിവ വേണം. Stopped benchmark profit കണക്കിൽ ഉപയോഗിക്കില്ല."
             return
         }
-        val rate = liveRate
+
         val power = etMiningPower.text.toString().trim().toDoubleOrNull()
         val tariff = etElectricityTariff.text.toString().trim().toDoubleOrNull()
         val fee = etPoolFee.text.toString().trim().toDoubleOrNull()
@@ -322,7 +322,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (fee == null || !fee.isFinite() || fee !in 0.0..100.0) {
-            tvProfitability.text = "Pool fee 0–100% ഇടയിൽ നൽകുക. CKPool fee നിങ്ങളുടെ pool നിബന്ധനകളിൽ നിന്ന് പരിശോധിക്കുക."
+            tvProfitability.text = "Pool fee 0–100% ഇടയിൽ നൽകുക. CKPool fee pool-ന്റെ നിലവിലെ നിബന്ധനകളിൽ നിന്ന് സ്ഥിരീകരിക്കുക."
             return
         }
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
@@ -336,11 +336,15 @@ class MainActivity : AppCompatActivity() {
         tvProfitability.text = "Live Bitcoin network difficulty, block subsidy, BTC/INR data പരിശോധിക്കുന്നു…"
         Thread {
             try {
+                // Capture the actual rate only after all remote data requests complete.
+                // The estimate and displayed rate therefore refer to the same sample.
                 val snapshot = BitcoinMarketData.fetchSnapshot()
                 val ageSeconds = ((System.currentTimeMillis() - snapshot.fetchedAtMillis) / 1000L).coerceAtLeast(0L)
+                val rateUsed = currentLiveRate()
+                    ?: throw IllegalStateException("Live pool mining stopped while market data was loading")
                 val result = MiningStrategy.estimate(
                     MiningEconomicsInput(
-                        deviceHashrate = rate,
+                        deviceHashrate = rateUsed,
                         networkHashrate = snapshot.networkHashrateHps,
                         dailyNetworkRewardCoins = snapshot.dailySubsidyBtc,
                         coinPriceFiat = snapshot.btcPriceInr,
@@ -353,16 +357,12 @@ class MainActivity : AppCompatActivity() {
                     )
                 )
                 runOnUiThread {
-                    val currentRate = MinerState.hashrate.takeIf {
-                        MinerState.running && MinerState.connected && MinerState.activeThreads > 0 &&
-                            it.isFinite() && it > 0.0
-                    }
-                    if (currentRate == null) {
-                        tvProfitability.text = "Estimate റദ്ദാക്കി: data ലഭിക്കുന്നതിനിടെ live pool mining നിലച്ചു. വീണ്ടും live work ലഭിച്ച ശേഷം മാത്രം കണക്കാക്കുക."
+                    if (currentLiveRate() == null) {
+                        tvProfitability.text = "Estimate റദ്ദാക്കി: കണക്കു കാണിക്കുന്നതിന് മുമ്പ് live pool mining നിലച്ചു. വീണ്ടും live work ലഭിച്ച ശേഷം ശ്രമിക്കുക."
                     } else {
                         tvProfitability.text = buildString {
                             appendLine("BITCOIN SOLO · MATHEMATICAL EXPECTED VALUE (INR)")
-                            appendLine("Rate source: live native phone scanner at refresh start · ${Util.fmtRate(rate)}")
+                            appendLine("Rate used: live native scanner sample · ${Util.fmtRate(rateUsed)}")
                             appendLine("BTC/INR: ₹${String.format(Locale.US, "%.2f", snapshot.btcPriceInr)}")
                             appendLine("Network difficulty: ${String.format(Locale.US, "%.4e", snapshot.difficulty)}")
                             appendLine("Estimated network hashrate: ${Util.fmtRate(snapshot.networkHashrateHps)}")
@@ -374,7 +374,7 @@ class MainActivity : AppCompatActivity() {
                             appendLine("Expected net value/day: ${formatInr(result.netFiatPerDay)}")
                             appendLine("Mean block wait: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
                             appendLine("Market data age: ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
-                            appendLine("WARNING: long-run mathematical expectation only; not daily payout, guaranteed income, or block probability certainty.")
+                            appendLine("WARNING: long-run mathematical expectation only; not daily payout, guaranteed income, or block certainty.")
                             if (result.netFiatPerDay <= 0.0) appendLine("RESULT: estimated electricity + pool costs exceed expected gross value.")
                             else appendLine("RESULT: positive expected value only; solo payout wait at phone hashrate remains extremely long.")
                         }
@@ -384,7 +384,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvProfitability.text = "Profitability data unavailable: ${e.message ?: e.javaClass.simpleName}\nFailed live data is never reused as current."
+                    tvProfitability.text = "Profitability data unavailable: ${e.message ?: e.javaClass.simpleName}\nFailed or stale data is never shown as current."
                     profitabilityFetchInFlight = false
                     btnRefreshProfitability.isEnabled = true
                 }
