@@ -32,6 +32,7 @@ class StratumClient(
     }
 
     @Volatile private var socket: Socket? = null
+    @Volatile private var connectingSocket: Socket? = null
     @Volatile private var closed = false
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
@@ -83,17 +84,18 @@ class StratumClient(
         for (address in addresses) {
             if (closed) throw java.io.IOException("Stratum client closed")
             val candidate = Socket()
+            connectingSocket = candidate
             try {
+                if (closed) throw java.io.IOException("Stratum client closed")
                 listener.onStatus("Connecting to $host (${address.hostAddress}):$port")
                 candidate.connect(InetSocketAddress(address, port), 10000)
-                if (closed) {
-                    candidate.close()
-                    throw java.io.IOException("Stratum client closed")
-                }
+                if (closed) throw java.io.IOException("Stratum client closed")
                 return candidate
             } catch (e: Exception) {
                 lastError = e
                 try { candidate.close() } catch (_: Exception) { }
+            } finally {
+                if (connectingSocket === candidate) connectingSocket = null
             }
         }
         throw lastError ?: java.net.ConnectException("Pool host resolved to no addresses")
@@ -101,6 +103,7 @@ class StratumClient(
 
     fun close() {
         closed = true
+        try { connectingSocket?.close() } catch (_: Exception) { }
         try { socket?.close() } catch (_: Exception) { }
     }
 
