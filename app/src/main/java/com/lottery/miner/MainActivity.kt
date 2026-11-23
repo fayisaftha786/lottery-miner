@@ -476,7 +476,7 @@ class MainActivity : AppCompatActivity() {
             externalSnapshot = null
             externalSnapshotAddress = null
             externalError = null
-            tvExternalStats.text = "FREE EXTERNAL MINING (OCEAN BTC)\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; OCEAN-ൽ ഇതിനകം പ്രവർത്തിക്കുന്ന worker-കളുടെ കണക്കാണ്."
+            tvExternalStats.text = "OCEAN EXTERNAL WORKER MONITOR\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; OCEAN-ൽ ഇതിനകം പ്രവർത്തിക്കുന്ന worker-കളുടെ കണക്കാണ്."
             return
         }
         val now = System.currentTimeMillis()
