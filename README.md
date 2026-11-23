@@ -64,17 +64,17 @@ This app performs SHA-256d mining on the Android device and submits work to the 
 
 ## Adaptive Mining Lab
 
-The app includes a local SHA-256d benchmark and a conservative profitability calculation model. The benchmark runs only while mining is stopped, scans a synthetic header against a zero target, and never opens a pool connection or submits shares.
+The app includes a bounded SHA-256d scanner diagnostic and a separate conservative solo expected-value estimator. The diagnostic obtains an authorized real Stratum V1 job, builds its real 80-byte header and share target, and measures local hashing only. It never calls mining.submit; any qualifying hashes are discarded. A diagnostic result is not pool-accepted hashrate, accepted shares, earnings, or a block.
 
 The algorithm registry currently marks SHA-256d as installed. RandomX, VerusHash, GhostRider, and AstroBWT are research candidates only; they are not executable miners in this app yet. They must not be selected or advertised as available until a native implementation is integrated, licensed correctly, cross-checked against an independent reference implementation, and benchmarked on real ARM64 hardware.
 
-Profitability estimates require device benchmark rate, network hashrate, daily network reward, market price, measured power, local electricity tariff, pool fee, and a fresh timestamp. Snapshots older than 15 minutes are rejected for net-profit selection. Hashrates from different algorithms are never compared directly. Solo-mining reward probability must not be presented as proportional pool income.
+Profitability estimates are available only while an authorized pool job is actively being scanned and use the current native live hashrate, never a stored benchmark result. They also require network hashrate, daily network reward, market price, measured power, local electricity tariff, pool fee, and a fresh timestamp. Snapshots older than 15 minutes are rejected for net-profit selection. Hashrates from different algorithms are never compared directly. Solo-mining reward probability must not be presented as proportional pool income.
 
 Automatic algorithm switching remains disabled until live market/network/pool data adapters and at least two validated mining implementations are available. The engine must choose by expected net return per day only after subtracting pool fees and electricity cost; if no candidate has a fresh positive estimate, mining should remain stopped or stay on the user's explicit manual selection.
 
 ## Adaptive Mining Lab and profitability estimates
 
-The in-app SHA-256d benchmark runs for at most five seconds, at reduced thread priority, only while phone mining is stopped. It scans a deterministic synthetic header against a zero target and does not connect to a pool or submit shares. The most recent measured rate is saved locally for the estimator.
+The in-app SHA-256d diagnostic runs for at most five seconds, at reduced thread priority, only while phone mining is stopped. It opens a separate read-only Stratum work-acquisition session, validates a real authorized pool job, and hashes its 80-byte header against the pool-provided share target. It never submits shares and its measured rate is not saved or reused for profitability estimates.
 
 The Bitcoin estimator refreshes read-only public data on user request:
 - Bitcoin network difficulty and current block subsidy: Blockchain.com simple network API.
@@ -92,6 +92,6 @@ The existing Bitcoin SHA-256d native engine is preserved. The adaptive controlle
 
 Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain disabled research entries until their native implementations, pool protocols, independent known-answer tests, licensing review, and device benchmarks are complete. The app must never switch to an algorithm that is only listed in the registry.
 
-Profitability estimates currently support Bitcoin solo expected value only. The estimator rejects the proportional-pool mode unless pool-specific hashrate and payout data are available; network-wide Bitcoin data must not be misrepresented as a pool payout estimate. Android battery temperature and percentage are not treated as measured wall power. A real net-profit decision requires an external meter's incremental mining watts, the user's actual electricity tariff, a fresh market/network snapshot, and the applicable pool fee.
+Profitability estimates currently support Bitcoin solo expected value only and require an active, authorized, live mining session. A stopped-device benchmark is never an estimator input. The estimator rejects the proportional-pool mode unless pool-specific hashrate and payout data are available; network-wide Bitcoin data must not be misrepresented as a pool payout estimate. Android battery temperature and percentage are not treated as measured wall power. A real net-profit decision requires an external meter's incremental mining watts, the user's actual electricity tariff, a fresh market/network snapshot, and the applicable pool fee.
 
 Automatic multi-algorithm selection and automatic profitability-based switching remain disabled until at least two independent native engines and their matching pool/economic adapters have passed device-level verification.
