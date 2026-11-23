@@ -76,8 +76,8 @@ class MinerService : Service() {
 
         val cfg = MinerConfig(
             address = i.getStringExtra(EXTRA_ADDRESS) ?: "",
-            host = i.getStringExtra(EXTRA_HOST) ?: "solo.ckpool.org",
-            port = i.getIntExtra(EXTRA_PORT, 3333),
+            host = i.getStringExtra(EXTRA_HOST) ?: MinerDefaults.POOL_HOST,
+            port = i.getIntExtra(EXTRA_PORT, MinerDefaults.POOL_PORT),
             threads = i.getIntExtra(EXTRA_THREADS, 1),
             onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, true),
             maxTemp = i.getDoubleExtra(EXTRA_MAX_TEMP, 40.0),

@@ -22,7 +22,7 @@ The app's **CKPool statistics** button opens the graphical user page for the con
 This is CKPool solo mining: ordinary accepted shares are feedback and do not create proportional BTC earnings. A payout requires a valid block found by the miner, accepted by CKPool, and subsequently confirmed on the Bitcoin network. A local block candidate is not a confirmed block. Verify any claimed payout independently using the block and transaction details in a trusted Bitcoin block explorer. CKPool charges a 2% fee on a found block reward plus transaction fees.
 
 ## Build and verification
-Requires JDK 17, Android SDK 36 (Android 16), NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.9.1, and Gradle 8.11.1.
+Requires JDK 17, Android SDK 36 (Android 16), NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.10.1, and Gradle 8.11.1.
 
 ```bash
 cmake -S app/src/main/cpp -B build/native-tests -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug

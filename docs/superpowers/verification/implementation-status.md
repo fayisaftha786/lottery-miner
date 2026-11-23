@@ -1,46 +1,75 @@
-# Real-Only Mining Implementation Status
+# Lottery Miner — Source and Verification Status
 
-**Branch:** `feature/real-mining-ultra`
-**Base:** `main` at `bcaa3b5f3afcbca3e3cac84b7201992904aed617`
+**Audit date:** 2026-11-23  
+**Audited base branch:** `main`  
+**Base commit reviewed:** `68053f65929e28003e53214858bdb9fcd77e3cf5`  
+**Verification update branch:** `fix/final-verification-2026-11-23`
 
-## Source changes committed
-- Stratum input lines are bounded; subscribe, extranonce, difficulty, job, and share-response fields are validated.
-- `mining.set_extranonce` invalidates old work and restarts extranonce allocation after a new server subscription.
-- Job generations prevent old work from being submitted after job, difficulty, extranonce, or connection transitions.
-- Share responses are tied to pending request IDs. Ambiguous send failures and disconnects become unknown, not accepted.
-- Native best-hash comparison checks all 256 bits; extra target hits beyond the JNI result buffer are counted and surfaced.
-- JNI checks array lengths, exceptions, scan counts, and non-wrapping 32-bit nonce ranges.
-- Unknown battery telemetry pauses mining; unknown battery temperature limits mining to one worker; Android thermal status can reduce/pause workers.
-- Worker shutdown uses a bounded shared deadline and blocks restart while old workers remain alive.
-- Dashboard distinguishes a local block candidate from a confirmed block and displays unavailable telemetry as N/A.
-- Release signing no longer silently uses the debug key. Release publishing is isolated to a tag-only job with write permission.
-- Added host-native C tests, Kotlin tests for Stratum/Job/target handling, and an installable debug test APK artifact workflow.
+## Current implementation
 
-## Latest GitHub Actions verification
+The reviewed `main` source contains the following implemented paths:
 
-**Run:** [44746519862](https://github.com/fayisaftha786/lottery-miner/actions/runs/44746519862)  
-**Built commit:** `fe88340c167ba496a5e2daf74bfbd50bb7f10d91`  
-**Overall result:** SUCCESS
+- Real local SHA-256d nonce scanning through the native C/JNI engine; displayed hashes and hashrate are derived from native scan work and monotonic elapsed time.
+- Stratum v1 subscribe/authorize/job/difficulty/share submission with bounded input parsing, field validation, job-generation invalidation, and response-ID matching.
+- Pending submissions are bounded. A response lost during a disconnect is counted as unknown, not accepted. A full queue increments dropped/not-submitted rather than accepted shares.
+- SHA-256d core includes a Bitcoin genesis self-test and independent fixed known-answer vectors in the host-native test suite.
+- ARMv8 SHA-256 acceleration is selected only when the runtime CPU feature is present and the accelerated implementation passes the core self-test.
+- JNI validates array lengths, scan counts, and non-wrapping nonce ranges before accessing native buffers.
+- Battery availability, battery temperature, and Android device thermal status are treated as separate measurements. Unknown battery telemetry pauses mining; unknown battery temperature limits workers; Android thermal policy can reduce or pause work.
+- Adaptive worker concurrency ramps conservatively only after pool authorization and job readiness. Safety reductions are applied immediately.
+- A local network-target hit is labelled as a candidate. A submitted share, accepted share, payout, and confirmed Bitcoin block remain distinct states.
+- The app includes a local benchmark and a read-only profitability estimator with freshness and input checks. Only SHA-256d is an executable miner; other algorithm names are research-only.
+- OCEAN is read-only external-worker monitoring. It does not provide free mining hashrate or provision remote workers.
 
-- Host native CMake/CTest: 1/1 passed.
-- JVM unit tests: 16/16 passed (including Stratum subscribe/authorize/job/share and unknown-share disconnect tests).
-- Android `lintDebug`: passed.
-- Android release native libraries: built successfully.
-- Release APK: assembled successfully, but unsigned because protected release signing secrets are not configured.
-- Debug test APK: assembled successfully and uploaded as `LotteryMiner-debug-test-apk`.
+## Scope and exclusions
 
-The debug APK is a test build signed with the standard Android debug key. It is suitable for device testing, not production distribution. The unsigned release APK must not be installed/distributed as a production build.
+This repository currently implements **Android phone CPU mining only**. It does not provision cloud instances or remote workers. The old `feature/zero-cost-cloud-worker-guard` branch is divergent and substantially behind current `main`; it must not be merged wholesale into the current engine. No remote compute provider is represented as connected or available unless an actual supported integration exists.
+
+RandomX, VerusHash, Scrypt, GhostRider, and other non-SHA-256d algorithms are not installed miners. Automatic algorithm switching is disabled until a separately implemented and independently validated native miner, compatible pool adapter, licence review, and real-device benchmark exist.
+
+## Build and CI verification
+
+The current build configuration reviewed on `main` uses:
+- JDK 17
+- Android Gradle Plugin 8.10.1
+- Gradle wrapper 8.11.1
+- Android SDK / compile SDK 36
+- NDK 26.1.10909125
+- CMake 3.22.1
+- Kotlin 2.2.21
+
+The GitHub Actions workflow is configured to run host-native CMake/CTest, JVM unit tests, Android lint, Android native library builds, release APK assembly, 16 KB ELF/APK alignment checks, APK signing-state verification, and debug APK assembly.
+
+**CI verification: PASS** for the application and configuration changes at commit `21c025d54b84e64e98cd7ad5ae5aa6d6cbd9fb39`, GitHub Actions run [#546 / 45173841370](https://github.com/fayisaftha786/lottery-miner/actions/runs/45173841370).
+
+Completed successfully:
+- Host-native CMake build and CTest.
+- JVM unit tests and `lintDebug`.
+- Release native library build and Release APK assembly.
+- 16 KB ELF segment and APK alignment checks.
+- APK checksum recording.
+- Debug APK assembly, debug APK signature verification, and presence of `arm64-v8a` and `x86_64` native libraries.
+- Artifact upload for release build, debug test APK, and JVM test reports.
+
+The protected release signing step was skipped because release-keystore secrets were not available to this workflow. The Release artifact is therefore `app-release-unsigned.apk`, not production-signed. The Debug test APK is signed with the Android debug key and is intended only for controlled device testing.
+
+This report update is documentation-only and is being added after run #546; that later documentation commit is not itself part of the tested application-code SHA above.
+
+A release artifact without the protected release keystore is unsigned and is not a production distribution. Debug-signed test APKs are for controlled device testing only.
 
 ## Live verification still required
 
-- Install and test the debug APK on a physical Android device.
-- Perform a real CKPool connect/authorize/share-response test and cross-check accepted shares with the pool's authoritative statistics.
-- Perform at least a 60-minute device soak test with thermal/battery monitoring.
-- Configure protected Actions secrets before expecting a production-signed release: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
-- A local candidate, accepted pool share, payout, and confirmed Bitcoin block are distinct states; no block confirmation or payout has been verified.
+The following cannot be proven by source inspection or mock-pool unit tests:
 
-## Release boundary
-Changes remain on the feature branch. `main` has not been modified or merged. The APK has not been declared production-ready because test/build output and live-device/pool evidence are not yet available.
-## Review record
-- Source-level self-review completed. The green GitHub Actions run above verifies CI compilation/tests, not independent code review or live-device behavior.
-- Live CKPool and physical-device verification remain pending and cannot be inferred from source changes.
+- Install the exact CI-built debug APK on a physical Android ARM64 device and record its package version and source commit.
+- Confirm a real CKPool subscribe and authorization, receipt of live job/difficulty messages, and reconnect after a network interruption.
+- Verify any accepted share against CKPool's authoritative worker/statistics page. A locally counted submission is not pool acceptance.
+- Run a monitored 60-minute device soak test. Record battery telemetry, battery temperature, Android thermal status, worker count, native hash count, and any pauses/reconnects.
+- Verify stop/restart leaves no background hashing workers and that old-job work is not submitted.
+- For production distribution, configure protected Actions signing secrets and verify the signed release APK with `apksigner`.
+
+No real pool-accepted share, Bitcoin block candidate accepted by the network, payout, or block confirmation is asserted by this source audit.
+
+## Verification boundary
+
+A green CI run establishes that the configured tests and build steps passed for the exact commit that ran. It does not prove real-device hashrate, long-term thermal safety, pool-side acceptance, profitability, payout, or block discovery. Record those separately with device and pool evidence.
