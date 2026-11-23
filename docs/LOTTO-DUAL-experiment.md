@@ -15,7 +15,7 @@ The experiment seeks a possible throughput improvement from exposing independent
 - Each lane's resulting digest is used as the message to its own second SHA-256 block; those blocks are also compressed in parallel.
 - Hashes are compared against the same big-endian target with the same inclusive `hash <= target` rule as the existing scanner.
 - Results are returned in nonce-ascending order. Odd nonce counts use one valid final lane and discard the duplicate lane's output.
-- The dual scanner returns unavailable unless ARM SHA2 hardware is present and the differential self-test passes.
+- On ARM64, the app may run the hardware dual scanner only when ARM SHA2 is present and its differential self-test passes. Non-ARM host builds use a scalar two-stream reference path solely to unit-test paired-scanner bookkeeping; this does not claim ARM hardware acceleration.
 - Mining does not automatically select the dual scanner. It is accessible only through the stopped-miner A/B benchmark.
 
 ## Correctness checks
