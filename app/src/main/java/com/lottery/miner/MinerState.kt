@@ -31,6 +31,7 @@ object MinerState {
     @Volatile var netDiff = 0.0
     @Volatile var tempC = Double.NaN
     @Volatile var tempAvailable = false
+    @Volatile var androidThermalStatus = "N/A"
     @Volatile var battery = 0
     @Volatile var batteryAvailable = false
     @Volatile var plugged = false
@@ -84,6 +85,7 @@ object MinerState {
         netDiff = 0.0
         tempC = Double.NaN
         tempAvailable = false
+        androidThermalStatus = "N/A"
         batteryAvailable = false
         blockCandidateDetected = false
         pauseReason = ""
