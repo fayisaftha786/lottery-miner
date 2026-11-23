@@ -314,9 +314,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBitcoinProfitability() {
         if (profitabilityFetchInFlight) return
-        val host = etHost.text.toString().trim().lowercase(Locale.US)
-        if (!(host == "ckpool.org" || host.endsWith(".ckpool.org"))) {
-            tvProfitability.text = "ഈ estimator CKPool solo Bitcoin mining-നു മാത്രമാണ്. ഈ host-നുള്ള payout model ലഭ്യമല്ല."
+        val host = etHost.text.toString().trim()
+        if (!CkpoolHosts.isOfficialSoloEndpoint(host)) {
+            tvProfitability.text = "ഈ estimator ഔദ്യോഗിക CKPool solo endpoints-നു മാത്രമാണ്. ഈ host-ന്റെ payout model ലഭ്യമല്ല."
             return
         }
         fun currentLiveRate(): Double? = MinerState.hashrate.takeIf {
