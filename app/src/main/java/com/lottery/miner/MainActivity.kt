@@ -448,7 +448,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Last share response: ${time(s.lastShareResponseAt)}")
             appendLine("Shares submitted/accepted/rejected: ${s.submittedShares.get()}/${s.accepted.get()}/${s.rejected.get()}")
             appendLine("Unknown/dropped shares: ${s.unknownShares.get()}/${s.droppedShares.get()}")
-            appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Active pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Pending next-job pool difficulty: ${if (s.pendingPoolDiff > 0.0) s.pendingPoolDiff else "none"}")
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
             appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
@@ -673,6 +674,10 @@ class MainActivity : AppCompatActivity() {
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
+        if (s.pendingPoolDiff > 0.0) {
+            sb.append("അടുത്ത job pool diff: ").append(String.format(Locale.US, "%.4g", s.pendingPoolDiff))
+                .append(" (ഇനിയും പ്രാബല്യത്തിൽ വന്നിട്ടില്ല)\n")
+        }
         if (s.hashrate > 0.0 && s.poolDiff > 0.0) {
             val expectedSeconds = Util.expectedShareIntervalSeconds(s.poolDiff, s.hashrate)
             sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\n')
