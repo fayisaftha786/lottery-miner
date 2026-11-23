@@ -1,10 +1,13 @@
 # Lottery Miner — Source and Verification Status
 
 **Audit date:** 2026-11-23  
-**Application + CI merge commit:** `7550f481a07ee0aa4dacfe0a734dfa6d6978f1e0`  
+**Latest verified main commit:** `54ddfb833f958cdb6be04bbf29da9a25b9f89fe6`  
 **Merged application/configuration PR:** [#24](https://github.com/fayisaftha786/lottery-miner/pull/24)  
 **Merged CI maintenance PR:** [#25](https://github.com/fayisaftha786/lottery-miner/pull/25)  
-**Latest full verification run:** [#554 / 45181093146](https://github.com/fayisaftha786/lottery-miner/actions/runs/45181093146)
+**Merged signing-gate fix:** [#26](https://github.com/fayisaftha786/lottery-miner/pull/26)  
+**Merged Stratum/native correctness fixes:** [#28](https://github.com/fayisaftha786/lottery-miner/pull/28)  
+**Latest full verification run:** [#574 / 45185365764](https://github.com/fayisaftha786/lottery-miner/actions/runs/45185365764)  
+**Run #574 tested source commit:** `58060472e800c53d7aa8882aff42c5d0859918d3` (merged into main as `54ddfb833f958cdb6be04bbf29da9a25b9f89fe6`)
 
 
 ## Current implementation
@@ -13,6 +16,8 @@ The reviewed `main` source contains the following implemented paths:
 
 - Real local SHA-256d nonce scanning through the native C/JNI engine; displayed hashes and hashrate are derived from native scan work and monotonic elapsed time.
 - Stratum v1 subscribe/authorize/job/difficulty/share submission with bounded input parsing, field validation, job-generation invalidation, and response-ID matching.
+- Pool difficulty changes are staged until the next job; the displayed active difficulty and native share target switch together. Disconnect clears old active/pending difficulty state before reconnect.
+- Native best-nonce reporting follows the exact 256-bit hash ordering and does not use rounded floating-point difficulty as the tie-breaker.
 - Pending submissions are bounded. A response lost during a disconnect is counted as unknown, not accepted. A full queue increments dropped/not-submitted rather than accepted shares.
 - SHA-256d core includes a Bitcoin genesis self-test and independent fixed known-answer vectors in the host-native test suite.
 - ARMv8 SHA-256 acceleration is selected only when the runtime CPU feature is present and the accelerated implementation passes the core self-test.
@@ -47,7 +52,7 @@ The workflow uses Node 24-compatible GitHub Actions:
 - `actions/upload-artifact@v7.0.2`
 - `actions/download-artifact@v8.0.2`
 
-**Latest full CI verification: PASS** for workflow commit `f6bcb326f6e9436a824e894677492049e08a9ddb`, merged into main as `7550f481a07ee0aa4dacfe0a734dfa6d6978f1e0`. Run [#554 / 45181093146](https://github.com/fayisaftha786/lottery-miner/actions/runs/45181093146) completed successfully.
+**Latest full CI verification: PASS** for PR #28 workflow commit `58060472e800c53d7aa8882aff42c5d0859918d3`, merged into main as `54ddfb833f958cdb6be04bbf29da9a25b9f89fe6`. Run [#574 / 45185365764](https://github.com/fayisaftha786/lottery-miner/actions/runs/45185365764) completed successfully. Earlier full run #554 also passed for the Node 24 Actions upgrade.
 
 Completed successfully:
 - Host-native CMake build and CTest.
@@ -61,14 +66,14 @@ Completed successfully:
 
 The previous Node.js 20 deprecation warning is absent from run #554. Gradle 8.11.1 emits a non-failing advisory that a newer Gradle version exists. The wrapper remains unchanged because an AGP/Gradle toolchain upgrade requires a separate compatibility-tested change.
 
-The protected release signing step was skipped because the four release-keystore Actions secrets are not configured. Therefore the Release artifact is unsigned and is not production-ready. The Debug test APK is signed with the Android debug key and is for controlled device testing only.
+The protected release signing step was skipped because the four release-keystore Actions secrets are not configured. Therefore the Release artifact is unsigned and is not production-ready. The Debug test APK is signed with the Android debug key and is for controlled device testing only. The workflow now decodes the keystore only when all four required secrets are present: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
 
 ## Live verification still required
 
 The following cannot be proven by source inspection or mock-pool unit tests:
 
 - Install the exact CI-built debug APK on a physical Android ARM64 device and record its package version and source commit.
-- Confirm a real CKPool subscribe and authorization, receipt of live job/difficulty messages, and reconnect after a network interruption.
+- Confirm a real CKPool subscribe and authorization, receipt of live job/difficulty messages, difficulty changes, and reconnect after a network interruption.
 - Verify any accepted share against CKPool's authoritative worker/statistics page. A locally counted submission is not pool acceptance.
 - Run a monitored 60-minute device soak test. Record battery telemetry, battery temperature, Android thermal status, worker count, native hash count, and any pauses/reconnects.
 - Verify stop/restart leaves no background hashing workers and that old-job work is not submitted.
