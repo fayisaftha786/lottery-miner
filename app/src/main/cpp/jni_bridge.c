@@ -46,7 +46,6 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scan(JNIEnv *env, jobject t
 
 JNIEXPORT jboolean JNICALL Java_com_lottery_miner_Native_dualSelfTestOk(JNIEnv *env, jobject thiz) {
     (void)env; (void)thiz;
-    miner_core_init();
     return miner_core_dual_selftest_ok() ? JNI_TRUE : JNI_FALSE;
 }
 
