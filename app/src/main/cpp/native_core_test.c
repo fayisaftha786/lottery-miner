@@ -61,11 +61,25 @@ int main(void) {
     miner_sha256d_header(pair_header, pair_digest);
     for (uint32_t i = 0; i < 32; i++) pair_target[i] = pair_digest[31u - i];
     assert_dual_scanner_matches_single(pair_header, exact_nonce - 8u, 17u, pair_target);
+    uint32_t exact_found[300], exact_best_nonce = 0, exact_overflow = 0;
+    double exact_best_diff = 0.0;
+    uint32_t exact_count = miner_scan_dual(pair_header, exact_nonce - 8u, 17u,
+        pair_target, exact_found, 300, &exact_best_diff, &exact_best_nonce, &exact_overflow);
+    int exact_nonce_accepted = 0;
+    for (uint32_t i = 0; i < exact_count; i++)
+        if (exact_found[i] == exact_nonce) exact_nonce_accepted = 1;
+    assert(exact_nonce_accepted);
     for (int i = 31; i >= 0; i--) {
         if (pair_target[i] != 0) { pair_target[i]--; break; }
         pair_target[i] = 0xff;
     }
     assert_dual_scanner_matches_single(pair_header, exact_nonce - 8u, 17u, pair_target);
+    exact_count = miner_scan_dual(pair_header, exact_nonce - 8u, 17u,
+        pair_target, exact_found, 300, &exact_best_diff, &exact_best_nonce, &exact_overflow);
+    exact_nonce_accepted = 0;
+    for (uint32_t i = 0; i < exact_count; i++)
+        if (exact_found[i] == exact_nonce) exact_nonce_accepted = 1;
+    assert(!exact_nonce_accepted);
 
 #ifndef HAVE_ARM_SHA2
     /* The host uses two scalar compression calls to test dual-scanner bookkeeping.
