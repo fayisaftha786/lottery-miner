@@ -15,6 +15,19 @@ static void hex2bin(const char *hex, uint8_t *out, size_t n) {
 int main(void) {
     miner_core_init();
     assert(miner_core_selftest_ok() == 1);
+#ifndef HAVE_ARM_SHA2
+    /* Host builds must never claim the ARM-only dual implementation is available. */
+    assert(miner_core_dual_selftest_ok() == 0);
+    uint8_t unsupported_header[80] = {0};
+    uint8_t unsupported_target[32] = {0};
+    uint32_t unsupported_found[8] = {0};
+    uint32_t unsupported_best_nonce = 0;
+    uint32_t unsupported_overflow = 0;
+    double unsupported_best_diff = 0.0;
+    assert(miner_scan_dual(unsupported_header, 0, 2, unsupported_target,
+                           unsupported_found, 8, &unsupported_best_diff,
+                           &unsupported_best_nonce, &unsupported_overflow) == UINT32_MAX);
+#endif
 
     uint8_t header[80] = {0};
     uint8_t target[32];
