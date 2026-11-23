@@ -430,7 +430,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPoolStatistics() {
-        val address = etAddress.text.toString().trim()
+        // A Stratum username may be address.worker; CKPool's account page
+        // is keyed by the base Bitcoin payout address only.
+        val address = etAddress.text.toString().trim().substringBefore('.')
         if (!Util.isValidBitcoinAddress(address)) {
             Toast.makeText(this, "ആദ്യം ശരിയായ Bitcoin mainnet address നൽകുക.", Toast.LENGTH_LONG).show()
             return
