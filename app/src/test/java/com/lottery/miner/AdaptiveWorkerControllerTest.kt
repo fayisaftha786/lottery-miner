@@ -16,9 +16,9 @@ class AdaptiveWorkerControllerTest {
     @Test fun safetyReductionIsImmediate() {
         val controller = AdaptiveWorkerController(rampIntervalMillis = 10_000L)
         assertEquals(1, controller.selectWorkerCount(8, 0, 1_000L))
-        assertEquals(1, controller.selectWorkerCount(8, 1, 11_000L))
-        assertEquals(2, controller.selectWorkerCount(8, 1, 11_001L))
-        assertEquals(1, controller.selectWorkerCount(1, 2, 11_002L))
+        assertEquals(1, controller.selectWorkerCount(8, 1, 10_999L))
+        assertEquals(2, controller.selectWorkerCount(8, 1, 11_000L))
+        assertEquals(1, controller.selectWorkerCount(1, 2, 11_001L))
     }
 
     @Test fun safetyPauseResetsRampAndRestartsConservatively() {
