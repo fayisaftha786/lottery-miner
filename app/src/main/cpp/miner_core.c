@@ -41,6 +41,7 @@ static void compress_scalar(uint32_t st[8], const uint32_t win[16]) {
 static compress_fn_t g_fn = compress_scalar;
 static int g_hw = 0;
 static int g_ok = 0;
+static int g_dual_ok = 0;
 
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
@@ -213,16 +214,38 @@ void miner_core_init(void) {
     g_fn = compress_scalar;
     g_hw = 0;
     g_ok = selftest(compress_scalar);
+    g_dual_ok = 0;
 #ifdef HAVE_ARM_SHA2
     if (arm_sha2_supported() && selftest(compress_arm)) {
         g_fn = compress_arm;
         g_hw = 1;
+
+        /*
+         * Startup differential self-test for the experimental dual-stream
+         * compressor. Mining continues to use the proven single-stream path;
+         * this flag is diagnostic until full scan benchmarks are added.
+         */
+        uint32_t sa[8], sb[8], ra[8], rb[8], wa[16], wb[16];
+        memcpy(sa, IV, sizeof(sa));
+        memcpy(sb, IV, sizeof(sb));
+        for (int i = 0; i < 16; i++) {
+            wa[i] = 0x10203040u + (uint32_t)i * 0x01010101u;
+            wb[i] = 0xfedcba98u - (uint32_t)i * 0x00102031u;
+        }
+        memcpy(ra, sa, sizeof(sa));
+        memcpy(rb, sb, sizeof(sb));
+        compress_scalar(ra, wa);
+        compress_scalar(rb, wb);
+        compress_arm_dual(sa, wa, sb, wb);
+        g_dual_ok = memcmp(sa, ra, sizeof(sa)) == 0 &&
+                    memcmp(sb, rb, sizeof(sb)) == 0;
     }
 #endif
 }
 
 int miner_core_uses_hw(void) { return g_hw; }
 int miner_core_selftest_ok(void) { return g_ok; }
+int miner_core_dual_selftest_ok(void) { return g_dual_ok; }
 
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]) { hash_with(g_fn, header, out); }
 
