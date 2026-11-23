@@ -362,7 +362,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         tvProfitability.text = buildString {
                             appendLine("BITCOIN SOLO · MATHEMATICAL EXPECTED VALUE (INR)")
-                            appendLine("Rate source: live native phone scanner · ${Util.fmtRate(currentRate)}")
+                            appendLine("Rate source: live native phone scanner at refresh start · ${Util.fmtRate(rate)}")
                             appendLine("BTC/INR: ₹${String.format(Locale.US, "%.2f", snapshot.btcPriceInr)}")
                             appendLine("Network difficulty: ${String.format(Locale.US, "%.4e", snapshot.difficulty)}")
                             appendLine("Estimated network hashrate: ${Util.fmtRate(snapshot.networkHashrateHps)}")
