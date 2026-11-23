@@ -124,7 +124,7 @@ class StratumClient(
                     // ViaBTC documents 551 as its TLS Stratum endpoint. Keep the
                     // original hostname for SNI and HTTPS endpoint identification;
                     // never install a trust-all manager or disable verification.
-                    val tls = SSLSocketFactory.getDefault().createSocket(candidate, host, port, true) as SSLSocket
+                    val tls = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(candidate, host, port, true) as SSLSocket
                     try {
                         tls.sslParameters = tls.sslParameters.apply {
                             endpointIdentificationAlgorithm = "HTTPS"
