@@ -12,12 +12,19 @@ object Util {
     private const val BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     private const val BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
+    private fun asciiHexValue(c: Char): Int = when (c) {
+        in '0'..'9' -> c.code - '0'.code
+        in 'a'..'f' -> c.code - 'a'.code + 10
+        in 'A'..'F' -> c.code - 'A'.code + 10
+        else -> -1
+    }
+
     fun hexToBytes(s: String): ByteArray {
         require(s.length % 2 == 0) { "odd hex length" }
         return ByteArray(s.length / 2) { i ->
-            val hi = Character.digit(s[2 * i], 16)
-            val lo = Character.digit(s[2 * i + 1], 16)
-            require(hi >= 0 && lo >= 0) { "invalid hex" }
+            val hi = asciiHexValue(s[2 * i])
+            val lo = asciiHexValue(s[2 * i + 1])
+            require(hi >= 0 && lo >= 0) { "invalid ASCII hex" }
             ((hi shl 4) or lo).toByte()
         }
     }
