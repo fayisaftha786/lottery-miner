@@ -54,6 +54,20 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.log("പഴയ worker thread അവസാനിക്കുന്നതുവരെ restart തടഞ്ഞു")
             return
         }
+        // This engine instance may be started again after a clean stop.
+        // Reset all session-scoped counters and extranonce/difficulty state.
+        totalHashes.set(0L)
+        jobGeneration.set(0L)
+        extranonceEpoch.set(0L)
+        hasExtranonceAllocation = false
+        en1 = ByteArray(0)
+        en2Size = 4
+        reconnectingForExhaustion.set(false)
+        difficultyTargets.reset()
+        current = null
+        client = null
+        activeThreads = 0
+
         running = true
         MinerState.reset()
         MinerState.running = true
