@@ -20,7 +20,8 @@ internal object ViaBtcPool {
         if (value.length !in 3..128 || value.any { it.isWhitespace() }) return false
         val parts = value.split('.', limit = 2)
         if (parts.size != 2) return false
-        val allowed = Regex("[A-Za-z0-9_-]{1,64}")
-        return allowed.matches(parts[0]) && allowed.matches(parts[1])
+        val accountId = Regex("[A-Za-z0-9]{1,64}")
+        val workerId = Regex("[a-z0-9]{1,64}")
+        return accountId.matches(parts[0]) && workerId.matches(parts[1])
     }
 }
