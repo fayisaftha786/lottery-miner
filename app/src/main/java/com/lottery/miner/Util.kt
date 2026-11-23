@@ -171,21 +171,37 @@ object Util {
  */
 class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
     @Volatile private var active: ByteArray = Util.difficultyToTarget(initialDifficulty)
+    @Volatile private var activeDifficulty: Double = initialDifficulty
     @Volatile private var pending: ByteArray? = null
+    @Volatile private var pendingDifficulty: Double? = null
 
     @Synchronized fun stage(difficulty: Double) {
         // Validate and compute before mutating pending state.
         val target = Util.difficultyToTarget(difficulty)
         pending = target
+        pendingDifficulty = difficulty
     }
 
     @Synchronized fun activateForNextJob(): ByteArray {
         pending?.let {
             active = it
+            activeDifficulty = requireNotNull(pendingDifficulty)
             pending = null
+            pendingDifficulty = null
         }
         return active.copyOf()
     }
 
     @Synchronized fun activeTarget(): ByteArray = active.copyOf()
+
+    @Synchronized fun activeDifficulty(): Double = activeDifficulty
+
+    /** Restore the new-session default and discard any staged difficulty. */
+    @Synchronized fun reset(initialDifficulty: Double = 1.0) {
+        val target = Util.difficultyToTarget(initialDifficulty)
+        active = target
+        activeDifficulty = initialDifficulty
+        pending = null
+        pendingDifficulty = null
+    }
 }

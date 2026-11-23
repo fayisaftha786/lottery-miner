@@ -159,7 +159,10 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
                 v = v * 4294967296.0 + (double)best_words[word];
             }
             double diff = v > 0.0 ? DIFF1 / v : 1e300;
-            if (diff > bd) { bd = diff; bn = n; }
+            /* Exact 256-bit comparison selected this better hash. Always
+             * update its nonce even when the displayed double rounds equally. */
+            bd = diff;
+            bn = n;
         }
     }
     *best_diff = bd;
