@@ -9,6 +9,8 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -40,7 +42,7 @@ internal fun classifyShareResponse(message: JSONObject): ShareResponseClassifica
     }
 }
 
-/** Minimal Stratum v1 client (plain TCP). */
+/** Stratum V1 client. Port 551 uses TLS with normal certificate and hostname validation. */
 class StratumClient(
     private val host: String,
     private val port: Int,
@@ -117,6 +119,22 @@ class StratumClient(
                 if (closed) {
                     candidate.close()
                     throw java.io.IOException("Stratum client closed")
+                }
+                if (port == 551) {
+                    // ViaBTC documents 551 as its TLS Stratum endpoint. Keep the
+                    // original hostname for SNI and HTTPS endpoint identification;
+                    // never install a trust-all manager or disable verification.
+                    val tls = SSLSocketFactory.getDefault().createSocket(candidate, host, port, true) as SSLSocket
+                    try {
+                        tls.sslParameters = tls.sslParameters.apply {
+                            endpointIdentificationAlgorithm = "HTTPS"
+                        }
+                        tls.startHandshake()
+                    } catch (e: Exception) {
+                        try { tls.close() } catch (_: Exception) { }
+                        throw e
+                    }
+                    return tls
                 }
                 return candidate
             } catch (e: Exception) {
