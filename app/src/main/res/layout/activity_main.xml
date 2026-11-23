@@ -131,7 +131,7 @@
             android:layout_marginTop="8dp"
             android:padding="12dp"
             android:background="#18242D"
-            android:text="ADAPTIVE MINING LAB\nSHA-256d is the only installed algorithm. Benchmark runs locally while mining is stopped; no pool shares are submitted."
+            android:text="LIVE POOL JOB BENCHMARK\nUses an authorized Stratum job and its real header/target. Hashes are measured locally; no shares are submitted."
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
@@ -187,7 +187,7 @@
             android:layout_marginTop="8dp"
             android:padding="12dp"
             android:background="#18242D"
-            android:text="PROFITABILITY: Not calculated\nRun a benchmark and enter measured power + tariff."
+            android:text="PROFITABILITY: Not calculated\nRequires active live pool mining, live native hashrate, measured power and electricity tariff. Benchmark results are never used."
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
