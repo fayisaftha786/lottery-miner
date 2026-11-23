@@ -281,7 +281,11 @@ class MainActivity : AppCompatActivity() {
                         appendLine("Estimated electricity/day: ${formatInr(result.electricityFiatPerDay)} (${String.format(Locale.US, "%.2f", power)} W × 24 h)")
                         appendLine("Expected net value/day: ${formatInr(result.netFiatPerDay)}")
                         appendLine("Mean block wait estimate: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
-                        appendLine("Data age: ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
+                        appendLine("Chance of ≥1 block: 1d ${formatProbability(result.blockChance1Day)} · 30d ${formatProbability(result.blockChance30Days)} · 365d ${formatProbability(result.blockChance365Days)}")
+                        appendLine("Required hashrate for 1% / 50% / 90% chance in 1 year:")
+                        appendLine("${Util.fmtRate(result.hashrateForOnePercentChanceInOneYear)} / ${Util.fmtRate(result.hashrateForFiftyPercentChanceInOneYear)} / ${Util.fmtRate(result.hashrateForNinetyPercentChanceInOneYear)}")
+                        appendLine("Probability assumes constant network hashrate and Poisson block arrivals; real outcomes vary.")
+                        appendLine("Data age:", ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
                         appendLine("WARNING: expected value only, not daily payout or guaranteed profit. Solo block rewards are rare and highly variable.")
                         if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity + pool costs exceed expected gross value.")
                         else appendLine("RESULT: Positive mathematical expectation only; payout timing risk remains extreme at phone hashrate.")
@@ -297,6 +301,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun formatProbability(value: Double): String {
+        if (!value.isFinite()) return "N/A"
+        return if (value == 0.0) "0%" else String.format(Locale.US, "%.3e%%", value * 100.0)
     }
 
     private fun formatInr(value: Double): String {
