@@ -30,7 +30,7 @@ jobs:
           SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -1)
           test -n "$SDKM"
           yes | "$SDKM" --licenses >/dev/null || true
-          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Configure protected release signing
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
@@ -40,7 +40,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.7
+          gradle-version: 8.11.1
 
       - name: Run host native core tests
         run: |
@@ -70,7 +70,7 @@ jobs:
           APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$APK"
           READELF="$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
+          ZIPALIGN="$ANDROID_HOME/build-tools/36.0.0/zipalign"
           test -x "$READELF"
           test -x "$ZIPALIGN"
           TMP_DIR=$(mktemp -d)
@@ -95,7 +95,7 @@ jobs:
           APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$APK"
           if [ -f "app/$ANDROID_KEYSTORE_PATH" ]; then
-            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
             echo "Release APK signed with configured protected keystore." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning::No release keystore configured. Release artifact is unsigned and not production-ready."
@@ -125,7 +125,7 @@ jobs:
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -f "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libminercore.so'
           unzip -l "$APK" | grep -q 'lib/x86_64/libminercore.so'
 
