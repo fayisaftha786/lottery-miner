@@ -127,7 +127,16 @@ class StratumClient(
 
     @Synchronized
     private fun send(id: Int, method: String, params: JSONArray) {
-        val message = JSONObject().put("id", id).put("method", method).put("params", params)
+        writeMessage(JSONObject().put("id", id).put("method", method).put("params", params))
+    }
+
+    /** All complete JSON lines share the same monitor, including server ping replies. */
+    @Synchronized
+    private fun sendResponse(message: JSONObject) {
+        writeMessage(message)
+    }
+
+    private fun writeMessage(message: JSONObject) {
         val out = writer ?: throw java.io.IOException("Pool socket is not ready")
         out.write(message.toString())
         out.write("\n")
@@ -173,8 +182,7 @@ class StratumClient(
                 }
                 "mining.ping" -> {
                     val response = JSONObject().put("id", message.opt("id")).put("result", JSONObject.NULL).put("error", JSONObject.NULL)
-                    val out = writer ?: throw java.io.IOException("Pool socket is not ready")
-                    out.write(response.toString()); out.write("\n"); out.flush()
+                    sendResponse(response)
                 }
                 "client.show_message" -> listener.onStatus("Pool: ${params.optString(0)}")
                 else -> { }
