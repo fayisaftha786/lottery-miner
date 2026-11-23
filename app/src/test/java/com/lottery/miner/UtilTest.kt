@@ -7,6 +7,15 @@ import java.math.RoundingMode
 import org.junit.Test
 
 class UtilTest {
+    @Test fun acceptsUpperAndLowerAsciiHex() {
+        assertArrayEquals(byteArrayOf(0x00, 0xaf.toByte(), 0xFF.toByte()), Util.hexToBytes("00aFfF"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsUnicodeCharactersThatLookLikeHexDigits() {
+        Util.hexToBytes("ＦＦ")
+    }
+
     @Test fun difficultyOneProducesPositiveTarget() {
         val target = Util.difficultyToTarget(1.0)
         assertTrue(target.any { it.toInt() != 0 })
