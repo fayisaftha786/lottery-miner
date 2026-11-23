@@ -221,6 +221,16 @@ int main(void) {
     assert(found[0] == UINT32_MAX);
     assert(found[1] == 0);
 
+    /* The dual scanner must preserve bounded result-buffer overflow accounting. */
+    memset(target, 0xff, sizeof(target));
+    uint32_t dual_found_small[1], dual_overflow = 0, dual_best_nonce = 0;
+    double dual_best_diff = 0.0;
+    uint32_t dual_stored = miner_scan_dual(header, 0xfffffff0u, 10u, target,
+        dual_found_small, 1u, &dual_best_diff, &dual_best_nonce, &dual_overflow);
+    assert(dual_stored == 1u);
+    assert(dual_overflow == 9u);
+    assert(dual_found_small[0] == 0xfffffff0u);
+
     puts("native SHA256d self-test, inclusive target boundary, nonce wrap, and bounded-hit accounting passed");
     return 0;
 }
