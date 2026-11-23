@@ -1,7 +1,7 @@
 # Lottery Miner — Source and Verification Status
 
 **Audit date:** 2026-11-23  
-**Current main commit:** `7550f481a07ee0aa4dacfe0a734dfa6d6978f1e0`  
+**Application + CI merge commit:** `7550f481a07ee0aa4dacfe0a734dfa6d6978f1e0`  
 **Merged application/configuration PR:** [#24](https://github.com/fayisaftha786/lottery-miner/pull/24)  
 **Merged CI maintenance PR:** [#25](https://github.com/fayisaftha786/lottery-miner/pull/25)  
 **Latest full verification run:** [#554 / 45181093146](https://github.com/fayisaftha786/lottery-miner/actions/runs/45181093146)
