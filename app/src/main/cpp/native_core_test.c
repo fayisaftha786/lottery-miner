@@ -51,6 +51,49 @@ int main(void) {
     assert(stored == 1);
     assert(genesis_nonce == 2083236893u);
 
+    /*
+     * Independent SHA-256d known-answer vectors generated with Python hashlib
+     * (hashlib.sha256(hashlib.sha256(header).digest()).digest()).
+     * These expected digests are fixed external vectors, not values derived
+     * from miner_sha256d_header(), so they detect a shared hashing defect.
+     */
+    static const struct {
+        const char *header_hex;
+        const char *digest_hex;
+    } independent_vectors[] = {
+        {
+            "00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567b"
+            "a0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b"
+            "b40658aafd4f91e43688db2d740302010",
+            "739f31ec63e5b01cd933fcb42f27ece2663dd02009b9b1e0a2a809f02ffb93c2"
+        },
+        {
+            "355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb"
+            "0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b"
+            "50759abfe4092e53789dc2e70c41312111",
+            "446f8c36675dcba95c9a4ea2d07b19ed400871034f1a30182597056ed6c2b66b"
+        },
+        {
+            "6a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e"
+            "50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b60"
+            "85aacff4193e6388add2f71c4142322212",
+            "c0408d345262a2e27f6de904a895afb464127d3f65b6426821a6a4556ec10153"
+        },
+        {
+            "9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a"
+            "3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095"
+            "badf04294e7398bde2072c517643332313",
+            "5f77e202d08675a2ff8d72ec616e90570ba97ad9074dec54c72a1b4eac34f01f"
+        }
+    };
+    for (size_t v = 0; v < sizeof(independent_vectors) / sizeof(independent_vectors[0]); v++) {
+        hex2bin(independent_vectors[v].header_hex, header, sizeof(header));
+        uint8_t expected_digest[32];
+        hex2bin(independent_vectors[v].digest_hex, expected_digest, sizeof(expected_digest));
+        miner_sha256d_header(header, digest_le);
+        assert(memcmp(digest_le, expected_digest, sizeof(expected_digest)) == 0);
+    }
+
     /* A target one unit below the hash must reject the same nonce. */
     for (int i = 31; i >= 0; i--) {
         if (exact_target[i] != 0) {
