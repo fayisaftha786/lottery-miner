@@ -190,10 +190,10 @@ class MainActivity : AppCompatActivity() {
         val address = etAddress.text.toString().trim()
         val host = etHost.text.toString().trim()
         val port = etPort.text.toString().trim().toIntOrNull()
-        if (!Util.isValidBitcoinAddress(address) || host.isBlank() || host.length > 253 ||
-            host.any { it.isWhitespace() } || host.contains('/') || port == null || port !in 1..65535
+        if (!Util.isValidBitcoinAddress(address) || port == null ||
+            !CkpoolHosts.isSupportedSoloEndpoint(host, port)
         ) {
-            Toast.makeText(this, "യഥാർത്ഥ pool job ലഭിക്കാൻ ശരിയായ Bitcoin address, pool host, port നൽകുക.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ശരിയായ Bitcoin address നൽകുക. ഈ build ഔദ്യോഗിക CKPool solo hostname-ുകളും port 3333-ഉം മാത്രമാണ് പിന്തുണയ്ക്കുന്നത്.", Toast.LENGTH_LONG).show()
             return
         }
         if (!benchmarkThermallySafe()) {
@@ -250,10 +250,10 @@ class MainActivity : AppCompatActivity() {
         val address = etAddress.text.toString().trim()
         val host = etHost.text.toString().trim()
         val port = etPort.text.toString().trim().toIntOrNull()
-        if (!Util.isValidBitcoinAddress(address) || host.isBlank() || host.length > 253 ||
-            host.any { it.isWhitespace() } || host.contains('/') || port == null || port !in 1..65535
+        if (!Util.isValidBitcoinAddress(address) || port == null ||
+            !CkpoolHosts.isSupportedSoloEndpoint(host, port)
         ) {
-            Toast.makeText(this, "യഥാർത്ഥ pool job ലഭിക്കാൻ ശരിയായ Bitcoin address, pool host, port നൽകുക.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ശരിയായ Bitcoin address നൽകുക. ഈ build ഔദ്യോഗിക CKPool solo hostname-ുകളും port 3333-ഉം മാത്രമാണ് പിന്തുണയ്ക്കുന്നത്.", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -315,8 +315,9 @@ class MainActivity : AppCompatActivity() {
     private fun refreshBitcoinProfitability() {
         if (profitabilityFetchInFlight) return
         val host = etHost.text.toString().trim()
-        if (!CkpoolHosts.isOfficialSoloEndpoint(host)) {
-            tvProfitability.text = "ഈ estimator ഔദ്യോഗിക CKPool solo endpoints-നു മാത്രമാണ്. ഈ host-ന്റെ payout model ലഭ്യമല്ല."
+        val port = etPort.text.toString().trim().toIntOrNull()
+        if (port == null || !CkpoolHosts.isSupportedSoloEndpoint(host, port)) {
+            tvProfitability.text = "ഈ estimator ഔദ്യോഗിക CKPool solo endpoints-ന്റെ port 3333-ന് മാത്രമാണ്. ഈ host/port-ന്റെ payout model ലഭ്യമല്ല."
             return
         }
         fun currentLiveRate(): Double? = MinerState.hashrate.takeIf {
@@ -635,13 +636,9 @@ class MainActivity : AppCompatActivity() {
         }
         val cores = Runtime.getRuntime().availableProcessors()
         val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
-        if (host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
-            Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
-            return
-        }
         val port = etPort.text.toString().trim().toIntOrNull()
-        if (port == null || port !in 1..65535) {
-            Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
+        if (port == null || !CkpoolHosts.isSupportedSoloEndpoint(host, port)) {
+            Toast.makeText(this, "ഈ build ഔദ്യോഗിക CKPool solo hostname-ുകളും standard port 3333-ഉം മാത്രമാണ് പിന്തുണയ്ക്കുന്നത്.", Toast.LENGTH_LONG).show()
             return
         }
         val threads = etThreads.text.toString().trim().toIntOrNull()
