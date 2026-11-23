@@ -215,6 +215,15 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "A/B test നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val thermal = runCatching {
+                (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus
+            }.getOrNull()
+            if (thermal != null && thermal >= android.os.PowerManager.THERMAL_STATUS_MODERATE) {
+                Toast.makeText(this, "ഫോൺ thermal status Moderate ആണ്. തണുത്തതിന് ശേഷം മാത്രം benchmark നടത്തുക.", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
         btnDualBenchmark.isEnabled = false
