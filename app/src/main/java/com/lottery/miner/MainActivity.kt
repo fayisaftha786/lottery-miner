@@ -247,10 +247,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "A/B test നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
-        if (!benchmarkThermallySafe()) {
-            Toast.makeText(this, "Thermal status/temperature സുരക്ഷിതമോ ലഭ്യമോ അല്ല. തണുത്തതിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.", Toast.LENGTH_LONG).show()
-            return
-        }
         val address = etAddress.text.toString().trim()
         val host = etHost.text.toString().trim()
         val port = etPort.text.toString().trim().toIntOrNull()
