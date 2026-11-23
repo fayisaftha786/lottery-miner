@@ -285,7 +285,7 @@ class MainActivity : AppCompatActivity() {
                         appendLine("Required hashrate for 1% / 50% / 90% chance in 1 year:")
                         appendLine("${Util.fmtRate(result.hashrateForOnePercentChanceInOneYear)} / ${Util.fmtRate(result.hashrateForFiftyPercentChanceInOneYear)} / ${Util.fmtRate(result.hashrateForNinetyPercentChanceInOneYear)}")
                         appendLine("Probability assumes constant network hashrate and Poisson block arrivals; real outcomes vary.")
-                        appendLine("Data age:", ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
+                        appendLine("Data age: ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
                         appendLine("WARNING: expected value only, not daily payout or guaranteed profit. Solo block rewards are rare and highly variable.")
                         if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity + pool costs exceed expected gross value.")
                         else appendLine("RESULT: Positive mathematical expectation only; payout timing risk remains extreme at phone hashrate.")
