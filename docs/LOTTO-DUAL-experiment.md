@@ -30,15 +30,17 @@ The normal host native tests also confirm that non-ARM builds report the dual sc
 
 ## Device benchmark
 
-The app's **Compare LOTTO-DUAL experimental scanner** button:
-- refuses to run while mining is active;
+The app's **Compare LOTTO-DUAL on live pool job** button:
+- refuses to run while phone mining is active;
 - refuses to run while Android reports MODERATE or higher thermal status;
-- performs equal warm-up runs, then three 1-second samples per scanner in alternating order;
-- uses the same deterministic synthetic 80-byte header and a zero target;
-- performs no Stratum connection and submits no shares;
-- reports median single-lane and dual-lane hashes per second and percentage change.
+- creates a separate Stratum V1 diagnostic connection using the configured pool host, port, and payout address;
+- waits for a real subscribe response, authorization, extranonce allocation, pool difficulty, and a mining.notify job;
+- builds the actual 80-byte block header from the pool job's coinbase fragments, extranonce and merkle data, and uses the real pool share target;
+- performs equal warm-up runs, then three 1-second samples per scanner in alternating order against that same header and target;
+- never calls mining.submit; any target hits are discarded and do not change live accepted/rejected counters;
+- reports the pool/job identity, difficulty, median single-lane and dual-lane hashes per second, and percentage change.
 
-This short A/B test is only a screening measurement. It is not an estimate of pool hashrate, payout, or block probability.
+This short A/B test uses real pool-provided work but is still a local scanner diagnostic, not accepted pool hashrate, accepted shares, payout, or block probability. It measures no network-submission path and cannot establish thermal stability or energy efficiency.
 
 ## Production acceptance gate
 
