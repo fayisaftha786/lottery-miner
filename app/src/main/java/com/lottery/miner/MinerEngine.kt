@@ -417,14 +417,22 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             // already paused mining. Otherwise a moderate thermal status would
             // overwrite the real pause reason (for example, "not charging")
             // while the effective worker count remains zero.
-            if (target > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val thermal = (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
-                if (thermal >= PowerManager.THERMAL_STATUS_SEVERE) {
-                    target = 0; reason = "Android thermal protection: high temperature"
-                } else if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) {
-                    target = minOf(target, maxOf(1, cfg.threads / 2))
-                    if (target > 0) reason = "Android thermal status moderate; worker reduced"
-                }
+            val thermalStatus: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                runCatching {
+                    (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
+                }.getOrElse { ThermalWorkerPolicy.UNKNOWN }
+            } else {
+                null
+            }
+            MinerState.androidThermalStatus = ThermalWorkerPolicy.label(thermalStatus)
+            if (target > 0 && thermalStatus != null) {
+                val thermalDecision = ThermalWorkerPolicy.evaluate(
+                    configuredWorkers = cfg.threads,
+                    requestedWorkers = target,
+                    thermalStatus = thermalStatus
+                )
+                target = thermalDecision.workerCount
+                if (thermalDecision.reason.isNotBlank()) reason = thermalDecision.reason
             }
             // Do not ramp while waiting for pool authorization or a mining job.
             // Start conservatively only when real work is ready.
