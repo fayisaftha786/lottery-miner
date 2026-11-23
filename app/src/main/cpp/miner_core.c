@@ -305,6 +305,16 @@ static int dual_scan_selftest(void) {
         single_best_nonce != dual_best_nonce || single_best_diff != dual_best_diff ||
         memcmp(single_found, dual_found, sn * sizeof(uint32_t)) != 0) return 0;
 
+    /* Small output buffers must report the same stored hits and overflow count. */
+    sn = scan_impl(compress_arm, header, 0xfffffff0u, all_count, target,
+                   single_found, 7u, &single_best_diff, &single_best_nonce, &single_overflow);
+    dn = scan_dual_impl(compress_arm, compress_arm_dual, header, 0xfffffff0u, all_count, target,
+                        dual_found, 7u, &dual_best_diff, &dual_best_nonce, &dual_overflow);
+    if (sn != 7u || dn != sn || single_overflow != all_count - 7u ||
+        dual_overflow != single_overflow || single_best_nonce != dual_best_nonce ||
+        single_best_diff != dual_best_diff ||
+        memcmp(single_found, dual_found, sn * sizeof(uint32_t)) != 0) return 0;
+
     /* Exact target and target-minus-one cases exercise inclusive comparison. */
     header[76] = 0x35; header[77] = 0x12; header[78] = 0x00; header[79] = 0x00;
     hash_with(compress_arm, header, digest);
