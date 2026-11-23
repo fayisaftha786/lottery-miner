@@ -229,30 +229,30 @@ static uint32_t scan_dual_impl(const uint8_t header[80], uint32_t start, uint32_
     double best_diff_local = 0.0;
     int have_best = 0;
 
+    uint32_t wa[16] = {0}, wb[16] = {0};
+    uint32_t second_a[16] = {0}, second_b[16] = {0};
+    wa[0] = wb[0] = be32(header + 64);
+    wa[1] = wb[1] = be32(header + 68);
+    wa[2] = wb[2] = be32(header + 72);
+    wa[4] = wb[4] = 0x80000000u;
+    wa[15] = wb[15] = 640u;
+    second_a[8] = second_b[8] = 0x80000000u;
+    second_a[15] = second_b[15] = 256u;
+
     for (uint64_t offset = 0; offset < (uint64_t)count; offset += 2) {
         const uint32_t nonce_a = start + (uint32_t)offset;
         const int has_b = (offset + 1u) < (uint64_t)count;
         const uint32_t nonce_b = has_b ? (start + (uint32_t)(offset + 1u)) : nonce_a;
 
-        uint32_t wa[16] = {0}, wb[16] = {0};
         uint32_t sa[8], sb[8], da[8], db[8];
-        wa[0] = wb[0] = be32(header + 64);
-        wa[1] = wb[1] = be32(header + 68);
-        wa[2] = wb[2] = be32(header + 72);
         wa[3] = __builtin_bswap32(nonce_a);
         wb[3] = __builtin_bswap32(nonce_b);
-        wa[4] = wb[4] = 0x80000000u;
-        wa[15] = wb[15] = 640u;
-
         memcpy(sa, mid, sizeof(sa));
         memcpy(sb, mid, sizeof(sb));
         compress_arm_dual(sa, wa, sb, wb);
 
-        uint32_t second_a[16] = {0}, second_b[16] = {0};
         memcpy(second_a, sa, sizeof(sa));
         memcpy(second_b, sb, sizeof(sb));
-        second_a[8] = second_b[8] = 0x80000000u;
-        second_a[15] = second_b[15] = 256u;
         memcpy(da, IV, sizeof(da));
         memcpy(db, IV, sizeof(db));
         compress_arm_dual(da, second_a, db, second_b);
@@ -409,7 +409,7 @@ uint32_t miner_scan_dual(const uint8_t header[80], uint32_t start, uint32_t coun
                          const uint8_t target[32], uint32_t *found, uint32_t max_found,
                          double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
 #ifdef HAVE_ARM_SHA2
-    if (!g_hw || !g_dual_ok || count == 0 || found == NULL ||
+    if (!g_hw || !g_dual_ok || header == NULL || count == 0 || found == NULL ||
         target == NULL || best_diff == NULL || best_nonce == NULL) return UINT32_MAX;
     return scan_dual_impl(header, start, count, target, found, max_found,
                           best_diff, best_nonce, overflow_count);
