@@ -53,7 +53,7 @@ object Sha256dBenchmark {
      * are deliberately discarded: this is a diagnostic benchmark and never
      * issues mining.submit. It must not be presented as a pool share/payout.
      */
-    fun run(work: PoolBenchmarkWork, durationMillis: Long = 5_000L): Result {
+    internal fun run(work: PoolBenchmarkWork, durationMillis: Long = 5_000L): Result {
         require(durationMillis in 1_000L..5_000L) { "Benchmark duration must be 1–5 seconds" }
         validateWork(work)
         check(running.compareAndSet(false, true)) { "A benchmark is already running" }
@@ -104,7 +104,7 @@ object Sha256dBenchmark {
      * Short alternating A/B comparison using the exact same real pool job and
      * share target for both scanners. It is not a sustained thermal or power test.
      */
-    fun compareDual(work: PoolBenchmarkWork, roundDurationMillis: Long = 1_000L): DualComparison {
+    internal fun compareDual(work: PoolBenchmarkWork, roundDurationMillis: Long = 1_000L): DualComparison {
         require(roundDurationMillis in 500L..2_000L) { "A/B round must be 0.5–2 seconds" }
         validateWork(work)
         check(running.compareAndSet(false, true)) { "A benchmark is already running" }
