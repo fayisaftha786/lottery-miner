@@ -104,6 +104,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
         }
         threads.removeAll { !it.isAlive }
+        // Preserve every nonce attempt that completed before shutdown, including
+        // a final in-flight native chunk that returned after the policy ticker.
+        MinerState.totalHashes = totalHashes.get()
         MinerState.running = false
         MinerState.connected = false
         MinerState.hashrate = 0.0
