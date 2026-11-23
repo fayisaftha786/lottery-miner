@@ -12,6 +12,34 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * Classifies a Stratum mining.submit response.
+ *
+ * Pools commonly reject a share with result=null and a non-null JSON-RPC
+ * error array. That is a definite rejection, not a missing/unknown response.
+ */
+internal data class ShareResponseClassification(
+    val accepted: Boolean?,
+    val reason: String?
+)
+
+internal fun classifyShareResponse(message: JSONObject): ShareResponseClassification {
+    val result = message.opt("result")
+    val error = if (message.isNull("error")) null else message.opt("error").toString()
+    return when {
+        result == true && error == null ->
+            ShareResponseClassification(accepted = true, reason = null)
+        result == false ->
+            ShareResponseClassification(accepted = false, reason = error ?: "Pool rejected share (result=false)")
+        (result == null || result == JSONObject.NULL) && error != null ->
+            ShareResponseClassification(accepted = false, reason = error)
+        result == true && error != null ->
+            ShareResponseClassification(accepted = false, reason = error)
+        else ->
+            ShareResponseClassification(accepted = null, reason = "Malformed pool share response")
+    }
+}
+
 /** Minimal Stratum v1 client (plain TCP). */
 class StratumClient(
     private val host: String,
@@ -220,13 +248,14 @@ class StratumClient(
                 send(3, "mining.suggest_difficulty", JSONArray().put(1))
             }
             else -> if (id >= 100 && pendingSubmits.remove(id)) {
-                val result = message.opt("result")
-                val error = if (message.isNull("error")) null else message.opt("error").toString()
-                if (result !is Boolean) {
-                    listener.onShareUnknown(1)
-                    listener.onStatus("Pool returned malformed share response; outcome unknown")
-                } else {
-                    listener.onShareResult(result && error == null, error)
+                val classification = classifyShareResponse(message)
+                when (classification.accepted) {
+                    true -> listener.onShareResult(true, null)
+                    false -> listener.onShareResult(false, classification.reason)
+                    null -> {
+                        listener.onShareUnknown(1)
+                        listener.onStatus("Pool returned malformed share response; outcome unknown")
+                    }
                 }
             }
         }
