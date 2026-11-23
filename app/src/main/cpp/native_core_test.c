@@ -12,21 +12,65 @@ static void hex2bin(const char *hex, uint8_t *out, size_t n) {
     }
 }
 
+
+static void assert_dual_scanner_matches_single(const uint8_t header[80],
+                                               uint32_t start, uint32_t count,
+                                               const uint8_t target[32]) {
+    uint32_t single_found[300], dual_found[300];
+    uint32_t single_best_nonce = 0, dual_best_nonce = 0;
+    uint32_t single_overflow = 0, dual_overflow = 0;
+    double single_best_diff = 0.0, dual_best_diff = 0.0;
+    assert(count <= 300);
+    const uint32_t single_count = miner_scan(header, start, count, target,
+        single_found, 300, &single_best_diff, &single_best_nonce, &single_overflow);
+    const uint32_t dual_count = miner_scan_dual(header, start, count, target,
+        dual_found, 300, &dual_best_diff, &dual_best_nonce, &dual_overflow);
+    assert(single_count == dual_count);
+    assert(single_overflow == dual_overflow);
+    assert(single_best_nonce == dual_best_nonce);
+    assert(single_best_diff == dual_best_diff);
+    assert(memcmp(single_found, dual_found, single_count * sizeof(uint32_t)) == 0);
+}
+
 int main(void) {
     miner_core_init();
     assert(miner_core_selftest_ok() == 1);
+
+    /* Exercise nonce pairing and result accounting through the host scalar reference. */
+    uint8_t pair_header[80], pair_target[32];
+    for (uint32_t trial = 0; trial < 6; trial++) {
+        for (uint32_t i = 0; i < sizeof(pair_header); i++)
+            pair_header[i] = (uint8_t)(i * 19u + trial * 43u);
+        if (trial % 3u == 0u) memset(pair_target, 0xff, sizeof(pair_target));
+        else if (trial % 3u == 1u) memset(pair_target, 0, sizeof(pair_target));
+        else for (uint32_t i = 0; i < sizeof(pair_target); i++)
+            pair_target[i] = (uint8_t)(i * 13u + trial * 17u);
+        assert_dual_scanner_matches_single(pair_header,
+            UINT32_MAX - 80u + trial, 257u - (trial % 2u), pair_target);
+    }
+
+    /* A candidate hash must pass at equality and fail with target-minus-one. */
+    for (uint32_t i = 0; i < sizeof(pair_header); i++)
+        pair_header[i] = (uint8_t)(i * 23u + 9u);
+    const uint32_t exact_nonce = 0x1235u;
+    pair_header[76] = (uint8_t)exact_nonce;
+    pair_header[77] = (uint8_t)(exact_nonce >> 8);
+    pair_header[78] = (uint8_t)(exact_nonce >> 16);
+    pair_header[79] = (uint8_t)(exact_nonce >> 24);
+    uint8_t pair_digest[32];
+    miner_sha256d_header(pair_header, pair_digest);
+    for (uint32_t i = 0; i < 32; i++) pair_target[i] = pair_digest[31u - i];
+    assert_dual_scanner_matches_single(pair_header, exact_nonce - 8u, 17u, pair_target);
+    for (int i = 31; i >= 0; i--) {
+        if (pair_target[i] != 0) { pair_target[i]--; break; }
+        pair_target[i] = 0xff;
+    }
+    assert_dual_scanner_matches_single(pair_header, exact_nonce - 8u, 17u, pair_target);
+
 #ifndef HAVE_ARM_SHA2
-    /* Host builds must never claim the ARM-only dual implementation is available. */
+    /* The host uses two scalar compression calls to test dual-scanner bookkeeping.
+       It must not report that the ARM hardware implementation passed its self-test. */
     assert(miner_core_dual_selftest_ok() == 0);
-    uint8_t unsupported_header[80] = {0};
-    uint8_t unsupported_target[32] = {0};
-    uint32_t unsupported_found[8] = {0};
-    uint32_t unsupported_best_nonce = 0;
-    uint32_t unsupported_overflow = 0;
-    double unsupported_best_diff = 0.0;
-    assert(miner_scan_dual(unsupported_header, 0, 2, unsupported_target,
-                           unsupported_found, 8, &unsupported_best_diff,
-                           &unsupported_best_nonce, &unsupported_overflow) == UINT32_MAX);
 #endif
 
     uint8_t header[80] = {0};
