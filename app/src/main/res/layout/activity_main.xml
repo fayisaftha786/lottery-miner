@@ -57,6 +57,20 @@
                 android:singleLine="true" />
         </LinearLayout>
 
+        <EditText
+            android:id="@+id/etPoolUser"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="ViaBTC account.worker (ViaBTC മാത്രം; ഉദാ: account01.phone01)"
+            android:inputType="textNoSuggestions"
+            android:singleLine="true" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CKPool: BTC address ഉപയോഗിക്കും. ViaBTC: AccountID.WorkerName ഉപയോഗിക്കും; BTC payout address ViaBTC അക്കൗണ്ടിൽ തന്നെ ക്രമീകരിക്കുക."
+            android:textSize="12sp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
