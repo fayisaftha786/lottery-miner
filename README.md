@@ -16,6 +16,8 @@ The configured default is `stratum.ckpool.org:3333`, the CKPool-recommended auto
 
 Use your Bitcoin mainnet payout address as the Stratum username. An optional worker suffix may be used if supported by the pool. Password is `x`. Never enter a seed phrase or private key.
 
+**Network security:** this Android client currently implements Stratum V1 over plain TCP; it does not encrypt the pool connection. On an untrusted network, an on-path party may observe or manipulate mining traffic, including work and share messages. Prefer a trusted network; do not treat this connection as a secure channel. CKPool also publishes a Stratum V2 endpoint on port `3336`, but this app does not implement Stratum V2 and must use the V1 endpoint above.
+
 The app's **CKPool statistics** button opens the graphical user page for the configured payout address at `https://stats.ckpool.org/users/<address>`. Statistics may not appear immediately at low hashrates because CKPool applies a minimum share difficulty. A missing statistics page is not proof of a payout or of a lost balance.
 
 ## Payout and block verification
