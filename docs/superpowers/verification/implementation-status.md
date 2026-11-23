@@ -40,7 +40,20 @@ The current build configuration reviewed on `main` uses:
 
 The GitHub Actions workflow is configured to run host-native CMake/CTest, JVM unit tests, Android lint, Android native library builds, release APK assembly, 16 KB ELF/APK alignment checks, APK signing-state verification, and debug APK assembly.
 
-**Current-head CI status: not yet verified in this audit record.** A previously recorded successful workflow run was for an older source commit, so it is not evidence that the current `main` head or this verification branch passes. The PR workflow result must be checked before calling the source/build verification green.
+**CI verification: PASS** for the application and configuration changes at commit `21c025d54b84e64e98cd7ad5ae5aa6d6cbd9fb39`, GitHub Actions run [#546 / 45173841370](https://github.com/fayisaftha786/lottery-miner/actions/runs/45173841370).
+
+Completed successfully:
+- Host-native CMake build and CTest.
+- JVM unit tests and `lintDebug`.
+- Release native library build and Release APK assembly.
+- 16 KB ELF segment and APK alignment checks.
+- APK checksum recording.
+- Debug APK assembly, debug APK signature verification, and presence of `arm64-v8a` and `x86_64` native libraries.
+- Artifact upload for release build, debug test APK, and JVM test reports.
+
+The protected release signing step was skipped because release-keystore secrets were not available to this workflow. The Release artifact is therefore `app-release-unsigned.apk`, not production-signed. The Debug test APK is signed with the Android debug key and is intended only for controlled device testing.
+
+This report update is documentation-only and is being added after run #546; that later documentation commit is not itself part of the tested application-code SHA above.
 
 A release artifact without the protected release keystore is unsigned and is not a production distribution. Debug-signed test APKs are for controlled device testing only.
 
