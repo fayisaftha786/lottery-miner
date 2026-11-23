@@ -54,6 +54,20 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.log("പഴയ worker thread അവസാനിക്കുന്നതുവരെ restart തടഞ്ഞു")
             return
         }
+        // This engine instance may be started again after a clean stop.
+        // Reset all session-scoped counters and extranonce/difficulty state.
+        totalHashes.set(0L)
+        jobGeneration.set(0L)
+        extranonceEpoch.set(0L)
+        hasExtranonceAllocation = false
+        en1 = ByteArray(0)
+        en2Size = 4
+        reconnectingForExhaustion.set(false)
+        difficultyTargets.reset()
+        current = null
+        client = null
+        activeThreads = 0
+
         running = true
         MinerState.reset()
         MinerState.running = true
@@ -104,6 +118,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
         }
         threads.removeAll { !it.isAlive }
+        // Preserve every nonce attempt that completed before shutdown, including
+        // a final in-flight native chunk that returned after the policy ticker.
+        MinerState.totalHashes = totalHashes.get()
         MinerState.running = false
         MinerState.connected = false
         MinerState.hashrate = 0.0
@@ -160,8 +177,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             // Stratum V1 difficulty changes take effect on the next mining.notify.
             // Keep the current job and its target active until that job arrives.
             difficultyTargets.stage(diff)
-            MinerState.poolDiff = diff
-            MinerState.log("പൂൾ difficulty = $diff (അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ)")
+            MinerState.pendingPoolDiff = diff
+            MinerState.log("പൂൾ difficulty = $diff ലഭിച്ചു; അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ വരും")
         }
     }
     override fun onJob(job: Job) {
@@ -170,6 +187,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             current = null
             jobGeneration.incrementAndGet()
             shareTarget = difficultyTargets.activateForNextJob()
+            MinerState.poolDiff = difficultyTargets.activeDifficulty()
+            MinerState.pendingPoolDiff = 0.0
             MinerState.netDiff = Util.networkDifficulty(job.nbitsHex)
             MinerState.status = "പുതിയ job ലഭിച്ചു; workers ആരംഭിക്കുന്നു"
             if (job.clean) MinerState.log("പുതിയ ബ്ലോക്ക് ജോബ് (job ${job.id})")
@@ -236,8 +255,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 synchronized(workLock) {
                     current = null
                     jobGeneration.incrementAndGet()
+                    difficultyTargets.reset()
                     MinerState.connected = false
                     MinerState.activeThreads = 0
+                    MinerState.poolDiff = 0.0
+                    MinerState.pendingPoolDiff = 0.0
+                    MinerState.netDiff = 0.0
                     if (MinerState.lastDisconnectReason.isBlank()) MinerState.lastDisconnectReason = "Pool socket closed"
                 }
             }

@@ -17,6 +17,15 @@ object Native {
         found: IntArray, best: DoubleArray
     ): Int
 
+    /** True only on ARM devices where the experimental dual-lane engine passed scalar differential tests. */
+    external fun dualSelfTestOk(): Boolean
+
+    /** Experimental dual-lane scanner. Returns -1 when hardware/self-test is unavailable. */
+    external fun scanDual(
+        header: ByteArray, start: Int, count: Int, target: ByteArray,
+        found: IntArray, best: DoubleArray
+    ): Int
+
     /** Double SHA-256 of an 80 byte header (digest in internal byte order). */
     external fun sha256dHeader(header: ByteArray): ByteArray
 }

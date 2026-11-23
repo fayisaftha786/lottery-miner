@@ -32,6 +32,7 @@ class StratumClient(
     }
 
     @Volatile private var socket: Socket? = null
+    @Volatile private var connectingSocket: Socket? = null
     @Volatile private var closed = false
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
@@ -83,17 +84,18 @@ class StratumClient(
         for (address in addresses) {
             if (closed) throw java.io.IOException("Stratum client closed")
             val candidate = Socket()
+            connectingSocket = candidate
             try {
+                if (closed) throw java.io.IOException("Stratum client closed")
                 listener.onStatus("Connecting to $host (${address.hostAddress}):$port")
                 candidate.connect(InetSocketAddress(address, port), 10000)
-                if (closed) {
-                    candidate.close()
-                    throw java.io.IOException("Stratum client closed")
-                }
+                if (closed) throw java.io.IOException("Stratum client closed")
                 return candidate
             } catch (e: Exception) {
                 lastError = e
                 try { candidate.close() } catch (_: Exception) { }
+            } finally {
+                if (connectingSocket === candidate) connectingSocket = null
             }
         }
         throw lastError ?: java.net.ConnectException("Pool host resolved to no addresses")
@@ -101,6 +103,7 @@ class StratumClient(
 
     fun close() {
         closed = true
+        try { connectingSocket?.close() } catch (_: Exception) { }
         try { socket?.close() } catch (_: Exception) { }
     }
 
@@ -124,7 +127,16 @@ class StratumClient(
 
     @Synchronized
     private fun send(id: Int, method: String, params: JSONArray) {
-        val message = JSONObject().put("id", id).put("method", method).put("params", params)
+        writeMessage(JSONObject().put("id", id).put("method", method).put("params", params))
+    }
+
+    /** All complete JSON lines share the same monitor, including server ping replies. */
+    @Synchronized
+    private fun sendResponse(message: JSONObject) {
+        writeMessage(message)
+    }
+
+    private fun writeMessage(message: JSONObject) {
         val out = writer ?: throw java.io.IOException("Pool socket is not ready")
         out.write(message.toString())
         out.write("\n")
@@ -170,8 +182,7 @@ class StratumClient(
                 }
                 "mining.ping" -> {
                     val response = JSONObject().put("id", message.opt("id")).put("result", JSONObject.NULL).put("error", JSONObject.NULL)
-                    val out = writer ?: throw java.io.IOException("Pool socket is not ready")
-                    out.write(response.toString()); out.write("\n"); out.flush()
+                    sendResponse(response)
                 }
                 "client.show_message" -> listener.onStatus("Pool: ${params.optString(0)}")
                 else -> { }

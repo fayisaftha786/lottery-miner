@@ -15,6 +15,42 @@ class PoolDifficultyTargetsTest {
         assertArrayEquals(Util.difficultyToTarget(2.0), targets.activeTarget())
     }
 
+    @Test fun displayedActiveDifficultyChangesOnlyWhenNextJobActivates() {
+        val targets = PoolDifficultyTargets(1.0)
+        targets.stage(2.5)
+
+        org.junit.Assert.assertEquals(1.0, targets.activeDifficulty(), 0.0)
+        org.junit.Assert.assertEquals(2.5, targets.pendingDifficulty()!!, 0.0)
+
+        targets.activateForNextJob()
+
+        org.junit.Assert.assertEquals(2.5, targets.activeDifficulty(), 0.0)
+        org.junit.Assert.assertEquals(null, targets.pendingDifficulty())
+    }
+
+    @Test fun nextJobWithoutNewDifficultyKeepsTheCurrentActiveDifficulty() {
+        val targets = PoolDifficultyTargets(1.0)
+        targets.stage(3.0)
+        targets.activateForNextJob()
+
+        assertArrayEquals(Util.difficultyToTarget(3.0), targets.activateForNextJob())
+        org.junit.Assert.assertEquals(3.0, targets.activeDifficulty(), 0.0)
+        org.junit.Assert.assertEquals(null, targets.pendingDifficulty())
+    }
+
+    @Test fun reconnectResetDiscardsOldActiveAndPendingPoolDifficulty() {
+        val targets = PoolDifficultyTargets(1.0)
+        targets.stage(5.0)
+        targets.activateForNextJob()
+        targets.stage(7.0)
+
+        targets.reset()
+
+        org.junit.Assert.assertEquals(1.0, targets.activeDifficulty(), 0.0)
+        org.junit.Assert.assertEquals(null, targets.pendingDifficulty())
+        assertArrayEquals(Util.difficultyToTarget(1.0), targets.activateForNextJob())
+    }
+
     @Test fun latestDifficultyBeforeNextJobWins() {
         val targets = PoolDifficultyTargets(1.0)
         targets.stage(2.0)

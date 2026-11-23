@@ -29,8 +29,12 @@ object BitcoinMarketData {
     private const val BLOCK_REWARD_URL = "https://blockchain.info/q/bcperblock?cors=true"
     private const val TICKER_URL = "https://blockchain.info/ticker"
     private const val TIMEOUT_MS = 8_000
+    private const val MAX_RESPONSE_BYTES = 64 * 1024
 
-    fun fetchSnapshot(nowMillis: Long = System.currentTimeMillis()): BitcoinProfitSnapshot {
+    fun fetchSnapshot(): BitcoinProfitSnapshot {
+        // Timestamp the oldest request, not completion of the last endpoint.
+        // The three public APIs are sequential and do not expose one atomic snapshot time.
+        val snapshotStartedAt = System.currentTimeMillis()
         val difficulty = readText(DIFFICULTY_URL).trim().toDoubleOrNull()
             ?: throw IOException("Bitcoin difficulty response is invalid")
         val subsidySatoshis = readText(BLOCK_REWARD_URL).trim().toLongOrNull()
@@ -47,7 +51,7 @@ object BitcoinMarketData {
             networkHashrateHps = networkHashrateFromDifficulty(difficulty),
             blockSubsidyBtc = satoshisToBtc(subsidySatoshis.toDouble()),
             btcPriceInr = priceInr,
-            fetchedAtMillis = nowMillis
+            fetchedAtMillis = snapshotStartedAt
         )
     }
 
@@ -80,7 +84,21 @@ object BitcoinMarketData {
         try {
             val status = connection.responseCode
             if (status !in 200..299) throw IOException("Market data HTTP $status")
-            return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            return connection.inputStream.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(4096)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_RESPONSE_BYTES) {
+                        throw IOException("Market data response exceeds 64 KiB safety limit")
+                    }
+                    output.write(buffer, 0, count)
+                }
+                output.toString(Charsets.UTF_8.name())
+            }
         } finally {
             connection.disconnect()
         }

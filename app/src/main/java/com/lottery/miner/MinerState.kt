@@ -28,6 +28,7 @@ object MinerState {
     @Volatile var lastPoolEventAt = 0L
     @Volatile var bestDiff = 0.0
     @Volatile var poolDiff = 0.0
+    @Volatile var pendingPoolDiff = 0.0
     @Volatile var netDiff = 0.0
     @Volatile var tempC = Double.NaN
     @Volatile var tempAvailable = false
@@ -82,6 +83,7 @@ object MinerState {
         lastPoolEventAt = 0L
         bestDiff = 0.0
         poolDiff = 0.0
+        pendingPoolDiff = 0.0
         netDiff = 0.0
         tempC = Double.NaN
         tempAvailable = false

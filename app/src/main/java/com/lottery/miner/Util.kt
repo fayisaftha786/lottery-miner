@@ -12,12 +12,19 @@ object Util {
     private const val BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     private const val BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
+    private fun asciiHexValue(c: Char): Int = when (c) {
+        in '0'..'9' -> c.code - '0'.code
+        in 'a'..'f' -> c.code - 'a'.code + 10
+        in 'A'..'F' -> c.code - 'A'.code + 10
+        else -> -1
+    }
+
     fun hexToBytes(s: String): ByteArray {
         require(s.length % 2 == 0) { "odd hex length" }
         return ByteArray(s.length / 2) { i ->
-            val hi = Character.digit(s[2 * i], 16)
-            val lo = Character.digit(s[2 * i + 1], 16)
-            require(hi >= 0 && lo >= 0) { "invalid hex" }
+            val hi = asciiHexValue(s[2 * i])
+            val lo = asciiHexValue(s[2 * i + 1])
+            require(hi >= 0 && lo >= 0) { "invalid ASCII hex" }
             ((hi shl 4) or lo).toByte()
         }
     }
@@ -126,7 +133,7 @@ object Util {
 
     fun difficultyToTarget(diff: Double): ByteArray {
         require(diff.isFinite() && diff > 0.0) { "difficulty must be positive and finite" }
-        val target = BigDecimal(DIFF1).divide(BigDecimal(diff), 0, RoundingMode.FLOOR).toBigInteger()
+        val target = BigDecimal(DIFF1).divide(BigDecimal.valueOf(diff), 0, RoundingMode.FLOOR).toBigInteger()
         require(target.signum() > 0) { "difficulty is too high to represent a non-zero target" }
         return toBytes32(if (target > MAX256) MAX256 else target)
     }
@@ -171,21 +178,39 @@ object Util {
  */
 class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
     @Volatile private var active: ByteArray = Util.difficultyToTarget(initialDifficulty)
+    @Volatile private var activeDiff: Double = initialDifficulty
     @Volatile private var pending: ByteArray? = null
+    @Volatile private var pendingDiff: Double? = null
 
     @Synchronized fun stage(difficulty: Double) {
         // Validate and compute before mutating pending state.
         val target = Util.difficultyToTarget(difficulty)
         pending = target
+        pendingDiff = difficulty
     }
 
     @Synchronized fun activateForNextJob(): ByteArray {
-        pending?.let {
-            active = it
+        val nextTarget = pending
+        if (nextTarget != null) {
+            active = nextTarget
+            activeDiff = pendingDiff ?: activeDiff
             pending = null
+            pendingDiff = null
         }
         return active.copyOf()
     }
 
     @Synchronized fun activeTarget(): ByteArray = active.copyOf()
+
+    @Synchronized fun activeDifficulty(): Double = activeDiff
+
+    @Synchronized fun pendingDifficulty(): Double? = pendingDiff
+
+    @Synchronized fun reset(initialDifficulty: Double = 1.0) {
+        val target = Util.difficultyToTarget(initialDifficulty)
+        active = target
+        activeDiff = initialDifficulty
+        pending = null
+        pendingDiff = null
+    }
 }

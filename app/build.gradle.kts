@@ -45,6 +45,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Keep test installs separate from the production application ID.
+            // This avoids replacing a user build with a CI-generated debug signature.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = false
             // Never silently ship a debug-signed artifact as a production release.

@@ -96,6 +96,92 @@ class StratumClientTest {
         }
     }
 
+    @Test fun concurrentShareSubmissionsAndPingRepliesRemainCompleteJsonLines() {
+        val pingCount = 24
+        val shareCount = 48
+        val jobReceived = CountDownLatch(1)
+        val serverFailure = AtomicReference<Throwable?>()
+        val observedPings = java.util.concurrent.atomic.AtomicInteger(0)
+        val observedShares = java.util.concurrent.atomic.AtomicInteger(0)
+
+        ServerSocket(0).use { server ->
+            val worker = thread(name = "stratum-ping-share-server") {
+                try {
+                    server.accept().use { socket ->
+                        val input = socket.getInputStream().bufferedReader()
+                        val output = socket.getOutputStream().bufferedWriter()
+
+                        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
+                        output.write(JSONObject().put("id", 1)
+                            .put("result", JSONArray().put(JSONArray()).put("abcd").put(4))
+                            .put("error", JSONObject.NULL).toString() + "\n")
+                        output.flush()
+
+                        assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
+                        output.write(JSONObject().put("id", 2).put("result", true)
+                            .put("error", JSONObject.NULL).toString() + "\n")
+                        output.flush()
+                        assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
+
+                        val job = JSONArray().put("parallel-job").put("00".repeat(32)).put("0102").put("0304")
+                            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
+                        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
+                        repeat(pingCount) { index ->
+                            output.write(JSONObject().put("id", 5000 + index)
+                                .put("method", "mining.ping").put("params", JSONArray()).toString() + "\n")
+                        }
+                        output.flush()
+                        jobReceived.countDown()
+
+                        repeat(pingCount + shareCount) {
+                            val line = input.readLine() ?: throw AssertionError("socket closed before all messages arrived")
+                            val message = JSONObject(line)
+                            if (message.optString("method") == "mining.submit") {
+                                observedShares.incrementAndGet()
+                                output.write(JSONObject().put("id", message.getInt("id"))
+                                    .put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+                                output.flush()
+                            } else {
+                                val responseId = message.optInt("id", -1)
+                                assertTrue("unexpected method/id in client output: $line",
+                                    message.optString("method").isEmpty() && responseId in 5000 until (5000 + pingCount))
+                                assertTrue(message.isNull("result"))
+                                assertTrue(message.isNull("error"))
+                                observedPings.incrementAndGet()
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    serverFailure.set(t)
+                }
+            }
+
+            val listener = Listener()
+            val client = StratumClient("127.0.0.1", server.localPort,
+                "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
+            val clientThread = thread(name = "stratum-ping-share-client") { client.connectAndRun() }
+
+            assertTrue("server did not finish sending real-protocol setup", jobReceived.await(3, TimeUnit.SECONDS))
+            val submitters = (0 until 6).map { workerIndex ->
+                thread(name = "submitter-$workerIndex") {
+                    repeat(shareCount / 6) { item ->
+                        client.submit("parallel-job", "00000000", "495fab29",
+                            "%08x".format(workerIndex * (shareCount / 6) + item))
+                    }
+                }
+            }
+            submitters.forEach { it.join(3_000L) }
+            clientThread.join(5_000L)
+            worker.join(5_000L)
+
+            assertEquals(null, serverFailure.get())
+            assertEquals(pingCount, observedPings.get())
+            assertEquals(shareCount, observedShares.get())
+            assertEquals(shareCount, listener.submitted)
+            assertEquals(0, listener.unknownShares)
+        }
+    }
+
     @Test fun reportsSharesDroppedWhenPendingQueueIsFull() {
         val difficultyRequestReceived = CountDownLatch(1)
         ServerSocket(0).use { server ->

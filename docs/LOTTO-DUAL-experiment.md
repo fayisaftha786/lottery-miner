@@ -1,0 +1,58 @@
+# LOTTO-DUAL experimental SHA256d scanner
+
+## Purpose
+
+LOTTO-DUAL is an experimental two-stream ARMv8 SHA-256 compression path for Bitcoin SHA256d proof-of-work. It does **not** change Bitcoin's proof-of-work algorithm or target rules. It computes the exact same double-SHA256 result for each 80-byte block header, with two independent nonce values processed in interleaved ARM SHA2 instruction streams.
+
+The experiment seeks a possible throughput improvement from exposing independent SHA-256 work to the CPU pipeline. It is not a cryptographic shortcut and does not improve the probability per hash.
+
+## Current implementation
+
+- The existing single-stream ARM/scalar scanner remains the production mining path.
+- The dual scanner computes the immutable first-64-byte header midstate once.
+- Each lane then builds its own nonce-dependent SHA-256 block.
+- The two first-round compression states are processed with `compress_arm_dual`.
+- Each lane's resulting digest is used as the message to its own second SHA-256 block; those blocks are also compressed in parallel.
+- Hashes are compared against the same big-endian target with the same inclusive `hash <= target` rule as the existing scanner.
+- Results are returned in nonce-ascending order. Odd nonce counts use one valid final lane and discard the duplicate lane's output.
+- On ARM64, the app may run the hardware dual scanner only when ARM SHA2 is present and its differential self-test passes. Non-ARM host builds use a scalar two-stream reference path solely to unit-test paired-scanner bookkeeping; this does not claim ARM hardware acceleration.
+- Mining does not automatically select the dual scanner. It is accessible only through the stopped-miner A/B benchmark.
+
+## Correctness checks
+
+On a SHA2-capable ARM64 device, native initialization compares both streams against the scalar compression implementation and then compares complete single- and dual-scanner results for:
+- a 257-nonce all-target scan crossing the 32-bit nonce wrap boundary (odd count and result ordering);
+- an exact hash target (inclusive boundary);
+- the same target decremented by one;
+- a zero target (no practical hit).
+
+The normal host native tests also confirm that non-ARM builds report the dual scanner as unavailable rather than pretending to run it.
+
+## Device benchmark
+
+The app's **Compare LOTTO-DUAL on live pool job** button:
+- refuses to run while phone mining is active;
+- refuses to run while Android reports MODERATE or higher thermal status;
+- creates a separate Stratum V1 diagnostic connection using the configured pool host, port, and payout address;
+- waits for a real subscribe response, authorization, extranonce allocation, pool difficulty, and a mining.notify job;
+- builds the actual 80-byte block header from the pool job's coinbase fragments, extranonce and merkle data, and uses the real pool share target;
+- performs equal warm-up runs, then three 1-second samples per scanner in alternating order against that same header and target;
+- never calls mining.submit; any target hits are discarded and do not change live accepted/rejected counters;
+- reports the pool/job identity, difficulty, median single-lane and dual-lane hashes per second, and percentage change.
+
+This short A/B test uses real pool-provided work but is still a local scanner diagnostic, not accepted pool hashrate, accepted shares, payout, or block probability. It measures no network-submission path and cannot establish thermal stability or energy efficiency.
+
+## Production acceptance gate
+
+Do not route mining work through LOTTO-DUAL unless all of the following have been demonstrated on the target device:
+1. Differential self-tests pass on the actual ARM64 device.
+2. Repeated A/B tests show at least 5% median end-to-end SHA256d improvement.
+3. A 30-60 minute sustained test shows the improvement remains after thermal equilibrium.
+4. Power is measured with an external USB power meter; hashes per joule do not regress materially.
+5. Live pool integration produces the same accepted/rejected share behaviour as the existing scanner.
+
+A CI build only proves source compilation, test execution on the CI host, and APK packaging. It does not prove that the device's ARM SHA2 dual path executed or that it is faster. Until the device A/B and sustained tests are reported, LOTTO-DUAL remains experimental and production mining remains on the existing scanner.
+
+## Important limitation
+
+Bitcoin block discovery remains probabilistic. Every valid nonce hash is one independent SHA256d trial; a faster scanner increases the number of trials per second but does not make any individual hash more likely to meet the network target.

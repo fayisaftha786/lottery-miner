@@ -10,6 +10,8 @@ typedef void (*compress_fn_t)(uint32_t state[8], const uint32_t w[16]);
 void miner_core_init(void);
 int miner_core_uses_hw(void);
 int miner_core_selftest_ok(void);
+/* 1 only when the experimental ARM dual compressor matches two scalar references. */
+int miner_core_dual_selftest_ok(void);
 
 /* Double SHA-256 of an 80 byte block header. out = digest bytes in internal order (little-endian number). */
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]);
@@ -25,10 +27,18 @@ uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
 
+/* ARM Android builds return UINT32_MAX unless the hardware dual path passed self-test; host builds use scalar paired compression for reference tests. */
+uint32_t miner_scan_dual(const uint8_t header[80], uint32_t start, uint32_t count,
+                         const uint8_t target[32], uint32_t *found, uint32_t max_found,
+                         double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
+
 extern const uint32_t SHA256_K[64];
 
 #ifdef HAVE_ARM_SHA2
 void compress_arm(uint32_t state[8], const uint32_t w[16]);
+/* Experimental: compress two independent SHA-256 message blocks in interleaved ARM SHA2 lanes. */
+void compress_arm_dual(uint32_t state_a[8], const uint32_t w_a[16],
+                        uint32_t state_b[8], const uint32_t w_b[16]);
 int arm_sha2_supported(void);
 #endif
 

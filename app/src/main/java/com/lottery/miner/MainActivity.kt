@@ -3,6 +3,7 @@ package com.lottery.miner
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -43,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPoolStats: Button
     private lateinit var btnExportDiagnostics: Button
     private lateinit var btnBenchmark: Button
+    private lateinit var btnDualBenchmark: Button
     private lateinit var tvBenchmark: TextView
     private lateinit var etMiningPower: EditText
     private lateinit var etElectricityTariff: EditText
@@ -51,7 +53,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvProfitability: TextView
     @Volatile private var benchmarkRunning = false
     @Volatile private var profitabilityFetchInFlight = false
-    private var lastBenchmarkHps = 0.0
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
@@ -83,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         btnPoolStats = findViewById(R.id.btnPoolStats)
         btnExportDiagnostics = findViewById(R.id.btnExportDiagnostics)
         btnBenchmark = findViewById(R.id.btnBenchmark)
+        btnDualBenchmark = findViewById(R.id.btnDualBenchmark)
         tvBenchmark = findViewById(R.id.tvBenchmark)
         etMiningPower = findViewById(R.id.etMiningPower)
         etElectricityTariff = findViewById(R.id.etElectricityTariff)
@@ -95,6 +97,8 @@ class MainActivity : AppCompatActivity() {
 
         val cores = Runtime.getRuntime().availableProcessors()
         val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        // Remove the pre-live-benchmark cached rate; it must never be reused as current mining telemetry.
+        p.edit().remove("lastBenchmarkHps").apply()
         etAddress.setText(p.getString("address", ""))
         val savedHost = p.getString("host", null)
         val configuredHost = if (savedHost.isNullOrBlank() ||
@@ -107,7 +111,6 @@ class MainActivity : AppCompatActivity() {
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
-        lastBenchmarkHps = p.getString("lastBenchmarkHps", "0.0")?.toDoubleOrNull() ?: 0.0
         etMiningPower.setText(p.getString("miningPowerWatts", ""))
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
@@ -116,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         btnPoolStats.setOnClickListener { openPoolStatistics() }
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
         btnBenchmark.setOnClickListener { runSafeBenchmark() }
+        btnDualBenchmark.setOnClickListener { runDualBenchmark() }
         btnRefreshProfitability.setOnClickListener { refreshBitcoinProfitability() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -161,42 +165,147 @@ class MainActivity : AppCompatActivity() {
 
 
 
+    private fun benchmarkThermallySafe(): Boolean {
+        val configuredLimit = etTemp.text.toString().trim().toDoubleOrNull()
+            ?.takeIf { it.isFinite() && it in 30.0..45.0 } ?: 40.0
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val thermal = runCatching {
+                (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus
+            }.getOrNull() ?: return false
+            return thermal < android.os.PowerManager.THERMAL_STATUS_MODERATE
+        }
+        val battery = runCatching {
+            registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }.getOrNull() ?: return false
+        val rawTemp = battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1)
+        if (rawTemp <= 0) return false
+        return rawTemp / 10.0 < minOf(configuredLimit - 3.0, 38.0)
+    }
+
     private fun runSafeBenchmark() {
         if (MinerState.running || benchmarkRunning || Sha256dBenchmark.isRunning()) {
             Toast.makeText(this, "Benchmark നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
+        val address = etAddress.text.toString().trim()
+        val host = etHost.text.toString().trim()
+        val port = etPort.text.toString().trim().toIntOrNull()
+        if (!Util.isValidBitcoinAddress(address) || port == null ||
+            !CkpoolHosts.isSupportedSoloEndpoint(host, port)
+        ) {
+            Toast.makeText(this, "ശരിയായ Bitcoin address നൽകുക. ഈ build ഔദ്യോഗിക CKPool solo hostname-ുകളും port 3333-ഉം മാത്രമാണ് പിന്തുണയ്ക്കുന്നത്.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!benchmarkThermallySafe()) {
+            Toast.makeText(this, "Thermal status/temperature സുരക്ഷിതമോ ലഭ്യമോ അല്ല. തണുത്തതിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
+        btnDualBenchmark.isEnabled = false
         btn.isEnabled = false
-        tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
+        tvBenchmark.text = "LIVE POOL WORK BENCHMARK\nPool-ലേക്ക് subscribe/authorize ചെയ്യുന്നു…\nShare submit ചെയ്യില്ല."
         Thread {
             try {
-                val result = Sha256dBenchmark.run(5_000L)
+                val work = StratumBenchmarkWorkProvider.fetch(host, port, address)
+                val result = Sha256dBenchmark.run(work, 5_000L)
                 runOnUiThread {
-                    lastBenchmarkHps = result.hashesPerSecond
-                    getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
-                        .putString("lastBenchmarkHps", result.hashesPerSecond.toString()).apply()
                     tvBenchmark.text = buildString {
-                        appendLine("ADAPTIVE MINING LAB · LOCAL MEASUREMENT")
-                        appendLine("Algorithm: Bitcoin SHA-256d")
-                        appendLine("Measured: ${Util.fmtRate(result.hashesPerSecond)}")
-                        appendLine("Hashes: ${result.hashes}")
+                        appendLine("LIVE STRATUM JOB · LOCAL SHA-256d MEASUREMENT")
+                        appendLine("Pool: ${result.poolHost}:${result.poolPort}")
+                        appendLine("Job: ${result.jobId}")
+                        appendLine("Pool share difficulty: ${String.format(Locale.US, "%.8g", result.poolDifficulty)}")
+                        appendLine("Measured native rate: ${Util.fmtRate(result.hashesPerSecond)}")
+                        appendLine("Hashes completed: ${result.hashes}")
                         appendLine("Duration: ${result.elapsedMillis} ms")
-                        appendLine("Hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
-                        appendLine("Stored as the latest local benchmark for estimates.")
-                        appendLine("Other algorithm miners are not installed yet.")
-                        appendLine("No pool shares or earnings are generated by this test.")
+                        appendLine("ARM hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
+                        appendLine("Job received: ${java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(result.workFetchedAtMillis))}")
+                        appendLine("No mining.submit was sent. Any target hits were discarded.")
+                        appendLine("This is a local scanner diagnostic, not accepted shares, earnings, or a block.")
+                        appendLine("This benchmark is never reused as live mining hashrate or profit input.")
                     }
                     benchmarkRunning = false
                     btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
                     btn.isEnabled = true
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvBenchmark.text = "Benchmark failed: ${e.message ?: e.javaClass.simpleName}"
+                    tvBenchmark.text = "LIVE POOL BENCHMARK FAILED: ${e.message ?: e.javaClass.simpleName}\nMining statistics remain tied to actual worker scans only."
                     benchmarkRunning = false
                     btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
+                    btn.isEnabled = true
+                }
+            }
+        }.start()
+    }
+
+    private fun runDualBenchmark() {
+        if (MinerState.running || benchmarkRunning || Sha256dBenchmark.isRunning()) {
+            Toast.makeText(this, "A/B test നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val address = etAddress.text.toString().trim()
+        val host = etHost.text.toString().trim()
+        val port = etPort.text.toString().trim().toIntOrNull()
+        if (!Util.isValidBitcoinAddress(address) || port == null ||
+            !CkpoolHosts.isSupportedSoloEndpoint(host, port)
+        ) {
+            Toast.makeText(this, "ശരിയായ Bitcoin address നൽകുക. ഈ build ഔദ്യോഗിക CKPool solo hostname-ുകളും port 3333-ഉം മാത്രമാണ് പിന്തുണയ്ക്കുന്നത്.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (!benchmarkThermallySafe()) {
+            Toast.makeText(this, "Thermal status/temperature സുരക്ഷിതമോ ലഭ്യമോ അല്ല. തണുത്തതിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        benchmarkRunning = true
+        btnBenchmark.isEnabled = false
+        btnDualBenchmark.isEnabled = false
+        btn.isEnabled = false
+        tvBenchmark.text = "LOTTO-DUAL LIVE JOB A/B\nPool-ൽ നിന്ന് യഥാർത്ഥ work നേടുന്നു…\nShare submit ചെയ്യില്ല."
+        Thread {
+            try {
+                val work = StratumBenchmarkWorkProvider.fetch(host, port, address)
+                val result = Sha256dBenchmark.compareDual(work, 1_000L)
+                runOnUiThread {
+                    val verdict = when {
+                        result.speedupPercent >= 5.0 ->
+                            "INITIAL PASS: ഈ ചെറിയ യഥാർത്ഥ-job A/B-ൽ 5%+ gain. 30–60 minute thermal/power test വേണം."
+                        result.speedupPercent > 0.0 ->
+                            "NOT YET: gain 5%-ൽ താഴെ. Production scanner മാറ്റരുത്."
+                        else ->
+                            "NO GAIN: single-lane വേഗമാണ്. Dual-lane production-ൽ enable ചെയ്യരുത്."
+                    }
+                    tvBenchmark.text = buildString {
+                        appendLine("LOTTO-DUAL · REAL STRATUM JOB A/B")
+                        appendLine("Pool: ${result.poolHost}:${result.poolPort}")
+                        appendLine("Job: ${result.jobId}")
+                        appendLine("Pool share difficulty: ${String.format(Locale.US, "%.8g", result.poolDifficulty)}")
+                        appendLine("ARM hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
+                        appendLine("Dual differential self-test: ${if (result.dualSelfTestPassed) "PASS" else "FAIL"}")
+                        appendLine("Single-lane median: ${Util.fmtRate(result.singleMedianHps)}")
+                        appendLine("Dual-lane median: ${Util.fmtRate(result.dualMedianHps)}")
+                        appendLine("Measured change: ${String.format(Locale.US, "%+.2f", result.speedupPercent)}%")
+                        appendLine("Samples: ${result.rounds} per engine · ${result.roundDurationMillis} ms each")
+                        appendLine(verdict)
+                        appendLine("Real pool header/target were used locally. No mining.submit was sent.")
+                        appendLine("Any target hits were discarded; no share, payout, or block was created.")
+                    }
+                    benchmarkRunning = false
+                    btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
+                    btn.isEnabled = true
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    tvBenchmark.text = "LOTTO-DUAL FAILED/UNAVAILABLE: ${e.message ?: e.javaClass.simpleName}\nProduction mining remains on the existing single-lane scanner."
+                    benchmarkRunning = false
+                    btnBenchmark.isEnabled = true
+                    btnDualBenchmark.isEnabled = true
                     btn.isEnabled = true
                 }
             }
@@ -205,25 +314,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBitcoinProfitability() {
         if (profitabilityFetchInFlight) return
-        val host = etHost.text.toString().trim().lowercase(Locale.US)
-        if (!host.contains("ckpool")) {
-            tvProfitability.text = "ഈ estimator നിലവിൽ CKPool solo Bitcoin mining-നു മാത്രമാണ്. മറ്റൊരു pool payout model ഇതിൽ ഉൾപ്പെടുത്തിയിട്ടില്ല."
+        val host = etHost.text.toString().trim()
+        val port = etPort.text.toString().trim().toIntOrNull()
+        if (port == null || !CkpoolHosts.isSupportedSoloEndpoint(host, port)) {
+            tvProfitability.text = "ഈ estimator ഔദ്യോഗിക CKPool solo endpoints-ന്റെ port 3333-ന് മാത്രമാണ്. ഈ host/port-ന്റെ payout model ലഭ്യമല്ല."
             return
         }
-        val liveRate = if (MinerState.running) {
-            MinerState.hashrate.takeIf { it.isFinite() && it > 0.0 }
-        } else {
-            null
+        fun currentLiveRate(): Double? = MinerState.hashrate.takeIf {
+            MinerState.running && MinerState.connected && MinerState.activeThreads > 0 &&
+                it.isFinite() && it > 0.0
         }
-        if (MinerState.running && liveRate == null) {
-            tvProfitability.text = "Mining ഇപ്പോൾ 0 H/s ആണ്. Worker വീണ്ടും പ്രവർത്തിക്കുന്നതായി ഉറപ്പാക്കിയ ശേഷം estimate പുതുക്കുക."
+        if (currentLiveRate() == null) {
+            tvProfitability.text = "LIVE hashrate ലഭ്യമല്ല: pool authorization, active job, native worker scan എന്നിവ വേണം. Stopped benchmark profit കണക്കിൽ ഉപയോഗിക്കില്ല."
             return
         }
-        val rate = liveRate ?: lastBenchmarkHps
-        if (!rate.isFinite() || rate <= 0.0) {
-            tvProfitability.text = "ആദ്യം mining തുടങ്ങുകയോ Mining നിർത്തിയ ശേഷം safe SHA-256d benchmark നടത്തുകയോ ചെയ്യുക."
-            return
-        }
+
         val power = etMiningPower.text.toString().trim().toDoubleOrNull()
         val tariff = etElectricityTariff.text.toString().trim().toDoubleOrNull()
         val fee = etPoolFee.text.toString().trim().toDoubleOrNull()
@@ -236,7 +341,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (fee == null || !fee.isFinite() || fee !in 0.0..100.0) {
-            tvProfitability.text = "Pool fee 0–100% ഇടയിൽ നൽകുക. CKPool-ന്റെ സാധാരണ fee 2% ആണ്."
+            tvProfitability.text = "Pool fee 0–100% ഇടയിൽ നൽകുക. CKPool fee pool-ന്റെ നിലവിലെ നിബന്ധനകളിൽ നിന്ന് സ്ഥിരീകരിക്കുക."
             return
         }
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
@@ -247,14 +352,18 @@ class MainActivity : AppCompatActivity() {
 
         profitabilityFetchInFlight = true
         btnRefreshProfitability.isEnabled = false
-        tvProfitability.text = "Live Bitcoin difficulty, block subsidy, BTC/INR data പരിശോധിക്കുന്നു…"
+        tvProfitability.text = "Live Bitcoin network difficulty, block subsidy, BTC/INR data പരിശോധിക്കുന്നു…"
         Thread {
             try {
+                // Capture the actual rate only after all remote data requests complete.
+                // The estimate and displayed rate therefore refer to the same sample.
                 val snapshot = BitcoinMarketData.fetchSnapshot()
                 val ageSeconds = ((System.currentTimeMillis() - snapshot.fetchedAtMillis) / 1000L).coerceAtLeast(0L)
+                val rateUsed = currentLiveRate()
+                    ?: throw IllegalStateException("Live pool mining stopped while market data was loading")
                 val result = MiningStrategy.estimate(
                     MiningEconomicsInput(
-                        deviceHashrate = rate,
+                        deviceHashrate = rateUsed,
                         networkHashrate = snapshot.networkHashrateHps,
                         dailyNetworkRewardCoins = snapshot.dailySubsidyBtc,
                         coinPriceFiat = snapshot.btcPriceInr,
@@ -267,31 +376,34 @@ class MainActivity : AppCompatActivity() {
                     )
                 )
                 runOnUiThread {
-                    val rateSource = if (liveRate != null) "live phone hashrate" else "last safe device benchmark"
-                    tvProfitability.text = buildString {
-                        appendLine("BITCOIN SOLO · EXPECTED VALUE (INR)")
-                        appendLine("Rate source: $rateSource · ${Util.fmtRate(rate)}")
-                        appendLine("BTC price: ₹${String.format(Locale.US, "%.2f", snapshot.btcPriceInr)}")
-                        appendLine("Network difficulty: ${String.format(Locale.US, "%.4e", snapshot.difficulty)}")
-                        appendLine("Estimated network hashrate: ${Util.fmtRate(snapshot.networkHashrateHps)}")
-                        appendLine("Block subsidy: ${String.format(Locale.US, "%.8f", snapshot.blockSubsidyBtc)} BTC")
-                        appendLine("Daily subsidy assumption: ${String.format(Locale.US, "%.4f", snapshot.dailySubsidyBtc)} BTC (144 blocks; fees excluded)")
-                        appendLine("Expected gross value/day: ${formatInr(result.grossFiatPerDay)}")
-                        appendLine("Expected pool fee/day: ${formatInr(result.poolFeeFiatPerDay)} (${String.format(Locale.US, "%.2f", fee)}%)")
-                        appendLine("Estimated electricity/day: ${formatInr(result.electricityFiatPerDay)} (${String.format(Locale.US, "%.2f", power)} W × 24 h)")
-                        appendLine("Expected net value/day: ${formatInr(result.netFiatPerDay)}")
-                        appendLine("Mean block wait estimate: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
-                        appendLine("Data age: ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
-                        appendLine("WARNING: expected value only, not daily payout or guaranteed profit. Solo block rewards are rare and highly variable.")
-                        if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity + pool costs exceed expected gross value.")
-                        else appendLine("RESULT: Positive mathematical expectation only; payout timing risk remains extreme at phone hashrate.")
+                    if (currentLiveRate() == null) {
+                        tvProfitability.text = "Estimate റദ്ദാക്കി: കണക്കു കാണിക്കുന്നതിന് മുമ്പ് live pool mining നിലച്ചു. വീണ്ടും live work ലഭിച്ച ശേഷം ശ്രമിക്കുക."
+                    } else {
+                        tvProfitability.text = buildString {
+                            appendLine("BITCOIN SOLO · MATHEMATICAL EXPECTED VALUE (INR)")
+                            appendLine("Rate used: live native scanner sample · ${Util.fmtRate(rateUsed)}")
+                            appendLine("BTC/INR: ₹${String.format(Locale.US, "%.2f", snapshot.btcPriceInr)}")
+                            appendLine("Network difficulty: ${String.format(Locale.US, "%.4e", snapshot.difficulty)}")
+                            appendLine("Estimated network hashrate: ${Util.fmtRate(snapshot.networkHashrateHps)}")
+                            appendLine("Block subsidy: ${String.format(Locale.US, "%.8f", snapshot.blockSubsidyBtc)} BTC")
+                            appendLine("Daily subsidy assumption: ${String.format(Locale.US, "%.4f", snapshot.dailySubsidyBtc)} BTC (144 blocks; fees excluded)")
+                            appendLine("Expected gross value/day: ${formatInr(result.grossFiatPerDay)}")
+                            appendLine("Expected pool fee/day: ${formatInr(result.poolFeeFiatPerDay)} (${String.format(Locale.US, "%.2f", fee)}%)")
+                            appendLine("Estimated electricity/day: ${formatInr(result.electricityFiatPerDay)} (${String.format(Locale.US, "%.2f", power)} W × 24 h)")
+                            appendLine("Expected net value/day: ${formatInr(result.netFiatPerDay)}")
+                            appendLine("Mean block wait: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
+                            appendLine("Market data age: ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
+                            appendLine("WARNING: long-run mathematical expectation only; not daily payout, guaranteed income, or block certainty.")
+                            if (result.netFiatPerDay <= 0.0) appendLine("RESULT: estimated electricity + pool costs exceed expected gross value.")
+                            else appendLine("RESULT: positive expected value only; solo payout wait at phone hashrate remains extremely long.")
+                        }
                     }
                     profitabilityFetchInFlight = false
                     btnRefreshProfitability.isEnabled = true
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvProfitability.text = "Profitability data unavailable: ${e.message ?: e.javaClass.simpleName}\nLast data is not reused as live. Try refresh later."
+                    tvProfitability.text = "Profitability data unavailable: ${e.message ?: e.javaClass.simpleName}\nFailed or stale data is never shown as current."
                     profitabilityFetchInFlight = false
                     btnRefreshProfitability.isEnabled = true
                 }
@@ -319,7 +431,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPoolStatistics() {
-        val address = etAddress.text.toString().trim()
+        // A Stratum username may be address.worker; CKPool's account page
+        // is keyed by the base Bitcoin payout address only.
+        val address = etAddress.text.toString().trim().substringBefore('.')
         if (!Util.isValidBitcoinAddress(address)) {
             Toast.makeText(this, "ആദ്യം ശരിയായ Bitcoin mainnet address നൽകുക.", Toast.LENGTH_LONG).show()
             return
@@ -355,7 +469,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Last share response: ${time(s.lastShareResponseAt)}")
             appendLine("Shares submitted/accepted/rejected: ${s.submittedShares.get()}/${s.accepted.get()}/${s.rejected.get()}")
             appendLine("Unknown/dropped shares: ${s.unknownShares.get()}/${s.droppedShares.get()}")
-            appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Active pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Pending next-job pool difficulty: ${if (s.pendingPoolDiff > 0.0) s.pendingPoolDiff else "none"}")
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
             appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
@@ -383,7 +498,7 @@ class MainActivity : AppCompatActivity() {
             externalSnapshot = null
             externalSnapshotAddress = null
             externalError = null
-            tvExternalStats.text = "FREE EXTERNAL MINING (OCEAN BTC)\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; OCEAN-ൽ ഇതിനകം പ്രവർത്തിക്കുന്ന worker-കളുടെ കണക്കാണ്."
+            tvExternalStats.text = "OCEAN EXTERNAL WORKER MONITOR\nWallet address നൽകുക.\nഇത് സൗജന്യ hashrate നൽകുന്നില്ല; OCEAN-ൽ ഇതിനകം പ്രവർത്തിക്കുന്ന worker-കളുടെ കണക്കാണ്."
             return
         }
         val now = System.currentTimeMillis()
@@ -521,13 +636,9 @@ class MainActivity : AppCompatActivity() {
         }
         val cores = Runtime.getRuntime().availableProcessors()
         val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
-        if (host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
-            Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
-            return
-        }
         val port = etPort.text.toString().trim().toIntOrNull()
-        if (port == null || port !in 1..65535) {
-            Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
+        if (port == null || !CkpoolHosts.isSupportedSoloEndpoint(host, port)) {
+            Toast.makeText(this, "ഈ build ഔദ്യോഗിക CKPool solo hostname-ുകളും standard port 3333-ഉം മാത്രമാണ് പിന്തുണയ്ക്കുന്നത്.", Toast.LENGTH_LONG).show()
             return
         }
         val threads = etThreads.text.toString().trim().toIntOrNull()
@@ -580,6 +691,10 @@ class MainActivity : AppCompatActivity() {
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
+        if (s.pendingPoolDiff > 0.0) {
+            sb.append("അടുത്ത job pool diff: ").append(String.format(Locale.US, "%.4g", s.pendingPoolDiff))
+                .append(" (ഇനിയും പ്രാബല്യത്തിൽ വന്നിട്ടില്ല)\n")
+        }
         if (s.hashrate > 0.0 && s.poolDiff > 0.0) {
             val expectedSeconds = Util.expectedShareIntervalSeconds(s.poolDiff, s.hashrate)
             sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\n')
