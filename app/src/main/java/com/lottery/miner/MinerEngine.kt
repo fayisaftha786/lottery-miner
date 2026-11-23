@@ -241,8 +241,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 synchronized(workLock) {
                     current = null
                     jobGeneration.incrementAndGet()
+                    difficultyTargets.reset()
                     MinerState.connected = false
                     MinerState.activeThreads = 0
+                    MinerState.poolDiff = 0.0
+                    MinerState.pendingPoolDiff = 0.0
+                    MinerState.netDiff = 0.0
                     if (MinerState.lastDisconnectReason.isBlank()) MinerState.lastDisconnectReason = "Pool socket closed"
                 }
             }
