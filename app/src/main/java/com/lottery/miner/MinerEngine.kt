@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 data class MinerConfig(
     val address: String,
+    val poolUser: String = "",
     val host: String,
     val port: Int,
     val threads: Int,
@@ -221,7 +222,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun connectionLoop() {
         val reconnectBackoff = ReconnectBackoff()
         while (running) {
-            val c = StratumClient(cfg.host, cfg.port, cfg.address, this)
+            val authorizationUser = cfg.poolUser.ifBlank { cfg.address }
+            val c = StratumClient(cfg.host, cfg.port, authorizationUser, this)
             client = c
             val attemptStartedAt = System.nanoTime()
             val attemptStartedWall = System.currentTimeMillis()

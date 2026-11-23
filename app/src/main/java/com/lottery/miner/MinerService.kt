@@ -21,6 +21,7 @@ class MinerService : Service() {
         const val ACTION_START = "com.lottery.miner.START"
         const val ACTION_STOP = "com.lottery.miner.STOP"
         const val EXTRA_ADDRESS = "address"
+        const val EXTRA_POOL_USER = "poolUser"
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         const val EXTRA_THREADS = "threads"
@@ -76,6 +77,7 @@ class MinerService : Service() {
 
         val cfg = MinerConfig(
             address = i.getStringExtra(EXTRA_ADDRESS) ?: "",
+            poolUser = i.getStringExtra(EXTRA_POOL_USER)?.trim().orEmpty(),
             host = i.getStringExtra(EXTRA_HOST) ?: MinerDefaults.POOL_HOST,
             port = i.getIntExtra(EXTRA_PORT, MinerDefaults.POOL_PORT),
             threads = i.getIntExtra(EXTRA_THREADS, 1),

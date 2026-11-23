@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etAddress: EditText
     private lateinit var etHost: EditText
     private lateinit var etPort: EditText
+    private lateinit var etPoolUser: EditText
     private lateinit var etThreads: EditText
     private lateinit var etTemp: EditText
     private lateinit var etBatt: EditText
@@ -75,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         etAddress = findViewById(R.id.etAddress)
         etHost = findViewById(R.id.etHost)
         etPort = findViewById(R.id.etPort)
+        etPoolUser = findViewById(R.id.etPoolUser)
         etThreads = findViewById(R.id.etThreads)
         etTemp = findViewById(R.id.etTemp)
         etBatt = findViewById(R.id.etBatt)
@@ -102,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         ) DEFAULT_POOL_HOST else savedHost
         etHost.setText(configuredHost)
         etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
+        etPoolUser.setText(p.getString("poolUser", ""))
         if (configuredHost != savedHost) p.edit().putString("host", configuredHost).apply()
         etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
@@ -515,12 +518,20 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val addr = etAddress.text.toString().trim()
-        if (!Util.isValidBitcoinAddress(addr)) {
+        val cores = Runtime.getRuntime().availableProcessors()
+        val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
+        val viaBtc = host.equals(ViaBtcPool.HOST, ignoreCase = true) ||
+            host.equals(ViaBtcPool.TLS_HOST, ignoreCase = true)
+        val poolUser = if (viaBtc) etPoolUser.text.toString().trim() else addr
+        if (viaBtc) {
+            if (!ViaBtcPool.isValidWorker(poolUser)) {
+                Toast.makeText(this, "ViaBTC-യ്ക്ക് AccountID.WorkerName നൽകുക.", Toast.LENGTH_LONG).show()
+                return
+            }
+        } else if (!Util.isValidBitcoinAddress(addr)) {
             Toast.makeText(this, "ശരിയായ Bitcoin mainnet വിലാസം നൽകുക; worker വേണമെങ്കിൽ address.worker നൽകാം.", Toast.LENGTH_LONG).show()
             return
         }
-        val cores = Runtime.getRuntime().availableProcessors()
-        val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
         if (host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
             Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
             return
@@ -528,6 +539,10 @@ class MainActivity : AppCompatActivity() {
         val port = etPort.text.toString().trim().toIntOrNull()
         if (port == null || port !in 1..65535) {
             Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!ViaBtcPool.isValidEndpoint(host, port)) {
+            Toast.makeText(this, "ViaBTC SSL hostname ഉപയോഗിക്കുമ്പോൾ port 551 വേണം. TCP hostname btc.viabtc.io:3333 ആണ്.", Toast.LENGTH_LONG).show()
             return
         }
         val threads = etThreads.text.toString().trim().toIntOrNull()
@@ -548,12 +563,14 @@ class MainActivity : AppCompatActivity() {
         val onlyCharging = cbCharging.isChecked
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
             .putString("address", addr).putString("host", host).putInt("port", port)
+            .putString("poolUser", if (viaBtc) poolUser else "")
             .putInt("threads", threads).putFloat("maxTemp", maxTemp.toFloat())
             .putInt("maxBatt", maxBatt).putBoolean("onlyCharging", onlyCharging).apply()
 
         val i = Intent(this, MinerService::class.java)
             .setAction(MinerService.ACTION_START)
             .putExtra(MinerService.EXTRA_ADDRESS, addr)
+            .putExtra(MinerService.EXTRA_POOL_USER, if (viaBtc) poolUser else "")
             .putExtra(MinerService.EXTRA_HOST, host)
             .putExtra(MinerService.EXTRA_PORT, port)
             .putExtra(MinerService.EXTRA_THREADS, threads)
