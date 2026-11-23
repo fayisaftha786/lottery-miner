@@ -25,4 +25,11 @@ class CkpoolHostsTest {
         assertFalse(CkpoolHosts.isOfficialSoloEndpoint("stratum.example.org"))
         assertFalse(CkpoolHosts.isOfficialSoloEndpoint("ckpool.org"))
     }
+
+    @Test fun allowsOnlyStandardSoloPortForMiningAndEstimator() {
+        assertTrue(CkpoolHosts.isSupportedSoloEndpoint("stratum.ckpool.org", 3333))
+        assertFalse(CkpoolHosts.isSupportedSoloEndpoint("stratum.ckpool.org", 4334))
+        assertFalse(CkpoolHosts.isSupportedSoloEndpoint("fake.ckpool.org", 3333))
+    }
+
 }
