@@ -25,8 +25,8 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        const val DEFAULT_POOL_HOST = "stratum.ckpool.org"
-        const val DEFAULT_POOL_PORT = 3333
+        const val DEFAULT_POOL_HOST = MinerDefaults.POOL_HOST
+        const val DEFAULT_POOL_PORT = MinerDefaults.POOL_PORT
         private const val LEGACY_DEFAULT_POOL_HOST = "solo.ckpool.org"
         private const val EXTERNAL_REFRESH_MS = 30_000L
     }
