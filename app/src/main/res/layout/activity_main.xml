@@ -115,14 +115,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Run safe SHA-256d benchmark" />
+            android:text="Benchmark live Stratum pool work" />
 
         <Button
             android:id="@+id/btnDualBenchmark"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Compare LOTTO-DUAL experimental scanner" />
+            android:text="Compare LOTTO-DUAL on live pool job" />
 
         <TextView
             android:id="@+id/tvBenchmark"
