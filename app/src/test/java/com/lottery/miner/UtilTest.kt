@@ -1,12 +1,32 @@
 package com.lottery.miner
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertTrue
+import java.math.BigDecimal
+import java.math.RoundingMode
 import org.junit.Test
 
 class UtilTest {
     @Test fun difficultyOneProducesPositiveTarget() {
         val target = Util.difficultyToTarget(1.0)
         assertTrue(target.any { it.toInt() != 0 })
+    }
+
+    @Test fun nonIntegerDifficultyUsesItsCanonicalDecimalValueForTargetRounding() {
+        val difficulty = 1.1
+        val expectedInteger = BigDecimal(Util.DIFF1)
+            .divide(BigDecimal("1.1"), 0, RoundingMode.FLOOR)
+            .toBigInteger()
+        assertArrayEquals(Util.toBytes32(expectedInteger), Util.difficultyToTarget(difficulty))
+    }
+
+    @Test fun poolDifficultyTargetDoesNotRoundUpAtFractionalDifficulty() {
+        val difficulty = 1.3
+        val expectedInteger = BigDecimal(Util.DIFF1)
+            .divide(BigDecimal("1.3"), 0, RoundingMode.FLOOR)
+            .toBigInteger()
+        val actual = Util.difficultyToTarget(difficulty)
+        assertArrayEquals(Util.toBytes32(expectedInteger), actual)
     }
 
     @Test(expected = IllegalArgumentException::class)
