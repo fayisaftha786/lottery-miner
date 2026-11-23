@@ -96,6 +96,8 @@ class MainActivity : AppCompatActivity() {
 
         val cores = Runtime.getRuntime().availableProcessors()
         val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        // Remove the pre-live-benchmark cached rate; it must never be reused as current mining telemetry.
+        p.edit().remove("lastBenchmarkHps").apply()
         etAddress.setText(p.getString("address", ""))
         val savedHost = p.getString("host", null)
         val configuredHost = if (savedHost.isNullOrBlank() ||
