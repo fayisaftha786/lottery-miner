@@ -236,6 +236,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 synchronized(workLock) {
                     current = null
                     jobGeneration.incrementAndGet()
+                    // A new Stratum session must not inherit the previous pool's
+                    // share target or report its difficulty while awaiting new work.
+                    difficultyTargets.reset()
+                    shareTarget = difficultyTargets.activeTarget()
+                    MinerState.poolDiff = 0.0
+                    MinerState.netDiff = 0.0
                     MinerState.connected = false
                     MinerState.activeThreads = 0
                     if (MinerState.lastDisconnectReason.isBlank()) MinerState.lastDisconnectReason = "Pool socket closed"
