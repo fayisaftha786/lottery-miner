@@ -1,9 +1,11 @@
 # Lottery Miner — Source and Verification Status
 
 **Audit date:** 2026-11-23  
-**Audited base branch:** `main`  
-**Base commit reviewed:** `68053f65929e28003e53214858bdb9fcd77e3cf5`  
-**Verification update branch:** `fix/final-verification-2026-11-23`
+**Current main commit:** `7550f481a07ee0aa4dacfe0a734dfa6d6978f1e0`  
+**Merged application/configuration PR:** [#24](https://github.com/fayisaftha786/lottery-miner/pull/24)  
+**Merged CI maintenance PR:** [#25](https://github.com/fayisaftha786/lottery-miner/pull/25)  
+**Latest full verification run:** [#554 / 45181093146](https://github.com/fayisaftha786/lottery-miner/actions/runs/45181093146)
+
 
 ## Current implementation
 
@@ -29,7 +31,7 @@ RandomX, VerusHash, Scrypt, GhostRider, and other non-SHA-256d algorithms are no
 
 ## Build and CI verification
 
-The current build configuration reviewed on `main` uses:
+The current build configuration uses:
 - JDK 17
 - Android Gradle Plugin 8.10.1
 - Gradle wrapper 8.11.1
@@ -38,24 +40,28 @@ The current build configuration reviewed on `main` uses:
 - CMake 3.22.1
 - Kotlin 2.2.21
 
-The GitHub Actions workflow is configured to run host-native CMake/CTest, JVM unit tests, Android lint, Android native library builds, release APK assembly, 16 KB ELF/APK alignment checks, APK signing-state verification, and debug APK assembly.
+The workflow uses Node 24-compatible GitHub Actions:
+- `actions/checkout@v7.0.1`
+- `actions/setup-java@v6.3.0`
+- `gradle/actions/setup-gradle@v6.4.1`
+- `actions/upload-artifact@v7.0.2`
+- `actions/download-artifact@v8.0.2`
 
-**CI verification: PASS** for the application and configuration changes at commit `21c025d54b84e64e98cd7ad5ae5aa6d6cbd9fb39`, GitHub Actions run [#546 / 45173841370](https://github.com/fayisaftha786/lottery-miner/actions/runs/45173841370).
+**Latest full CI verification: PASS** for workflow commit `f6bcb326f6e9436a824e894677492049e08a9ddb`, merged into main as `7550f481a07ee0aa4dacfe0a734dfa6d6978f1e0`. Run [#554 / 45181093146](https://github.com/fayisaftha786/lottery-miner/actions/runs/45181093146) completed successfully.
 
 Completed successfully:
 - Host-native CMake build and CTest.
-- JVM unit tests and `lintDebug`.
+- JVM unit tests and Android lint.
 - Release native library build and Release APK assembly.
 - 16 KB ELF segment and APK alignment checks.
-- APK checksum recording.
+- Release APK checksum recording.
+- Release artifact upload and download smoke test.
 - Debug APK assembly, debug APK signature verification, and presence of `arm64-v8a` and `x86_64` native libraries.
-- Artifact upload for release build, debug test APK, and JVM test reports.
+- Artifact upload for the Debug APK and JVM test reports.
 
-The protected release signing step was skipped because release-keystore secrets were not available to this workflow. The Release artifact is therefore `app-release-unsigned.apk`, not production-signed. The Debug test APK is signed with the Android debug key and is intended only for controlled device testing.
+The previous Node.js 20 deprecation warning is absent from run #554. Gradle 8.11.1 emits a non-failing advisory that a newer Gradle version exists. The wrapper remains unchanged because an AGP/Gradle toolchain upgrade requires a separate compatibility-tested change.
 
-This report update is documentation-only and is being added after run #546; that later documentation commit is not itself part of the tested application-code SHA above.
-
-A release artifact without the protected release keystore is unsigned and is not a production distribution. Debug-signed test APKs are for controlled device testing only.
+The protected release signing step was skipped because the four release-keystore Actions secrets are not configured. Therefore the Release artifact is unsigned and is not production-ready. The Debug test APK is signed with the Android debug key and is for controlled device testing only.
 
 ## Live verification still required
 
