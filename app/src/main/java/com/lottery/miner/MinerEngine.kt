@@ -7,6 +7,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
+import android.os.SystemClock
 import java.math.BigInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -42,6 +43,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val workLock = Any()
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
+    private val adaptiveWorkerController = AdaptiveWorkerController()
     private val threads = ArrayList<Thread>()
 
     @Synchronized fun start() {
@@ -424,6 +426,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                     if (target > 0) reason = "Android thermal status moderate; worker reduced"
                 }
             }
+            // Safety policy determines the hard ceiling. Adaptive control only
+            // ramps upward one worker at a time; thermal/battery reductions stay immediate.
+            val safetyWorkerLimit = target
+            target = adaptiveWorkerController.selectWorkerCount(
+                safetyWorkerLimit = safetyWorkerLimit,
+                currentWorkerCount = activeThreads,
+                nowMillis = SystemClock.elapsedRealtime()
+            )
+            if (target > 0 && target < safetyWorkerLimit && reason.isBlank()) {
+                reason = "Adaptive worker ramp: $target/$safetyWorkerLimit"
+            }
+
             activeThreads = target
             MinerState.activeThreads = if (target > 0 && current != null && MinerState.connected) target else 0
             MinerState.pauseReason = reason
