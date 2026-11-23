@@ -33,7 +33,7 @@ jobs:
           "$SDKM" "platforms;android-36" "build-tools;36.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Configure protected release signing
-        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         run: |
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "app/$ANDROID_KEYSTORE_PATH"
           chmod 600 "app/$ANDROID_KEYSTORE_PATH"
