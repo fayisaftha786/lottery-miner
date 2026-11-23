@@ -171,21 +171,31 @@ object Util {
  */
 class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
     @Volatile private var active: ByteArray = Util.difficultyToTarget(initialDifficulty)
+    @Volatile private var activeDiff: Double = initialDifficulty
     @Volatile private var pending: ByteArray? = null
+    @Volatile private var pendingDiff: Double? = null
 
     @Synchronized fun stage(difficulty: Double) {
         // Validate and compute before mutating pending state.
         val target = Util.difficultyToTarget(difficulty)
         pending = target
+        pendingDiff = difficulty
     }
 
     @Synchronized fun activateForNextJob(): ByteArray {
-        pending?.let {
-            active = it
+        val nextTarget = pending
+        if (nextTarget != null) {
+            active = nextTarget
+            activeDiff = pendingDiff ?: activeDiff
             pending = null
+            pendingDiff = null
         }
         return active.copyOf()
     }
 
     @Synchronized fun activeTarget(): ByteArray = active.copyOf()
+
+    @Synchronized fun activeDifficulty(): Double = activeDiff
+
+    @Synchronized fun pendingDifficulty(): Double? = pendingDiff
 }
