@@ -169,7 +169,11 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
                 v = v * 4294967296.0 + (double)best_words[word];
             }
             double diff = v > 0.0 ? DIFF1 / v : 1e300;
-            if (diff > bd) { bd = diff; bn = n; }
+            // best_order is a full 256-bit comparison. Always advance the nonce
+            // when it improves, even if two adjacent difficulty values round to
+            // the same IEEE-754 double.
+            bd = diff;
+            bn = n;
         }
     }
     *best_diff = bd;
@@ -208,10 +212,10 @@ static void record_dual_digest(const uint32_t digest[8], uint32_t nonce,
         for (int i = 0; i < 8; i++) value = value * 4294967296.0 + (double)words[i];
         const double diff1 = 65535.0 * 0x1p208;
         const double diff = value > 0.0 ? diff1 / value : 1e300;
-        if (diff > *best_diff) {
-            *best_diff = diff;
-            *best_nonce = nonce;
-        }
+        // The full 256-bit comparison above decides the winner. Do not let
+        // double rounding preserve a nonce from a slightly worse hash.
+        *best_diff = diff;
+        *best_nonce = nonce;
     }
 }
 
