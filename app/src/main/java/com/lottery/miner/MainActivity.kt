@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etAddress: EditText
     private lateinit var rgMiningMode: RadioGroup
     private lateinit var tvModeHelp: TextView
+    private var activeMiningMode: MiningMode = MiningMode.POOL
     private lateinit var etHost: EditText
     private lateinit var etPort: EditText
     private lateinit var etThreads: EditText
@@ -120,10 +121,17 @@ class MainActivity : AppCompatActivity() {
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
         etRentalPriceSats.setText(p.getString("rentalPriceSatsPerThDay", ""))
         val savedMode = MiningMode.fromId(p.getString("miningMode", MiningMode.POOL.id))
+        activeMiningMode = savedMode
         rgMiningMode.check(if (savedMode == MiningMode.DATUM_SOLO) R.id.rbDatumSolo else R.id.rbPoolMode)
-        applyMiningModeUi(savedMode, false)
+        applyMiningModeUi(savedMode, savedMode == MiningMode.DATUM_SOLO)
         rgMiningMode.setOnCheckedChangeListener { _, checkedId ->
+            if (MinerState.running) {
+                Toast.makeText(this, "Mining നടക്കുമ്പോൾ mode മാറ്റാനാവില്ല. ആദ്യം Stop ചെയ്യുക.", Toast.LENGTH_LONG).show()
+                rgMiningMode.check(if (activeMiningMode == MiningMode.DATUM_SOLO) R.id.rbDatumSolo else R.id.rbPoolMode)
+                return@setOnCheckedChangeListener
+            }
             val selected = if (checkedId == R.id.rbDatumSolo) MiningMode.DATUM_SOLO else MiningMode.POOL
+            activeMiningMode = selected
             applyMiningModeUi(selected, true)
             getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
                 .putString("miningMode", selected.id).apply()
@@ -179,7 +187,8 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun selectedMiningMode(): MiningMode =
-        if (rgMiningMode.checkedRadioButtonId == R.id.rbDatumSolo) MiningMode.DATUM_SOLO else MiningMode.POOL
+        if (MinerState.running) activeMiningMode
+        else if (rgMiningMode.checkedRadioButtonId == R.id.rbDatumSolo) MiningMode.DATUM_SOLO else MiningMode.POOL
 
     private fun applyMiningModeUi(mode: MiningMode, updateEndpoint: Boolean) {
         if (mode == MiningMode.DATUM_SOLO) {
@@ -539,6 +548,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderExternalStats() {
+        if (selectedMiningMode() == MiningMode.DATUM_SOLO) {
+            tvExternalStats.text = "DATUM DIRECT SOLO MODE\\nPool worker statistics do not apply. Gateway share acceptance is not a Bitcoin payout."
+            return
+        }
         val currentAddress = etAddress.text.toString().trim().substringBefore('.')
         val snapshot = externalSnapshot.takeIf { externalSnapshotAddress == currentAddress }
         val host = etHost.text.toString().trim().lowercase(Locale.US)
@@ -664,6 +677,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val onlyCharging = cbCharging.isChecked
+        activeMiningMode = mode
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
             .putString("address", addr).putString("host", host).putInt("port", port)
             .putString("miningMode", mode.id)
