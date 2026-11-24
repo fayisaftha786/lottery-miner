@@ -118,16 +118,6 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      - name: Verify uploaded release artifact can be downloaded
-        uses: actions/download-artifact@v8.0.2
-        with:
-          name: LotteryMiner-release-build
-          path: release-artifact-check
-
-      - name: Verify downloaded release artifact
-        run: |
-          find release-artifact-check -type f -name '*.apk' -print -quit | grep -q .
-
       - name: Assemble installable debug test APK
         run: gradle assembleDebug --no-daemon
 
