@@ -50,7 +50,7 @@ class SatsYieldAdvisorTest {
             input().copy(
                 networkHashrateHps = 1_000_000_000_000.0,
                 deviceHashrateHps = 1_000.0,
-                rentalQuoteSatsPerThDay = 1_000_000.0
+                rentalQuoteSatsPerThDay = 2_000_000_000.0
             )
         )
         assertNotNull(result.rentalDeltaSatsPerThDay)
