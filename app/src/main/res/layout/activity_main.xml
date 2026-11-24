@@ -166,6 +166,20 @@
             android:inputType="numberDecimal"
             android:singleLine="true" />
 
+        <EditText
+            android:id="@+id/etRentalPriceSats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Hash rental quote (sats / TH / day) — optional, live quote only"
+            android:inputType="numberDecimal"
+            android:singleLine="true" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Rental quote കൈകൊണ്ട് നൽകണം. ഈ app rental power വാങ്ങുകയോ provision ചെയ്യുകയോ ചെയ്യുന്നില്ല; expected-value ceiling മാത്രം പരിശോധിക്കുന്നു."
+            android:textSize="12sp" />
+
         <Button
             android:id="@+id/btnRefreshProfitability"
             android:layout_width="match_parent"
