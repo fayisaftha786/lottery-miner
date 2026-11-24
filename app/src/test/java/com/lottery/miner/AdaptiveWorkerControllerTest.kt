@@ -4,6 +4,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AdaptiveWorkerControllerTest {
+    @Test fun defaultRampReachesEightWorkersInAboutFourteenSeconds() {
+        val controller = AdaptiveWorkerController()
+        assertEquals(2_000L, AdaptiveWorkerController.DEFAULT_RAMP_INTERVAL_MILLIS)
+        assertEquals(1, controller.selectWorkerCount(8, 0, 1_000L))
+        for (expectedWorkers in 2..8) {
+            val rampAt = 1_000L + (expectedWorkers - 1) * 2_000L
+            assertEquals(expectedWorkers, controller.selectWorkerCount(8, expectedWorkers - 1, rampAt))
+        }
+    }
+
     @Test fun startsWithOneWorkerAndRampsOneAtATime() {
         val controller = AdaptiveWorkerController(rampIntervalMillis = 10_000L)
         assertEquals(1, controller.selectWorkerCount(8, 0, 1_000L))
