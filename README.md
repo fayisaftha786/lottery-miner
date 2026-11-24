@@ -97,3 +97,18 @@ Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain d
 Profitability estimates currently support Bitcoin solo expected value only. The estimator rejects the proportional-pool mode unless pool-specific hashrate and payout data are available; network-wide Bitcoin data must not be misrepresented as a pool payout estimate. Android battery temperature and percentage are not treated as measured wall power. A real net-profit decision requires an external meter's incremental mining watts, the user's actual electricity tariff, a fresh market/network snapshot, and the applicable pool fee.
 
 Automatic multi-algorithm selection and automatic profitability-based switching remain disabled until at least two independent native engines and their matching pool/economic adapters have passed device-level verification.
+
+
+## SATS Yield Intelligence (ASYC v1)
+
+The current SHA-256d estimator now adds a fresh-snapshot yield analysis:
+- Expected subsidy-only sats/day after the configured pool fee.
+- Solo block probability over 1, 7 and 30 days using the Poisson approximation `1 - exp(-lambda × days)`, where `lambda = device_hashrate / network_hashrate × 144 blocks/day`.
+- Mean time between blocks as a long-run expectation, not a promised wait time.
+- Electricity kWh/day, estimated cost in INR and sats, net expected sats/day, and the break-even electricity tariff.
+- Hashes per watt and joules per terahash derived from the measured hashrate and the user's separately measured wall power.
+- A subsidy-only maximum rental quote in sats/TH/day. A user may enter an observed marketplace quote; the app compares it with the theoretical ceiling but does not fetch a fabricated market price, buy hashrate, or provision a rented worker.
+
+All network-derived output is disabled when the market snapshot is older than 15 minutes. The model uses the current block subsidy and excludes transaction fees; therefore the rental ceiling is intentionally conservative but is not a guaranteed return or a purchase recommendation. A quote below the ceiling is not sufficient proof of profitability because solo payout variance, service fees, delivered hashrate, stale work, downtime, and pool rules still matter.
+
+ASYC v1 does not automatically purchase/rent hashrate, switch pools, make Lightning payments, sign transactions, or operate a Bitcoin node. OCEAN/DATUM own-template mining requires a separately operated, synced Bitcoin Core node and compatible mining hardware; the Android phone app alone cannot provide those dependencies. Lightning micro-earning is separate from SHA-256d mining and is not counted as mining revenue. No cloud hashrate, Lightning income, rental availability, or rare-sat rewards are displayed as active unless a real, independently verifiable provider integration is implemented.
