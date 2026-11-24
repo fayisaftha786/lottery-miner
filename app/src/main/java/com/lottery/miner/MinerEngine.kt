@@ -106,6 +106,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.running = false
         MinerState.connected = false
         MinerState.hashrate = 0.0
+        // Do not leave the last rolling measurement on screen after stop.
+        // The next session starts a fresh monotonic-time window in policyLoop.
+        MinerState.localHashrate5m = 0.0
+        MinerState.localHashrateWindowSeconds = 0.0
         MinerState.activeThreads = 0
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
