@@ -456,7 +456,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val safetyWorkerLimit = if (hasReadyWork) target else 0
 
             // Thermal/battery reductions apply immediately. Worker increases are
-            // limited to one every 45 seconds while an authorized job is active.
+            // limited to one every 2 seconds while an authorized job is active.
             target = adaptiveWorkerController.selectWorkerCount(
                 safetyWorkerLimit = safetyWorkerLimit,
                 currentWorkerCount = activeThreads,
