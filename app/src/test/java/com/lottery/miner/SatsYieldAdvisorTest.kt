@@ -21,11 +21,11 @@ class SatsYieldAdvisorTest {
         assertTrue(result.isFresh)
         assertEquals(10_000_000.0, result.expectedGrossSatsPerDay, 1e-6)
         assertEquals(9_000_000.0, result.expectedAfterPoolFeeSatsPerDay, 1e-6)
-        assertEquals(24.0, result.energyKwhPerDay, 1e-9)
-        assertEquals(240.0, result.electricityCostInrPerDay, 1e-9)
-        assertEquals(24_000_000.0, result.electricityCostSatsPerDay, 1e-6)
-        assertEquals(-15_000_000.0, result.expectedNetSatsPerDay, 1e-6)
-        assertEquals(-150.0, result.expectedNetInrPerDay, 1e-9)
+        assertEquals(2.4, result.energyKwhPerDay, 1e-9)
+        assertEquals(24.0, result.electricityCostInrPerDay, 1e-9)
+        assertEquals(2_400_000.0, result.electricityCostSatsPerDay, 1e-6)
+        assertEquals(6_600_000.0, result.expectedNetSatsPerDay, 1e-6)
+        assertEquals(66.0, result.expectedNetInrPerDay, 1e-9)
         assertEquals(1.0, result.expectedBlocksPerDay, 1e-9)
         assertEquals(1.0, result.expectedDaysPerBlock, 1e-9)
         assertEquals(1.0 - kotlin.math.exp(-1.0), result.blockProbability1Day, 1e-12)
@@ -42,7 +42,7 @@ class SatsYieldAdvisorTest {
         assertTrue(result.expectedNetSatsPerDay.isNaN())
         assertTrue(result.blockProbability30Days.isNaN())
         assertNull(result.rentalDeltaSatsPerThDay)
-        assertEquals(24.0, result.energyKwhPerDay, 1e-9)
+        assertEquals(2.4, result.energyKwhPerDay, 1e-9)
     }
 
     @Test fun comparesUserSuppliedRentalQuoteToSubsidyOnlyCeiling() {
