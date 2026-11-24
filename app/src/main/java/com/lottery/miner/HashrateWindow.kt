@@ -36,11 +36,9 @@ internal class HashrateWindow(
             samples.clear()
         }
 
-        val last = samples.peekLast()
-        if (last != null && atNanos == last.atNanos) {
-            // Keep one authoritative sample per timestamp.
-            samples.removeLast()
-        }
+        // Keep same-timestamp samples rather than replacing the baseline. If hashes
+        // advanced between two policy ticks with equal clock readings, the next
+        // distinct timestamp must still include every counted hash.
         samples.addLast(Sample(atNanos, cumulativeHashes))
 
         val cutoff = atNanos - windowNanos
