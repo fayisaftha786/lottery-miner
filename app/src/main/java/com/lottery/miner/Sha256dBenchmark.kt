@@ -14,8 +14,12 @@ object Sha256dBenchmark {
     fun run(durationMillis: Long = 5_000L): Result {
         require(durationMillis in 1_000L..5_000L) { "Benchmark duration must be 1–5 seconds" }
         check(running.compareAndSet(false, true)) { "A benchmark is already running" }
+        val threadId = Process.myTid()
+        val originalPriority = Process.getThreadPriority(threadId)
         try {
             // Keep the benchmark below foreground mining workers in scheduler priority.
+            // Restore the caller's priority in finally so this worker thread does not
+            // retain a changed scheduler priority if the executor later reuses it.
             Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
             val hw = Native.initCore()
             check(hw >= 0) { "Native SHA-256 self-test failed" }
@@ -52,7 +56,13 @@ object Sha256dBenchmark {
                 hardwareSha = hw == 1
             )
         } finally {
-            running.set(false)
+            try {
+                Process.setThreadPriority(originalPriority)
+            } catch (_: SecurityException) {
+                // The benchmark result remains valid; Android may deny restoration.
+            } finally {
+                running.set(false)
+            }
         }
     }
 }
