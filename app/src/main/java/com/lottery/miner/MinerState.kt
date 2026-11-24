@@ -10,7 +10,13 @@ object MinerState {
     @Volatile var running = false
     @Volatile var connected = false
     @Volatile var status = "നിർത്തി"
+    /** EMA of real native scan throughput, updated by the policy loop every ~2 seconds. */
     @Volatile var hashrate = 0.0
+    /** Rolling average derived from cumulative native hashes over at most five minutes. */
+    @Volatile var localHashrate5m = 0.0
+    @Volatile var localHashrateWindowSeconds = 0.0
+    /** Wall-clock start of this app mining session; session counters reset on each start. */
+    @Volatile var sessionStartedAtMillis = 0L
     @Volatile var totalHashes = 0L
     val accepted = AtomicInteger(0)
     val rejected = AtomicInteger(0)
@@ -62,6 +68,9 @@ object MinerState {
     fun reset() {
         connected = false
         hashrate = 0.0
+        localHashrate5m = 0.0
+        localHashrateWindowSeconds = 0.0
+        sessionStartedAtMillis = System.currentTimeMillis()
         battery = 0
         plugged = false
         activeThreads = 0
