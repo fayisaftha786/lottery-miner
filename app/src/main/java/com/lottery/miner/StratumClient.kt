@@ -80,7 +80,14 @@ class StratumClient(
             val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
             send(1, "mining.subscribe", JSONArray().put("LotteryMiner/1.0"))
             while (true) {
-                val line = readBoundedLine(reader, MAX_LINE_CHARS) ?: break
+                val line = try {
+                    readBoundedLine(reader, MAX_LINE_CHARS)
+                } catch (e: java.net.SocketException) {
+                    // Closing the socket is the normal way to stop this blocking read.
+                    // Suppress only the expected close exception; unexpected socket errors
+                    // still reach the reconnect loop.
+                    if (closed) break else throw e
+                } ?: break
                 if (line.isBlank()) continue
                 try {
                     handle(JSONObject(line))
