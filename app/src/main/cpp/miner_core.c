@@ -313,6 +313,10 @@ static int selftest(compress_fn_t fn) {
     }
     if (!scan_differential_selftest(fn)) return 0;
 
+    /* The known-answer and differential tests changed hdr; restore the genesis
+       header before the legacy genesis-range scan below. */
+    hex2bin(GENESIS_HEX, hdr, 80);
+
     uint8_t tgt[32];
     memset(tgt, 0, 32);
     tgt[4] = 0xff;
