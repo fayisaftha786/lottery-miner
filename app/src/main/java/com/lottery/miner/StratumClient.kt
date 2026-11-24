@@ -159,9 +159,6 @@ class StratumClient(
         out.flush()
     }
 
-    // Serialize response handling with submit(): the pool can reply immediately after flush.
-    // Holding the same monitor guarantees onShareSubmitted is recorded before onShareResult.
-    @Synchronized
     private fun handle(message: JSONObject) {
         val method = message.optString("method", "")
         if (method.isNotEmpty()) {
@@ -250,16 +247,26 @@ class StratumClient(
                 // The pool's mining.set_difficulty notification is the source of truth.
                 send(3, "mining.suggest_difficulty", JSONArray().put(1))
             }
-            else -> if (id >= 100 && pendingSubmits.remove(id)) {
-                val classification = classifyShareResponse(message)
-                when (classification.accepted) {
-                    true -> listener.onShareResult(true, null)
-                    false -> listener.onShareResult(false, classification.reason)
-                    null -> {
-                        listener.onShareUnknown(1)
-                        listener.onStatus("Pool returned malformed share response; outcome unknown")
-                    }
-                }
+            else -> if (id >= 100) handleShareResponse(id, message)
+        }
+    }
+
+    // Only share-response processing shares submit()'s monitor. Do not synchronize
+    // the full message handler: job notifications acquire the engine work lock,
+    // while worker submission can hold that lock before entering submit().
+    @Synchronized
+    private fun handleShareResponse(id: Int, message: JSONObject) {
+        if (!pendingSubmits.remove(id)) {
+            listener.onStatus("Ignored unmatched or duplicate pool response id=$id")
+            return
+        }
+        val classification = classifyShareResponse(message)
+        when (classification.accepted) {
+            true -> listener.onShareResult(true, null)
+            false -> listener.onShareResult(false, classification.reason)
+            null -> {
+                listener.onShareUnknown(1)
+                listener.onStatus("Pool returned malformed share response; outcome unknown")
             }
         }
     }
