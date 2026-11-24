@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -123,6 +124,9 @@ jobs:
         with:
           name: LotteryMiner-release-build
           path: release-artifact-check
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
 
       - name: Verify downloaded release artifact
         run: |
@@ -150,12 +154,16 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/download-artifact@v7.0.0
         with:
           name: LotteryMiner-release-build
           path: release-artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
 
       - name: Publish signed APK
         env:
