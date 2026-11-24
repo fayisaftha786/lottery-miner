@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 data class MinerConfig(
     val address: String,
+    val mode: MiningMode = MiningMode.POOL,
     val host: String,
     val port: Int,
     val threads: Int,
@@ -23,6 +24,8 @@ data class MinerConfig(
 )
 
 class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : StratumClient.Listener {
+
+    private val endpointLabel: String get() = if (cfg.mode == MiningMode.DATUM_SOLO) "DATUM Gateway" else "Pool"
 
     companion object {
         private const val SPACE = 0x100000000L
@@ -181,7 +184,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     override fun onShareSubmitted() {
         MinerState.submittedShares.incrementAndGet()
         MinerState.lastShareSubmittedAt = System.currentTimeMillis()
-        MinerState.log("Share pool-ലേക്ക് അയച്ചു; response കാത്തിരിക്കുന്നു")
+        MinerState.log("Share $endpointLabel-ലേക്ക് അയച്ചു; response കാത്തിരിക്കുന്നു")
     }
 
     override fun onShareUnknown(count: Int) {
@@ -201,7 +204,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.lastShareResponseAt = System.currentTimeMillis()
         if (accepted) {
             MinerState.accepted.incrementAndGet()
-            MinerState.log("share സ്വീകരിച്ചു ✓")
+            MinerState.log(if (cfg.mode == MiningMode.DATUM_SOLO) "DATUM Gateway share സ്വീകരിച്ചു ✓ (payout അല്ല)" else "Pool share സ്വീകരിച്ചു ✓")
         } else {
             MinerState.rejected.incrementAndGet()
             MinerState.log("share നിരസിച്ചു ✗ ${reason ?: ""}")
@@ -374,7 +377,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             if (!running || current !== j || jobGeneration.get() != generation) return
             if (isBlock) {
                 MinerState.blockCandidateDetected = true
-                MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
+                MinerState.log(if (cfg.mode == MiningMode.DATUM_SOLO) "Bitcoin block candidate DATUM Gateway-ലേക്ക് അയച്ചു; network confirmation ഇല്ല" else "Bitcoin block candidate pool-ലേക്ക് അയച്ചു; network confirmation ഇല്ല")
             }
             client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
         }
