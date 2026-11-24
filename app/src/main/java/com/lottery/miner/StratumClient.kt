@@ -159,6 +159,9 @@ class StratumClient(
         out.flush()
     }
 
+    // Serialize response handling with submit(): the pool can reply immediately after flush.
+    // Holding the same monitor guarantees onShareSubmitted is recorded before onShareResult.
+    @Synchronized
     private fun handle(message: JSONObject) {
         val method = message.optString("method", "")
         if (method.isNotEmpty()) {
