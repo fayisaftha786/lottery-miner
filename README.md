@@ -90,7 +90,7 @@ Only SHA-256d has a native miner implementation in this application. VerusHash, 
 
 ## Adaptive mining controller (v1)
 
-The existing Bitcoin SHA-256d native engine is preserved. The adaptive controller now ramps worker concurrency conservatively: it starts with one worker, adds at most one worker every 45 seconds, and applies battery/temperature/Android thermal safety reductions immediately. If telemetry is unavailable, the existing fail-safe policy remains authoritative. This is a sustained-load controller, not a claim of higher hashes per watt.
+The existing Bitcoin SHA-256d native engine is preserved. Once a real Stratum job is authorized, the controller starts one worker and can add at most one worker every 2 seconds (an 8-worker target takes about 14 seconds from the first eligible worker), while still respecting the configured thread count and live safety limits. Battery/thermal safety reductions and pauses apply immediately; missing telemetry keeps the existing fail-safe limits. This short ramp improves startup responsiveness but does not increase the phone's underlying SHA-256d capability or guarantee higher hashes per watt.
 
 Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain disabled research entries until their native implementations, pool protocols, independent known-answer tests, licensing review, and device benchmarks are complete. The app must never switch to an algorithm that is only listed in the registry.
 
