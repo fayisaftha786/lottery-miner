@@ -29,6 +29,7 @@ class StratumClientTest {
         val authorizedLatch = CountDownLatch(1)
         val statuses = CopyOnWriteArrayList<String>()
         val shareEvents = CopyOnWriteArrayList<String>()
+        @Volatile var onShareSubmittedHook: (() -> Unit)? = null
 
         override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
             subscribed = extranonce2Size == 4
@@ -38,7 +39,7 @@ class StratumClientTest {
         override fun onAuthorized() { authorized = true; authorizedLatch.countDown() }
         override fun onDifficulty(diff: Double) { difficulty = diff }
         override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
-        override fun onShareSubmitted() { submitted++; shareEvents.add("submitted") }
+        override fun onShareSubmitted() { onShareSubmittedHook?.invoke(); submitted++; shareEvents.add("submitted") }
         override fun onShareResult(accepted: Boolean, reason: String?) {
             this.accepted = accepted
             shareEvents.add(if (accepted) "accepted" else "rejected")
@@ -51,20 +52,30 @@ class StratumClientTest {
     @Test fun exchangesSubscribeAuthorizeJobAndShareWithMockPool() {
         ServerSocket(0).use { server ->
             val serverFailure = AtomicReference<Throwable?>()
+            val responseSent = CountDownLatch(1)
+            val hookFailure = AtomicReference<Throwable?>()
             val worker = thread {
-                try { server.accept().use { serve(it) } }
+                try { server.accept().use { serve(it, responseSent) } }
                 catch (t: Throwable) { serverFailure.set(t) }
             }
             val listener = Listener()
+            listener.onShareSubmittedHook = {
+                if (!responseSent.await(3, TimeUnit.SECONDS)) {
+                    hookFailure.set(AssertionError("mock pool did not send the share response during submission callback"))
+                }
+            }
             val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
             val clientThread = thread { client.connectAndRun() }
 
             assertTrue("pool job was not received; server=${serverFailure.get()}; client=${listener.statuses}",
                 listener.jobReceived.await(3, TimeUnit.SECONDS))
-            client.submit("test-job", "00000000", "495fab29", "00000001")
+            val submitThread = thread { client.submit("test-job", "00000000", "495fab29", "00000001") }
+            submitThread.join(3000)
+            assertTrue("submit callback did not finish", !submitThread.isAlive)
             clientThread.join(3000)
             worker.join(3000)
 
+            assertEquals(null, hookFailure.get())
             assertTrue(listener.subscribed)
             assertTrue(listener.authorized)
             assertEquals(2.0, listener.difficulty, 0.0)
@@ -164,7 +175,7 @@ class StratumClientTest {
         socket.close() // Deliberately omit the submit response.
     }
 
-    private fun serve(socket: Socket) {
+    private fun serve(socket: Socket, responseSent: CountDownLatch? = null) {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
@@ -186,5 +197,6 @@ class StratumClientTest {
         assertEquals("mining.submit", submit.getString("method"))
         output.write(JSONObject().put("id", submit.getInt("id")).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
+        responseSent?.countDown()
     }
 }
