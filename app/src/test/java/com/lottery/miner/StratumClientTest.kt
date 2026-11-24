@@ -143,7 +143,11 @@ class StratumClientTest {
             }
             val listener = Listener()
             val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
-            val clientThread = thread { client.connectAndRun() }
+            val clientFailure = AtomicReference<Throwable?>()
+            val clientThread = thread {
+                try { client.connectAndRun() }
+                catch (failure: Throwable) { clientFailure.set(failure) }
+            }
             assertTrue("pool authorization timed out", listener.authorizedLatch.await(3, TimeUnit.SECONDS))
             assertTrue("pool did not receive post-authorization difficulty request",
                 difficultyRequestReceived.await(3, TimeUnit.SECONDS))
@@ -152,6 +156,7 @@ class StratumClientTest {
             client.close()
             clientThread.join(3000)
             worker.join(3000)
+            assertEquals(null, clientFailure.get())
             assertEquals(null, serverFailure.get())
             assertEquals(256, listener.unknownShares)
         }
