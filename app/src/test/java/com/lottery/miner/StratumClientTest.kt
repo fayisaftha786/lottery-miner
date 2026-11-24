@@ -28,6 +28,7 @@ class StratumClientTest {
         val jobReceived = CountDownLatch(1)
         val authorizedLatch = CountDownLatch(1)
         val statuses = CopyOnWriteArrayList<String>()
+        val shareEvents = CopyOnWriteArrayList<String>()
 
         override fun onSubscribed(extranonce1: ByteArray, extranonce2Size: Int) {
             subscribed = extranonce2Size == 4
@@ -37,8 +38,11 @@ class StratumClientTest {
         override fun onAuthorized() { authorized = true; authorizedLatch.countDown() }
         override fun onDifficulty(diff: Double) { difficulty = diff }
         override fun onJob(job: Job) { this.job = job; jobReceived.countDown() }
-        override fun onShareSubmitted() { submitted++ }
-        override fun onShareResult(accepted: Boolean, reason: String?) { this.accepted = accepted }
+        override fun onShareSubmitted() { submitted++; shareEvents.add("submitted") }
+        override fun onShareResult(accepted: Boolean, reason: String?) {
+            this.accepted = accepted
+            shareEvents.add(if (accepted) "accepted" else "rejected")
+        }
         override fun onShareUnknown(count: Int) { unknownShares += count }
         override fun onShareDropped(count: Int) { droppedShares += count }
         override fun onStatus(msg: String) { statuses.add(msg) }
@@ -67,6 +71,7 @@ class StratumClientTest {
             assertEquals("test-job", listener.job?.id)
             assertEquals(1, listener.submitted)
             assertEquals(true, listener.accepted)
+            assertEquals(listOf("submitted", "accepted"), listener.shareEvents.toList())
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
             assertEquals(0, listener.unknownShares)
