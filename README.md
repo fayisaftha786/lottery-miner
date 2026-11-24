@@ -88,6 +88,13 @@ For CKPool solo mining the displayed net value is only a long-run mathematical e
 
 Only SHA-256d has a native miner implementation in this application. VerusHash, RandomX, Scrypt, and other algorithm entries are research targets, not selectable or executable miners. Automatic multi-algorithm switching is disabled until a separately audited native engine, compatible pool protocol, license notices, per-device benchmarks, and network/economic data adapters are integrated and validated.
 
+
+## Installing CI test APKs safely
+
+GitHub Actions debug-test APKs are signed with the runner's debug key. A later workflow run can have a different signing certificate, so Android may refuse an in-place update over a debug APK from an earlier run. Before uninstalling an older test build, record the public Bitcoin payout address and the pool host, port, worker/thread count, charging option, and battery/temperature limits. Never record or enter a seed phrase or private key. Uninstall the older test APK only when those settings can be re-entered, then install the newly verified debug APK.
+
+The release APK remains unsigned until all four protected release-signing secrets are configured. A successful release APK assembly is not a production signing pass. Production updates must use the same privately controlled release keystore for every version; never commit the keystore or passwords.
+
 ## Adaptive mining controller (v1)
 
 The existing Bitcoin SHA-256d native engine is preserved. Once a real Stratum job is authorized, the controller starts one worker and can add at most one worker every 2 seconds (an 8-worker target takes about 14 seconds from the first eligible worker), while still respecting the configured thread count and live safety limits. Battery/thermal safety reductions and pauses apply immediately; missing telemetry keeps the existing fail-safe limits. This short ramp improves startup responsiveness but does not increase the phone's underlying SHA-256d capability or guarantee higher hashes per watt.
