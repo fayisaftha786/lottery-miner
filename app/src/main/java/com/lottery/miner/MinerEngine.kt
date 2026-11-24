@@ -26,7 +26,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
-        private const val CHUNK = 1L shl 15
     }
 
     @Volatile private var running = false
@@ -276,6 +275,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
         val best = DoubleArray(3)
+        // Each CPU worker tunes its own contiguous scan batch using measured native call duration.
+        val scanChunks = AdaptiveScanChunkController()
         var counter = idx.toLong()
         var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
@@ -305,8 +306,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
-                val count = minOf(CHUNK, SPACE - start).toInt()
+                val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
+                val scanStartedAt = System.nanoTime()
                 scanRange(j, generation, target, header, en2, start, count, found, best)
+                scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
                 start += count
             }
         }
@@ -377,6 +380,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun policyLoop() {
         var lastHashes = 0L
         var lastTime = System.nanoTime()
+        val rollingHashrate = HashrateWindow()
         var hot = false
         var full = false
         while (running) {
@@ -477,6 +481,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
+            val rolling = rollingHashrate.record(total, now)
+            MinerState.localHashrate5m = rolling.hashRateHps
+            MinerState.localHashrateWindowSeconds = rolling.windowSeconds
             lastHashes = total
             lastTime = now
         }
