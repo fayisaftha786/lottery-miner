@@ -58,7 +58,7 @@ internal object SatsYieldAdvisor {
         }
         require(input.blockSubsidySats.isFinite() && input.blockSubsidySats >= 0.0)
         require(input.btcPriceInr.isFinite() && input.btcPriceInr > 0.0)
-        require(input.powerWatts.isFinite() && input.powerWatts >= 0.0)
+        require(input.powerWatts.isFinite() && input.powerWatts > 0.0)
         require(input.electricityInrPerKwh.isFinite() && input.electricityInrPerKwh >= 0.0)
         require(input.poolFeePercent.isFinite() && input.poolFeePercent in 0.0..100.0)
         require(input.snapshotAgeSeconds >= 0L)
