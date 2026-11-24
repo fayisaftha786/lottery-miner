@@ -15,7 +15,7 @@ object Sha256dBenchmark {
         require(durationMillis in 1_000L..5_000L) { "Benchmark duration must be 1–5 seconds" }
         check(running.compareAndSet(false, true)) { "A benchmark is already running" }
         val threadId = Process.myTid()
-        val originalPriority = Process.getThreadPriority(threadId)
+        val originalPriority = try { Process.getThreadPriority(threadId) } catch (_: SecurityException) { null }
         try {
             // Keep the benchmark below foreground mining workers in scheduler priority.
             // Restore the caller's priority in finally so this worker thread does not
@@ -57,7 +57,7 @@ object Sha256dBenchmark {
             )
         } finally {
             try {
-                Process.setThreadPriority(originalPriority)
+                if (originalPriority != null) Process.setThreadPriority(originalPriority)
             } catch (_: SecurityException) {
                 // The benchmark result remains valid; Android may deny restoration.
             } finally {
