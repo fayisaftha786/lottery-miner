@@ -191,6 +191,79 @@ static const char *GENESIS_HEX =
     "ffff001d"
     "1dac2b7c";
 
+/*
+ * Compare SHA-256d scan_impl against the generic full-header hash path.
+ * This runs for both scalar and ARM SHA2 candidates during core initialization.
+ */
+static int compare_internal_hash(const uint8_t a[32], const uint8_t b[32]) {
+    for (int i = 31; i >= 0; i--) {
+        if (a[i] < b[i]) return -1;
+        if (a[i] > b[i]) return 1;
+    }
+    return 0;
+}
+
+static int compare_internal_to_target(const uint8_t digest[32], const uint8_t target_be[32]) {
+    for (int i = 0; i < 32; i++) {
+        const uint8_t value = digest[31 - i];
+        if (value < target_be[i]) return -1;
+        if (value > target_be[i]) return 1;
+    }
+    return 0;
+}
+
+static int scan_differential_selftest(compress_fn_t fn) {
+    uint8_t base[80], work[80], hashes[16][32], target[32];
+    uint32_t actual[16], expected[16];
+
+    for (uint32_t trial = 0; trial < 8; trial++) {
+        for (int i = 0; i < 80; i++)
+            base[i] = (uint8_t)(i * 37u + trial * 53u + (i >> 2));
+
+        /* Include a range that wraps from UINT32_MAX to zero. */
+        const uint32_t start = trial == 0
+            ? UINT32_MAX - 7u
+            : 0x10203040u + trial * 0x01010101u;
+
+        for (uint32_t i = 0; i < 16; i++) {
+            const uint32_t nonce = start + i;
+            memcpy(work, base, sizeof(work));
+            work[76] = (uint8_t)nonce;
+            work[77] = (uint8_t)(nonce >> 8);
+            work[78] = (uint8_t)(nonce >> 16);
+            work[79] = (uint8_t)(nonce >> 24);
+            hash_with(fn, work, hashes[i]);
+        }
+
+        const uint32_t target_index = (trial * 5u + 7u) % 16u;
+        for (int i = 0; i < 32; i++) target[i] = hashes[target_index][31 - i];
+
+        uint32_t expected_count = 0;
+        uint32_t expected_best_nonce = start;
+        uint32_t best_index = 0;
+        for (uint32_t i = 0; i < 16; i++) {
+            if (compare_internal_to_target(hashes[i], target) <= 0)
+                expected[expected_count++] = start + i;
+            if (compare_internal_hash(hashes[i], hashes[best_index]) < 0)
+                best_index = i;
+        }
+        expected_best_nonce = start + best_index;
+
+        uint32_t actual_best_nonce = 0, overflow = 0;
+        double best_diff = 0.0;
+        const uint32_t actual_count = scan_impl(
+            fn, base, start, 16, target, actual, 16,
+            &best_diff, &actual_best_nonce, &overflow
+        );
+        if (actual_count != expected_count || overflow != 0 ||
+            actual_best_nonce != expected_best_nonce || !(best_diff > 0.0))
+            return 0;
+        for (uint32_t i = 0; i < expected_count; i++)
+            if (actual[i] != expected[i]) return 0;
+    }
+    return 1;
+}
+
 static int selftest(compress_fn_t fn) {
     static const uint8_t expect_display[32] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68, 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93,
@@ -200,6 +273,49 @@ static int selftest(compress_fn_t fn) {
     hash_with(fn, hdr, out);
     for (int i = 0; i < 32; i++)
         if (out[31 - i] != expect_display[i]) return 0;
+
+    /* Independent SHA-256d vectors also validate the selected ARM implementation. */
+    static const struct {
+        const char *header_hex;
+        const char *digest_hex;
+    } known_answers[] = {
+        {
+            "00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567b"
+            "a0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b"
+            "40658aafd4f91e43688db2d740302010",
+            "739f31ec63e5b01cd933fcb42f27ece2663dd02009b9b1e0a2a809f02ffb93c2"
+        },
+        {
+            "355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0"
+            "d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50"
+            "759abfe4092e53789dc2e70c41312111",
+            "446f8c36675dcba95c9a4ea2d07b19ed400871034f1a30182597056ed6c2b66b"
+        },
+        {
+            "6a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e5"
+            "0a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085"
+            "aacff4193e6388add2f71c4142322212",
+            "c0408d345262a2e27f6de904a895afb464127d3f65b6426821a6a4556ec10153"
+        },
+        {
+            "9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a"
+            "3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095ba"
+            "df04294e7398bde2072c517643332313",
+            "5f77e202d08675a2ff8d72ec616e90570ba97ad9074dec54c72a1b4eac34f01f"
+        }
+    };
+    uint8_t expected_digest[32];
+    for (size_t i = 0; i < sizeof(known_answers) / sizeof(known_answers[0]); i++) {
+        hex2bin(known_answers[i].header_hex, hdr, 80);
+        hex2bin(known_answers[i].digest_hex, expected_digest, 32);
+        hash_with(fn, hdr, out);
+        if (memcmp(out, expected_digest, 32) != 0) return 0;
+    }
+    if (!scan_differential_selftest(fn)) return 0;
+
+    /* The known-answer and differential tests changed hdr; restore the genesis
+       header before the legacy genesis-range scan below. */
+    hex2bin(GENESIS_HEX, hdr, 80);
 
     uint8_t tgt[32];
     memset(tgt, 0, 32);

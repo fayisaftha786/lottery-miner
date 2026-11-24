@@ -26,7 +26,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
-        private const val CHUNK = 1L shl 15
+        private const val DEFAULT_SCAN_CHUNK = 1 shl 15
     }
 
     @Volatile private var running = false
@@ -303,10 +303,15 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val header = j.buildHeader(en1Snapshot, en2)
             val target = shareTarget.copyOf()
 
+            // Tune JNI batch size per worker to balance throughput and job/stop responsiveness.
+            // Each adjustment uses measured wall time of real native work; it never fabricates hashes.
+            val scanChunks = AdaptiveScanChunkController(initialChunkSize = DEFAULT_SCAN_CHUNK)
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
-                val count = minOf(CHUNK, SPACE - start).toInt()
+                val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
+                val scanStartedAt = System.nanoTime()
                 scanRange(j, generation, target, header, en2, start, count, found, best)
+                scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
                 start += count
             }
         }
