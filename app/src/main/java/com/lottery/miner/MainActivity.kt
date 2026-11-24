@@ -200,7 +200,7 @@ class MainActivity : AppCompatActivity() {
             }
             etPoolFee.isEnabled = false
             btnPoolStats.isEnabled = false
-            tvModeHelp.text = "DIRECT SOLO · DATUM GATEWAY\\nA separate Linux PC/VPS must run a synced Bitcoin Core node and DATUM Gateway. Set your BTC payout address in the Gateway, with pool_host empty and pooled_mining_only=false. Enter the Gateway private LAN address and a worker name (miner1) here. Default Stratum port: 23334. Never expose Bitcoin Core RPC or Gateway dashboard publicly. Accepted shares are not payouts; only a block accepted by Bitcoin network earns reward."
+            tvModeHelp.text = "DIRECT SOLO · DATUM GATEWAY\nA separate Linux PC/VPS must run a synced Bitcoin Core node and DATUM Gateway. Set your BTC payout address in the Gateway, with pool_host empty and pooled_mining_only=false. Enter the Gateway private LAN address and a worker name (miner1) here. Default Stratum port: 23334. Never expose Bitcoin Core RPC or Gateway dashboard publicly. Accepted shares are not payouts; only a block accepted by Bitcoin network earns reward."
         } else {
             etAddress.hint = "Bitcoin mainnet address (optional .worker)"
             etHost.hint = "Pool hostname"
@@ -210,7 +210,7 @@ class MainActivity : AppCompatActivity() {
             }
             etPoolFee.isEnabled = true
             btnPoolStats.isEnabled = true
-            tvModeHelp.text = "POOL MODE\\nConnect to a compatible Stratum V1 pool. The pool controls share accounting and payout rules. Accepted shares are not Bitcoin blocks or payouts."
+            tvModeHelp.text = "POOL MODE\nConnect to a compatible Stratum V1 pool. The pool controls share accounting and payout rules. Accepted shares are not Bitcoin blocks or payouts."
         }
     }
 
@@ -494,7 +494,7 @@ class MainActivity : AppCompatActivity() {
             externalSnapshot = null
             externalSnapshotAddress = null
             externalError = null
-            tvExternalStats.text = "DATUM DIRECT SOLO MODE\\nCKPool/OCEAN pool worker statistics are disabled. Check your DATUM Gateway and Bitcoin Core node."
+            tvExternalStats.text = "DATUM DIRECT SOLO MODE\nCKPool/OCEAN pool worker statistics are disabled. Check your DATUM Gateway and Bitcoin Core node."
             return
         }
         val address = etAddress.text.toString().trim()
@@ -549,7 +549,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderExternalStats() {
         if (selectedMiningMode() == MiningMode.DATUM_SOLO) {
-            tvExternalStats.text = "DATUM DIRECT SOLO MODE\\nPool worker statistics do not apply. Gateway share acceptance is not a Bitcoin payout."
+            tvExternalStats.text = "DATUM DIRECT SOLO MODE\nPool worker statistics do not apply. Gateway share acceptance is not a Bitcoin payout."
             return
         }
         val currentAddress = etAddress.text.toString().trim().substringBefore('.')
@@ -706,7 +706,7 @@ class MainActivity : AppCompatActivity() {
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
-        if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
+        if (s.blockCandidateDetected) sb.append(if (selectedMiningMode() == MiningMode.DATUM_SOLO) "Block candidate DATUM Gateway-ലേക്ക് അയച്ചു — Bitcoin network confirmation കാത്തിരിക്കുന്നു\n" else "പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
         sb.append("PHONE MINING: ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
