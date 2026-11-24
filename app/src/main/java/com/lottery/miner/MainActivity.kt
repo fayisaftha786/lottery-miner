@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
+import android.widget.RadioGroup
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -33,6 +34,8 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var etAddress: EditText
+    private lateinit var rgMiningMode: RadioGroup
+    private lateinit var tvModeHelp: TextView
     private lateinit var etHost: EditText
     private lateinit var etPort: EditText
     private lateinit var etThreads: EditText
@@ -74,6 +77,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         configureEdgeToEdgeInsets()
         etAddress = findViewById(R.id.etAddress)
+        rgMiningMode = findViewById(R.id.rgMiningMode)
+        tvModeHelp = findViewById(R.id.tvModeHelp)
         etHost = findViewById(R.id.etHost)
         etPort = findViewById(R.id.etPort)
         etThreads = findViewById(R.id.etThreads)
@@ -114,6 +119,15 @@ class MainActivity : AppCompatActivity() {
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
         etRentalPriceSats.setText(p.getString("rentalPriceSatsPerThDay", ""))
+        val savedMode = MiningMode.fromId(p.getString("miningMode", MiningMode.POOL.id))
+        rgMiningMode.check(if (savedMode == MiningMode.DATUM_SOLO) R.id.rbDatumSolo else R.id.rbPoolMode)
+        applyMiningModeUi(savedMode, false)
+        rgMiningMode.setOnCheckedChangeListener { _, checkedId ->
+            val selected = if (checkedId == R.id.rbDatumSolo) MiningMode.DATUM_SOLO else MiningMode.POOL
+            applyMiningModeUi(selected, true)
+            getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
+                .putString("miningMode", selected.id).apply()
+        }
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
         btnPoolStats.setOnClickListener { openPoolStatistics() }
@@ -164,6 +178,33 @@ class MainActivity : AppCompatActivity() {
 
 
 
+    private fun selectedMiningMode(): MiningMode =
+        if (rgMiningMode.checkedRadioButtonId == R.id.rbDatumSolo) MiningMode.DATUM_SOLO else MiningMode.POOL
+
+    private fun applyMiningModeUi(mode: MiningMode, updateEndpoint: Boolean) {
+        if (mode == MiningMode.DATUM_SOLO) {
+            etAddress.hint = "DATUM worker name (example: miner1)"
+            etHost.hint = "Your DATUM Gateway private LAN IP / hostname"
+            if (updateEndpoint && etHost.text.toString().equals(DEFAULT_POOL_HOST, true)) etHost.setText("")
+            if (updateEndpoint && etPort.text.toString() == DEFAULT_POOL_PORT.toString()) {
+                etPort.setText(MiningMode.DATUM_SOLO.defaultPort.toString())
+            }
+            etPoolFee.isEnabled = false
+            btnPoolStats.isEnabled = false
+            tvModeHelp.text = "DIRECT SOLO · DATUM GATEWAY\\nA separate Linux PC/VPS must run a synced Bitcoin Core node and DATUM Gateway. Set your BTC payout address in the Gateway, with pool_host empty and pooled_mining_only=false. Enter the Gateway private LAN address and a worker name (miner1) here. Default Stratum port: 23334. Never expose Bitcoin Core RPC or Gateway dashboard publicly. Accepted shares are not payouts; only a block accepted by Bitcoin network earns reward."
+        } else {
+            etAddress.hint = "Bitcoin mainnet address (optional .worker)"
+            etHost.hint = "Pool hostname"
+            if (updateEndpoint && etHost.text.isBlank()) etHost.setText(DEFAULT_POOL_HOST)
+            if (updateEndpoint && etPort.text.toString() == MiningMode.DATUM_SOLO.defaultPort.toString()) {
+                etPort.setText(DEFAULT_POOL_PORT.toString())
+            }
+            etPoolFee.isEnabled = true
+            btnPoolStats.isEnabled = true
+            tvModeHelp.text = "POOL MODE\\nConnect to a compatible Stratum V1 pool. The pool controls share accounting and payout rules. Accepted shares are not Bitcoin blocks or payouts."
+        }
+    }
+
     private fun runSafeBenchmark() {
         if (MinerState.running || benchmarkRunning || Sha256dBenchmark.isRunning()) {
             Toast.makeText(this, "Benchmark നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
@@ -208,9 +249,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBitcoinProfitability() {
         if (profitabilityFetchInFlight) return
+        val mode = selectedMiningMode()
         val host = etHost.text.toString().trim().lowercase(Locale.US)
-        if (!host.contains("ckpool")) {
-            tvProfitability.text = "ഈ estimator നിലവിൽ CKPool solo Bitcoin mining-നു മാത്രമാണ്. മറ്റൊരു pool payout model ഇതിൽ ഉൾപ്പെടുത്തിയിട്ടില്ല."
+        if (mode == MiningMode.POOL && !host.contains("ckpool")) {
+            tvProfitability.text = "ഈ estimator നിലവിൽ CKPool solo അല്ലെങ്കിൽ DATUM full-solo mode-നു മാത്രമാണ്."
             return
         }
         val liveRate = if (MinerState.running) {
@@ -229,7 +271,7 @@ class MainActivity : AppCompatActivity() {
         }
         val power = etMiningPower.text.toString().trim().toDoubleOrNull()
         val tariff = etElectricityTariff.text.toString().trim().toDoubleOrNull()
-        val fee = etPoolFee.text.toString().trim().toDoubleOrNull()
+        val fee = if (mode == MiningMode.DATUM_SOLO) 0.0 else etPoolFee.text.toString().trim().toDoubleOrNull()
         if (power == null || !power.isFinite() || power !in 0.1..200.0) {
             tvProfitability.text = "USB power meter ഉപയോഗിച്ച് mining മാത്രം ഉപയോഗിക്കുന്ന watts നൽകുക (0.1–200 W)."
             return
@@ -292,7 +334,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     val rateSource = if (liveRate != null) "live phone hashrate" else "last safe device benchmark"
                     tvProfitability.text = buildString {
-                        appendLine("BITCOIN SOLO · EXPECTED VALUE (INR)")
+                        appendLine(if (mode == MiningMode.DATUM_SOLO) "BITCOIN DIRECT SOLO · EXPECTED VALUE (INR)" else "BITCOIN SOLO · EXPECTED VALUE (INR)")
                         appendLine("Rate source: $rateSource · ${Util.fmtRate(rate)}")
                         appendLine("BTC price: ₹${String.format(Locale.US, "%.2f", snapshot.btcPriceInr)}")
                         appendLine("Network difficulty: ${String.format(Locale.US, "%.4e", snapshot.difficulty)}")
@@ -300,7 +342,7 @@ class MainActivity : AppCompatActivity() {
                         appendLine("Block subsidy: ${String.format(Locale.US, "%.8f", snapshot.blockSubsidyBtc)} BTC")
                         appendLine("Daily subsidy assumption: ${String.format(Locale.US, "%.4f", snapshot.dailySubsidyBtc)} BTC (144 blocks; fees excluded)")
                         appendLine("Expected gross value/day: ${formatInr(result.grossFiatPerDay)}")
-                        appendLine("Expected pool fee/day: ${formatInr(result.poolFeeFiatPerDay)} (${String.format(Locale.US, "%.2f", fee)}%)")
+                        appendLine(if (mode == MiningMode.DATUM_SOLO) "Pool fee/day: ₹0 (DATUM full-solo mode)" else "Expected pool fee/day: ${formatInr(result.poolFeeFiatPerDay)} (${String.format(Locale.US, "%.2f", fee)}%)")
                         appendLine("Estimated electricity/day: ${formatInr(result.electricityFiatPerDay)} (${String.format(Locale.US, "%.2f", power)} W × 24 h)")
                         appendLine("Expected net value/day: ${formatInr(result.netFiatPerDay)}")
                         appendLine("Mean block wait estimate: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
@@ -324,8 +366,12 @@ class MainActivity : AppCompatActivity() {
                             appendLine(if (sats.rentalDeltaSatsPerThDay!! < 0.0) "RENTAL CHECK: quote is above subsidy-only expected value; reject on this model." else "RENTAL CHECK: quote is below the theoretical subsidy ceiling only; variance, fees and execution risk remain.")
                         }
                         appendLine("Rental ceiling excludes transaction fees, provider fees, downtime and variance; it is not a buy signal.")
-                        if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity + pool costs exceed expected gross value.")
-                        else appendLine("RESULT: Positive mathematical expectation only; payout timing risk remains extreme at phone hashrate.")
+                        if (mode == MiningMode.DATUM_SOLO) {
+                            appendLine("DATUM SOLO: confirm the Gateway reports Non-Pooled Mode and the correct Bitcoin payout address.")
+                            appendLine("Gateway-accepted shares are not payouts; a valid block accepted by Bitcoin network is required.")
+                        }
+                        if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity and applicable fees exceed expected gross value.")
+                        else appendLine("RESULT: Positive mathematical expectation only; it is not a daily payout or guaranteed profit.")
                     }
                     profitabilityFetchInFlight = false
                     btnRefreshProfitability.isEnabled = true
@@ -372,6 +418,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPoolStatistics() {
+        if (selectedMiningMode() == MiningMode.DATUM_SOLO) {
+            Toast.makeText(this, "DATUM full-solo mode does not use CKPool statistics.", Toast.LENGTH_LONG).show()
+            return
+        }
         val address = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(address)) {
             Toast.makeText(this, "ആദ്യം ശരിയായ Bitcoin mainnet address നൽകുക.", Toast.LENGTH_LONG).show()
@@ -431,6 +481,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pollExternalStatsIfNeeded() {
+        if (selectedMiningMode() == MiningMode.DATUM_SOLO) {
+            externalSnapshot = null
+            externalSnapshotAddress = null
+            externalError = null
+            tvExternalStats.text = "DATUM DIRECT SOLO MODE\\nCKPool/OCEAN pool worker statistics are disabled. Check your DATUM Gateway and Bitcoin Core node."
+            return
+        }
         val address = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(address)) {
             externalSnapshot = null
@@ -567,15 +624,23 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Benchmark പൂർത്തിയായതിന് ശേഷം mining start ചെയ്യുക.", Toast.LENGTH_LONG).show()
             return
         }
+        val mode = selectedMiningMode()
         val addr = etAddress.text.toString().trim()
-        if (!Util.isValidBitcoinAddress(addr)) {
-            Toast.makeText(this, "ശരിയായ Bitcoin mainnet വിലാസം നൽകുക; worker വേണമെങ്കിൽ address.worker നൽകാം.", Toast.LENGTH_LONG).show()
+        val identityValid = if (mode == MiningMode.DATUM_SOLO) MiningMode.isValidWorkerName(addr) else Util.isValidBitcoinAddress(addr)
+        if (!identityValid) {
+            val message = if (mode == MiningMode.DATUM_SOLO) {
+                "DATUM worker name നൽകുക (ഉദാ. miner1; letters, numbers, . _ - മാത്രം). BTC reward address Gateway-യിൽ configure ചെയ്യണം."
+            } else {
+                "ശരിയായ Bitcoin mainnet വിലാസം നൽകുക; worker വേണമെങ്കിൽ address.worker നൽകാം."
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             return
         }
         val cores = Runtime.getRuntime().availableProcessors()
-        val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
-        if (host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
-            Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
+        val host = etHost.text.toString().trim().ifEmpty { if (mode == MiningMode.POOL) DEFAULT_POOL_HOST else "" }
+        if (host.isBlank() || host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
+            val message = if (mode == MiningMode.DATUM_SOLO) "നിങ്ങളുടെ DATUM Gateway private LAN IP/hostname നൽകുക." else "ശരിയായ pool hostname നൽകുക."
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             return
         }
         val port = etPort.text.toString().trim().toIntOrNull()
@@ -601,12 +666,14 @@ class MainActivity : AppCompatActivity() {
         val onlyCharging = cbCharging.isChecked
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
             .putString("address", addr).putString("host", host).putInt("port", port)
+            .putString("miningMode", mode.id)
             .putInt("threads", threads).putFloat("maxTemp", maxTemp.toFloat())
             .putInt("maxBatt", maxBatt).putBoolean("onlyCharging", onlyCharging).apply()
 
         val i = Intent(this, MinerService::class.java)
             .setAction(MinerService.ACTION_START)
             .putExtra(MinerService.EXTRA_ADDRESS, addr)
+            .putExtra(MinerService.EXTRA_MODE, mode.id)
             .putExtra(MinerService.EXTRA_HOST, host)
             .putExtra(MinerService.EXTRA_PORT, port)
             .putExtra(MinerService.EXTRA_THREADS, threads)
@@ -631,16 +698,16 @@ class MainActivity : AppCompatActivity() {
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
-        sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
+        sb.append(if (selectedMiningMode() == MiningMode.DATUM_SOLO) "Gateway shares: ✓" else "Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
         if (s.hashrate > 0.0 && s.poolDiff > 0.0) {
             val expectedSeconds = Util.expectedShareIntervalSeconds(s.poolDiff, s.hashrate)
             sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\n')
             sb.append("ഇത് feedback share-ന്റെ ശരാശരി മാത്രം; block/payout ഉറപ്പല്ല.\n")
         }
-        sb.append("Pool-ലേക്ക് അയച്ചത്: ").append(s.submittedShares.get()).append("\n")
+        sb.append(if (selectedMiningMode() == MiningMode.DATUM_SOLO) "Gateway-ലേക്ക് അയച്ചത്: " else "Pool-ലേക്ക് അയച്ചത്: ").append(s.submittedShares.get()).append("\n")
         sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
-        sb.append("Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
+        sb.append(if (selectedMiningMode() == MiningMode.DATUM_SOLO) "Gateway-ലേക്ക് അയക്കാത്തത്: " else "Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
         sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
         sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
         sb.append("ബാറ്ററി താപനില: ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
