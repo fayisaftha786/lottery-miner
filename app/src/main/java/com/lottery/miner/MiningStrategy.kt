@@ -40,6 +40,12 @@ data class MiningEconomicsResult(
     val netFiatPerDay: Double,
     val expectedBlocksFoundPerDay: Double,
     val expectedDaysPerBlock: Double,
+    val blockChance1Day: Double,
+    val blockChance30Days: Double,
+    val blockChance365Days: Double,
+    val hashrateForOnePercentChanceInOneYear: Double,
+    val hashrateForFiftyPercentChanceInOneYear: Double,
+    val hashrateForNinetyPercentChanceInOneYear: Double,
     val isFresh: Boolean,
     val payoutModel: PayoutModel
 )
@@ -79,9 +85,46 @@ object MiningStrategy {
             netFiatPerDay = if (fresh) gross - fee - electricity else Double.NaN,
             expectedBlocksFoundPerDay = expectedBlocksPerDay,
             expectedDaysPerBlock = expectedDaysPerBlock,
+            blockChance1Day = blockProbability(input.deviceHashrate, input.networkHashrate, 1.0, input.networkBlocksPerDay),
+            blockChance30Days = blockProbability(input.deviceHashrate, input.networkHashrate, 30.0, input.networkBlocksPerDay),
+            blockChance365Days = blockProbability(input.deviceHashrate, input.networkHashrate, 365.0, input.networkBlocksPerDay),
+            hashrateForOnePercentChanceInOneYear = requiredHashrateForProbability(0.01, input.networkHashrate, 365.0, input.networkBlocksPerDay),
+            hashrateForFiftyPercentChanceInOneYear = requiredHashrateForProbability(0.50, input.networkHashrate, 365.0, input.networkBlocksPerDay),
+            hashrateForNinetyPercentChanceInOneYear = requiredHashrateForProbability(0.90, input.networkHashrate, 365.0, input.networkBlocksPerDay),
             isFresh = fresh,
             payoutModel = input.payoutModel
         )
+    }
+
+    /** Poisson approximation; assumes constant hashrates and average block interval. */
+    fun blockProbability(
+        deviceHashrate: Double,
+        networkHashrate: Double,
+        days: Double,
+        blocksPerDay: Double = 144.0
+    ): Double {
+        require(deviceHashrate.isFinite() && deviceHashrate >= 0.0)
+        require(networkHashrate.isFinite() && networkHashrate > 0.0)
+        require(days.isFinite() && days >= 0.0)
+        require(blocksPerDay.isFinite() && blocksPerDay > 0.0)
+        val expectedBlocks = (deviceHashrate / networkHashrate) * blocksPerDay * days
+        return (-Math.expm1(-expectedBlocks)).coerceIn(0.0, 1.0)
+    }
+
+    /** Required hashes/second for a target chance during the supplied horizon. */
+    fun requiredHashrateForProbability(
+        probability: Double,
+        networkHashrate: Double,
+        days: Double,
+        blocksPerDay: Double = 144.0
+    ): Double {
+        require(probability.isFinite() && probability in 0.0..1.0)
+        require(networkHashrate.isFinite() && networkHashrate > 0.0)
+        require(days.isFinite() && days > 0.0)
+        require(blocksPerDay.isFinite() && blocksPerDay > 0.0)
+        if (probability == 0.0) return 0.0
+        if (probability == 1.0) return Double.POSITIVE_INFINITY
+        return -kotlin.math.ln1p(-probability) * networkHashrate / (blocksPerDay * days)
     }
 
     fun chooseBest(
