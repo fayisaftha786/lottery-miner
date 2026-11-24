@@ -321,7 +321,7 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             appendLine("User-entered rental quote: ${formatSats(sats.rentalQuoteSatsPerThDay)} sats/TH/day")
                             appendLine("Quote minus ceiling: ${formatSats(-sats.rentalDeltaSatsPerThDay!!)} sats/TH/day")
-                            appendLine(if (sats.rentalDeltaSatsPerThDay < 0.0) "RENTAL CHECK: quote is above subsidy-only expected value; reject on this model." else "RENTAL CHECK: quote is below the theoretical subsidy ceiling only; variance, fees and execution risk remain.")
+                            appendLine(if (sats.rentalDeltaSatsPerThDay!! < 0.0) "RENTAL CHECK: quote is above subsidy-only expected value; reject on this model." else "RENTAL CHECK: quote is below the theoretical subsidy ceiling only; variance, fees and execution risk remain.")
                         }
                         appendLine("Rental ceiling excludes transaction fees, provider fees, downtime and variance; it is not a buy signal.")
                         if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity + pool costs exceed expected gross value.")
