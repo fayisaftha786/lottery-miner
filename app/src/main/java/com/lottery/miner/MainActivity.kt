@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etMiningPower: EditText
     private lateinit var etElectricityTariff: EditText
     private lateinit var etPoolFee: EditText
+    private lateinit var etRentalPriceSats: EditText
     private lateinit var btnRefreshProfitability: Button
     private lateinit var tvProfitability: TextView
     @Volatile private var benchmarkRunning = false
@@ -87,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         etMiningPower = findViewById(R.id.etMiningPower)
         etElectricityTariff = findViewById(R.id.etElectricityTariff)
         etPoolFee = findViewById(R.id.etPoolFee)
+        etRentalPriceSats = findViewById(R.id.etRentalPriceSats)
         btnRefreshProfitability = findViewById(R.id.btnRefreshProfitability)
         tvProfitability = findViewById(R.id.tvProfitability)
         tvStats = findViewById(R.id.tvStats)
@@ -111,6 +113,7 @@ class MainActivity : AppCompatActivity() {
         etMiningPower.setText(p.getString("miningPowerWatts", ""))
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
+        etRentalPriceSats.setText(p.getString("rentalPriceSatsPerThDay", ""))
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
         btnPoolStats.setOnClickListener { openPoolStatistics() }
@@ -239,10 +242,17 @@ class MainActivity : AppCompatActivity() {
             tvProfitability.text = "Pool fee 0–100% ഇടയിൽ നൽകുക. CKPool-ന്റെ സാധാരണ fee 2% ആണ്."
             return
         }
+        val rentalQuoteRaw = etRentalPriceSats.text.toString().trim()
+        val rentalQuote = if (rentalQuoteRaw.isBlank()) null else rentalQuoteRaw.toDoubleOrNull()
+        if (rentalQuoteRaw.isNotBlank() && (rentalQuote == null || !rentalQuote.isFinite() || rentalQuote !in 0.0..1_000_000_000.0)) {
+            tvProfitability.text = "Rental quote 0 മുതൽ 1,000,000,000 sats/TH/day വരെ നൽകുക; live marketplace quote സ്വയം പരിശോധിക്കുക."
+            return
+        }
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
             .putString("miningPowerWatts", power.toString())
             .putString("electricityTariff", tariff.toString())
             .putString("poolFeePercent", fee.toString())
+            .putString("rentalPriceSatsPerThDay", rentalQuote?.toString() ?: "")
             .apply()
 
         profitabilityFetchInFlight = true
@@ -266,6 +276,19 @@ class MainActivity : AppCompatActivity() {
                         payoutModel = PayoutModel.SOLO_BLOCK_REWARD
                     )
                 )
+                val sats = SatsYieldAdvisor.analyze(
+                    SatsYieldInput(
+                        deviceHashrateHps = rate,
+                        networkHashrateHps = snapshot.networkHashrateHps,
+                        blockSubsidySats = snapshot.blockSubsidyBtc * 100_000_000.0,
+                        btcPriceInr = snapshot.btcPriceInr,
+                        powerWatts = power,
+                        electricityInrPerKwh = tariff,
+                        poolFeePercent = fee,
+                        snapshotAgeSeconds = ageSeconds,
+                        rentalQuoteSatsPerThDay = rentalQuote
+                    )
+                )
                 runOnUiThread {
                     val rateSource = if (liveRate != null) "live phone hashrate" else "last safe device benchmark"
                     tvProfitability.text = buildString {
@@ -283,6 +306,24 @@ class MainActivity : AppCompatActivity() {
                         appendLine("Mean block wait estimate: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
                         appendLine("Data age: ${ageSeconds}s · ${if (result.isFresh) "FRESH" else "STALE"}")
                         appendLine("WARNING: expected value only, not daily payout or guaranteed profit. Solo block rewards are rare and highly variable.")
+                        appendLine("")
+                        appendLine("SATS INTELLIGENCE · FRESH NETWORK SNAPSHOT")
+                        appendLine("Expected subsidy after pool fee: ${formatSats(sats.expectedAfterPoolFeeSatsPerDay)} sats/day")
+                        appendLine("Expected net after electricity: ${formatSats(sats.expectedNetSatsPerDay)} sats/day (${formatInr(sats.expectedNetInrPerDay)})")
+                        appendLine("Poisson solo block chance: 1d ${formatChance(sats.blockProbability1Day)} · 7d ${formatChance(sats.blockProbability7Days)} · 30d ${formatChance(sats.blockProbability30Days)}")
+                        appendLine("Mean solo block interval: ${formatExpectedBlockDays(sats.expectedDaysPerBlock)}")
+                        appendLine("Energy: ${String.format(Locale.US, "%.4f", sats.energyKwhPerDay)} kWh/day")
+                        appendLine("Efficiency from measured inputs: ${String.format(Locale.US, "%.4g", sats.hashesPerWatt)} H/s/W · ${String.format(Locale.US, "%.4g", sats.joulesPerTerahash)} J/TH")
+                        appendLine("Break-even electricity tariff after pool fee: ${if (sats.breakEvenElectricityInrPerKwh.isFinite()) formatInr(sats.breakEvenElectricityInrPerKwh) + "/kWh" else "N/A"}")
+                        appendLine("Subsidy-only rental ceiling: ${formatSats(sats.maximumRentalSatsPerThDay)} sats/TH/day")
+                        if (sats.rentalQuoteSatsPerThDay == null) {
+                            appendLine("Rental quote: not entered; no marketplace price has been fetched or assumed.")
+                        } else {
+                            appendLine("User-entered rental quote: ${formatSats(sats.rentalQuoteSatsPerThDay)} sats/TH/day")
+                            appendLine("Quote minus ceiling: ${formatSats(-sats.rentalDeltaSatsPerThDay!!)} sats/TH/day")
+                            appendLine(if (sats.rentalDeltaSatsPerThDay < 0.0) "RENTAL CHECK: quote is above subsidy-only expected value; reject on this model." else "RENTAL CHECK: quote is below the theoretical subsidy ceiling only; variance, fees and execution risk remain.")
+                        }
+                        appendLine("Rental ceiling excludes transaction fees, provider fees, downtime and variance; it is not a buy signal.")
                         if (result.netFiatPerDay <= 0.0) appendLine("RESULT: At these inputs, estimated electricity + pool costs exceed expected gross value.")
                         else appendLine("RESULT: Positive mathematical expectation only; payout timing risk remains extreme at phone hashrate.")
                     }
@@ -297,6 +338,18 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun formatSats(value: Double): String {
+        if (!value.isFinite()) return "N/A"
+        return String.format(Locale.US, "%.6g", value)
+    }
+
+    private fun formatChance(probability: Double): String {
+        if (!probability.isFinite()) return "N/A"
+        val percent = (probability.coerceIn(0.0, 1.0) * 100.0)
+        return if (percent in 0.0..0.0001) String.format(Locale.US, "%.3e%%", percent)
+        else String.format(Locale.US, "%.4f%%", percent)
     }
 
     private fun formatInr(value: Double): String {
