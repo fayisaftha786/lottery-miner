@@ -713,12 +713,28 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, MinerService::class.java).setAction(MinerService.ACTION_STOP))
     }
 
+    private fun appendBlockCandidateSummary(sb: StringBuilder) {
+        val journal = getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
+        val retained = journal.getInt("history_count", 0).coerceIn(0, CandidateHistory.MAX_RECORDS)
+        val hash = journal.getString("hash", null)
+        sb.append("BLOCK CANDIDATE HISTORY: ").append(retained)
+            .append("/").append(CandidateHistory.MAX_RECORDS).append(" retained\\n")
+        if (!hash.isNullOrBlank()) {
+            val displayHash = if (hash.length > 24) hash.take(12) + "…" + hash.takeLast(12) else hash
+            sb.append("Latest candidate: ").append(displayHash).append('\\n')
+            sb.append("Pool candidate response (not block confirmation): ")
+                .append(journal.getString("submission_state", "DETECTED_NOT_CONFIRMED"))
+                .append('\\n')
+        }
+    }
+
     private fun refresh() {
         pollExternalStatsIfNeeded()
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
+        appendBlockCandidateSummary(sb)
         sb.append("PHONE MINING · LOCAL CURRENT (2s EMA): ").append(Util.fmtRate(s.hashrate))
             .append(when {
                 s.armPairScan -> "  [ARM SHA2 PAIRED ✓]"
