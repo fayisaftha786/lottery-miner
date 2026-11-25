@@ -312,7 +312,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val en2 = encodeEn2(counter, size)
             counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
             val header = j.buildHeader(en1Snapshot, en2)
-            val target = shareTarget.copyOf()
+            // Scan against the numerically larger (looser) of the pool share target
+            // and Bitcoin network target. This guarantees that every network-target
+            // candidate reaches Kotlin for exact classification, even if it is not
+            // a pool-difficulty share.
+            val networkTarget = Util.toBytes32(Util.nbitsToTarget(j.nbitsHex))
+            val target = Util.candidateScanTarget(shareTarget.copyOf(), networkTarget)
 
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
@@ -375,15 +380,35 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val digest = Native.sha256dHeader(h)
         val value = BigInteger(1, digest.reversedArray())
-        if (value > BigInteger(1, target)) return
+        val shareHit = value <= BigInteger(1, shareTarget)
+        val networkTarget = Util.nbitsToTarget(j.nbitsHex)
+        val isBlock = value <= networkTarget
+        if (!shareHit && !isBlock) return
         val nonceHex = String.format(java.util.Locale.US, "%08x", nonce)
-        val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
         synchronized(workLock) {
             if (!running || current !== j || jobGeneration.get() != generation) return
             if (isBlock) {
+                // Persist the exact Stratum candidate tuple before attempting network I/O.
+                // CKPool reconstructs the full block from its retained job template.
+                val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
+                val saved = journal.edit()
+                    .putString("job_id", j.id)
+                    .putString("extranonce2", Util.bytesToHex(en2))
+                    .putString("ntime", j.ntimeHex)
+                    .putString("nonce", nonceHex)
+                    .putString("header", Util.bytesToHex(h))
+                    .putString("hash", Util.bytesToHex(digest.reversedArray()))
+                    .putString("network_target", networkTarget.toString(16).padStart(64, '0'))
+                    .putLong("detected_at_ms", System.currentTimeMillis())
+                    .commit()
                 MinerState.blockCandidateDetected = true
-                MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
+                MinerState.log(
+                    if (saved) "BLOCK CANDIDATE saved to rescue journal; submitting to Solo CKPool (not confirmed)"
+                    else "BLOCK CANDIDATE detected but journal save failed; attempting immediate pool submission"
+                )
             }
+            // A network-target candidate must be submitted even if it did not meet
+            // the pool share target. Ordinary non-share hashes are never submitted.
             client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
         }
     }
