@@ -69,7 +69,7 @@ object Sha256dBenchmark {
         try {
             val hw = Native.initCore()
             check(hw >= 0) { "Native SHA-256 self-test failed" }
-            val reading = scanForDuration(workers = 1, durationMillis = durationMillis)
+            val reading = scanForDuration(workers = 1, durationMillis = durationMillis, shouldContinue = { true })
             return Result(reading.hashes, reading.elapsedMillis, reading.hashesPerSecond, hw == 1)
         } finally {
             running.set(false)
@@ -90,7 +90,8 @@ object Sha256dBenchmark {
     fun runScaling(
         maxWorkers: Int,
         durationMillis: Long = 900L,
-        repeatCount: Int = 2
+        repeatCount: Int = 2,
+        shouldContinue: () -> Boolean = { true }
     ): ScalingResult {
         require(maxWorkers in 1..8) { "Worker count must be 1–8" }
         require(durationMillis in 500L..2_000L) { "Each benchmark must be 0.5–2 seconds" }
@@ -112,9 +113,9 @@ object Sha256dBenchmark {
                 for (workers in order) {
                     if (warmed.add(workers)) {
                         // Warm caches/JIT/CPU scheduling, but exclude this reading.
-                        scanForDuration(workers, WARMUP_MILLIS)
+                        scanForDuration(workers, WARMUP_MILLIS, shouldContinue)
                     }
-                    samples.getValue(workers).add(scanForDuration(workers, durationMillis))
+                    samples.getValue(workers).add(scanForDuration(workers, durationMillis, shouldContinue))
                     Thread.sleep(COOLDOWN_MILLIS)
                 }
             }
@@ -144,7 +145,11 @@ object Sha256dBenchmark {
         }
     }
 
-    private fun scanForDuration(workers: Int, durationMillis: Long): ScanReading {
+    private fun scanForDuration(
+        workers: Int,
+        durationMillis: Long,
+        shouldContinue: () -> Boolean
+    ): ScanReading {
         require(workers in 1..8)
         require(durationMillis in 100L..5_000L)
 
@@ -155,6 +160,7 @@ object Sha256dBenchmark {
         val hashes = AtomicLong(0L)
         val failure = AtomicReference<Throwable?>(null)
         val stop = AtomicBoolean(false)
+        val thermalAbort = AtomicBoolean(false)
         val deadlineNanos = AtomicLong(0L)
         val ready = CountDownLatch(workers)
         val startGate = CountDownLatch(1)
@@ -171,6 +177,11 @@ object Sha256dBenchmark {
                     announcedReady = true
                     startGate.await()
                     while (!stop.get() && System.nanoTime() < deadlineNanos.get()) {
+                        if (!shouldContinue()) {
+                            thermalAbort.set(true)
+                            stop.set(true)
+                            break
+                        }
                         val result = Native.scan(header, nonce.toInt(), chunk, target, found, best)
                         check(result in 0..found.size) { "Native benchmark scan failed: $result" }
                         check(best[2] == 0.0) { "Unexpected benchmark target hit/overflow" }
@@ -206,6 +217,9 @@ object Sha256dBenchmark {
                 throw IllegalStateException("Benchmark worker failed to stop after its time limit")
             }
             val elapsedMillis = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(1L)
+            if (thermalAbort.get()) {
+                throw IllegalStateException("Device thermal status reached MODERATE or higher; benchmark stopped safely")
+            }
             failure.get()?.let { throw IllegalStateException("SHA-256d benchmark worker failed", it) }
             val count = hashes.get()
             check(count > 0L) { "Benchmark completed no work" }
