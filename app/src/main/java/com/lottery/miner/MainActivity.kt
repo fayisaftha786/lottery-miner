@@ -475,6 +475,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Sustained rolling hashrate (up to 30m): ${Util.fmtRate(s.localHashrate30m)} over ${String.format(Locale.US, "%.1f", s.localHashrate30mWindowSeconds)} seconds")
             appendLine("Pool website totals are address-wide/cumulative and are not this session's counters.")
             appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Native SHA-256 implementation: ${if (s.hwSha) "ARMv8 SHA2 hardware" else "scalar software"}")
+            appendLine("Paired ARM nonce scan: ${if (s.armPairScan) "enabled (runtime equivalence tests passed)" else "not selected"}")
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Thermal headroom forecast (10s): ${if (s.thermalHeadroomForecast.isFinite()) String.format(Locale.US, "%.3f", s.thermalHeadroomForecast) else "unavailable"}")
             appendLine("Manufacturer thermal thresholds: ${s.thermalHeadroomThresholdsAvailable}")
@@ -699,7 +701,11 @@ class MainActivity : AppCompatActivity() {
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
         sb.append("PHONE MINING · LOCAL CURRENT (2s EMA): ").append(Util.fmtRate(s.hashrate))
-            .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
+            .append(when {
+                s.armPairScan -> "  [ARM SHA2 PAIRED ✓]"
+                s.hwSha -> "  [ARM SHA2 ✓]"
+                else -> "  [SCALAR SHA-256]"
+            }).append('\n')
         val rollingWindowLabel = if (s.localHashrateWindowSeconds >= 60.0) {
             String.format(Locale.US, "%.1f min", s.localHashrateWindowSeconds / 60.0)
         } else {
