@@ -41,6 +41,7 @@ static void compress_scalar(uint32_t st[8], const uint32_t win[16]) {
 static compress_fn_t g_fn = compress_scalar;
 static int g_hw = 0;
 static int g_ok = 0;
+static int g_arm_pair_scan = 0;
 
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
@@ -171,6 +172,174 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
     return nfound;
 }
 
+
+#ifdef HAVE_ARM_SHA2
+/*
+ * Consume one completed SHA-256d digest into the exact target/best-hash
+ * accounting shared by the paired ARM scanner. Comparison is integer-exact;
+ * floating point is used only to display the selected best difficulty.
+ */
+static inline void record_arm_pair_digest(
+    const uint32_t digest[8], uint32_t nonce,
+    const uint32_t target_words[8], uint32_t *found, uint32_t max_found,
+    uint32_t *stored, uint32_t *total_found, uint32_t best_words[8],
+    int *have_best, double *best_diff, uint32_t *best_nonce
+) {
+    const double DIFF1 = 65535.0 * 0x1p208;
+    int target_order = 0;
+    int best_order = 0;
+    for (int word = 0; word < 8; ++word) {
+        const uint32_t value = __builtin_bswap32(digest[7 - word]);
+        if (target_order == 0) {
+            if (value < target_words[word]) target_order = -1;
+            else if (value > target_words[word]) target_order = 1;
+        }
+        if (*have_best && best_order == 0) {
+            if (value < best_words[word]) best_order = -1;
+            else if (value > best_words[word]) best_order = 1;
+        }
+        if (target_order != 0 && (!*have_best || best_order != 0)) break;
+    }
+
+    if (target_order <= 0) {
+        if (*stored < max_found) found[(*stored)++] = nonce;
+        if (*total_found < UINT32_MAX) ++(*total_found);
+    }
+
+    if (!*have_best || best_order < 0) {
+        digest_numeric_words(digest, best_words);
+        *have_best = 1;
+        double value = 0.0;
+        for (int word = 0; word < 8; ++word) {
+            value = value * 4294967296.0 + (double)best_words[word];
+        }
+        *best_diff = value > 0.0 ? DIFF1 / value : 1e300;
+        *best_nonce = nonce;
+    }
+}
+
+/*
+ * ARM SHA2 paired nonce scanner. Two independent nonce candidates are kept
+ * in flight together so the CPU can overlap their SHA256 instruction streams.
+ * The first 64-byte header midstate is still computed once per scan call.
+ */
+static uint32_t scan_impl_arm_pair(
+    const uint8_t header[80], uint32_t start, uint32_t count,
+    const uint8_t target[32], uint32_t *found, uint32_t max_found,
+    double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count
+) {
+    uint32_t first_block[16], mid[8];
+    for (int i = 0; i < 16; ++i) first_block[i] = be32(header + 4 * i);
+    memcpy(mid, IV, 32);
+    compress_arm(mid, first_block);
+
+    uint32_t w2a[16], w2b[16], w3a[16], w3b[16];
+    for (int i = 0; i < 3; ++i) {
+        w2a[i] = be32(header + 64 + 4 * i);
+        w2b[i] = w2a[i];
+    }
+    w2a[4] = w2b[4] = 0x80000000u;
+    for (int i = 5; i < 15; ++i) w2a[i] = w2b[i] = 0;
+    w2a[15] = w2b[15] = 640;
+
+    w3a[8] = w3b[8] = 0x80000000u;
+    for (int i = 9; i < 15; ++i) w3a[i] = w3b[i] = 0;
+    w3a[15] = w3b[15] = 256;
+
+    uint32_t target_words[8], best_words[8];
+    for (int i = 0; i < 8; ++i) target_words[i] = be32(target + 4 * i);
+
+    double bd = 0.0;
+    uint32_t bn = 0, stored = 0, total_found = 0;
+    int have_best = 0;
+    uint32_t i = 0;
+
+    for (; i + 1u < count; i += 2u) {
+        const uint32_t nonce_a = start + i;
+        const uint32_t nonce_b = start + i + 1u;
+        uint32_t state_a[8], state_b[8], digest_a[8], digest_b[8];
+
+        w2a[3] = __builtin_bswap32(nonce_a);
+        w2b[3] = __builtin_bswap32(nonce_b);
+        memcpy(state_a, mid, 32);
+        memcpy(state_b, mid, 32);
+        compress_arm_pair(state_a, w2a, state_b, w2b);
+
+        memcpy(w3a, state_a, 32);
+        memcpy(w3b, state_b, 32);
+        memcpy(digest_a, IV, 32);
+        memcpy(digest_b, IV, 32);
+        compress_arm_pair(digest_a, w3a, digest_b, w3b);
+
+        record_arm_pair_digest(
+            digest_a, nonce_a, target_words, found, max_found,
+            &stored, &total_found, best_words, &have_best, &bd, &bn
+        );
+        record_arm_pair_digest(
+            digest_b, nonce_b, target_words, found, max_found,
+            &stored, &total_found, best_words, &have_best, &bd, &bn
+        );
+    }
+
+    /* An odd final nonce uses the already validated single-state ARM path. */
+    if (i < count) {
+        const uint32_t nonce = start + i;
+        uint32_t state[8], digest[8];
+        w2a[3] = __builtin_bswap32(nonce);
+        memcpy(state, mid, 32);
+        compress_arm(state, w2a);
+        memcpy(w3a, state, 32);
+        memcpy(digest, IV, 32);
+        compress_arm(digest, w3a);
+        record_arm_pair_digest(
+            digest, nonce, target_words, found, max_found,
+            &stored, &total_found, best_words, &have_best, &bd, &bn
+        );
+    }
+
+    *best_diff = bd;
+    *best_nonce = bn;
+    if (overflow_count != NULL) *overflow_count = total_found - stored;
+    return stored;
+}
+
+/* Runtime equivalence gate: compare the paired scanner against the known-good
+ * single-state ARM scanner, including odd counts, target hits and uint32 wrap. */
+static int selftest_arm_pair_scan(void) {
+    uint8_t header[80], target[32];
+    for (size_t i = 0; i < sizeof(header); ++i) {
+        header[i] = (uint8_t)(i * 37u + 19u);
+    }
+
+    const uint8_t target_modes[3] = {0xffu, 0x7fu, 0x00u};
+    for (size_t mode = 0; mode < 3; ++mode) {
+        memset(target, target_modes[mode], sizeof(target));
+        uint32_t found_single[8] = {0}, found_pair[8] = {0};
+        double diff_single = 0.0, diff_pair = 0.0;
+        uint32_t nonce_single = 0, nonce_pair = 0;
+        uint32_t overflow_single = 0, overflow_pair = 0;
+
+        const uint32_t stored_single = scan_impl(
+            compress_arm, header, UINT32_MAX - 63u, 129u, target,
+            found_single, 8u, &diff_single, &nonce_single, &overflow_single
+        );
+        const uint32_t stored_pair = scan_impl_arm_pair(
+            header, UINT32_MAX - 63u, 129u, target,
+            found_pair, 8u, &diff_pair, &nonce_pair, &overflow_pair
+        );
+        if (stored_single != stored_pair ||
+            overflow_single != overflow_pair ||
+            nonce_single != nonce_pair ||
+            memcmp(&diff_single, &diff_pair, sizeof(diff_single)) != 0 ||
+            memcmp(found_single, found_pair, stored_single * sizeof(uint32_t)) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+#endif
+
+
 static void hex2bin(const char *hex, uint8_t *out, int n) {
     for (int i = 0; i < n; i++) {
         unsigned v = 0;
@@ -262,17 +431,27 @@ void miner_core_init(void) {
     if (arm_sha2_supported() && selftest(compress_arm)) {
         g_fn = compress_arm;
         g_hw = 1;
+        /* Only select the paired hot loop when its full scan output matches
+         * the validated single-state ARM scanner on multiple target patterns. */
+        g_arm_pair_scan = selftest_arm_pair_scan();
     }
 #endif
 }
 
 int miner_core_uses_hw(void) { return g_hw; }
 int miner_core_selftest_ok(void) { return g_ok; }
+int miner_core_uses_arm_pair_scan(void) { return g_arm_pair_scan; }
 
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]) { hash_with(g_fn, header, out); }
 
 uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
+#ifdef HAVE_ARM_SHA2
+    if (g_arm_pair_scan) {
+        return scan_impl_arm_pair(header, start, count, target, found, max_found,
+                                  best_diff, best_nonce, overflow_count);
+    }
+#endif
     return scan_impl(g_fn, header, start, count, target, found, max_found, best_diff, best_nonce, overflow_count);
 }
