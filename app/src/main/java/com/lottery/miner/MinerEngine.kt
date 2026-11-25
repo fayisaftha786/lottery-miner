@@ -112,6 +112,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.localHashrateWindowSeconds = 0.0
         MinerState.localHashrate30m = 0.0
         MinerState.localHashrate30mWindowSeconds = 0.0
+        MinerState.thermalHeadroomForecast = Double.NaN
+        MinerState.thermalHeadroomThresholdsAvailable = false
         MinerState.activeThreads = 0
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
@@ -387,7 +389,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         val batteryManager = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val batteryEnergyMonitor = BatteryEnergyMonitor()
         val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val headroomThresholds: Map<Int, Float> = if (Build.VERSION.SDK_INT >= 35 && powerManager != null) {
+        var headroomThresholds: Map<Int, Float> = if (Build.VERSION.SDK_INT >= 35 && powerManager != null) {
             runCatching { powerManager.thermalHeadroomThresholds }.getOrDefault(emptyMap())
         } else emptyMap()
         var lastHeadroomSampleAtMillis = 0L
@@ -483,6 +485,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 latestHeadroomForecast = runCatching {
                     powerManager.getThermalHeadroom(10).toDouble()
                 }.getOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+                // Android 16+ may update manufacturer thresholds while the device is running.
+                if (Build.VERSION.SDK_INT >= 35) {
+                    headroomThresholds = runCatching { powerManager.thermalHeadroomThresholds }
+                        .getOrDefault(headroomThresholds)
+                }
                 lastHeadroomSampleAtMillis = elapsedNow
             }
             MinerState.thermalHeadroomForecast = latestHeadroomForecast ?: Double.NaN
