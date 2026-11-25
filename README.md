@@ -121,6 +121,12 @@ Profitability estimates currently support Bitcoin solo expected value only. The 
 Automatic multi-algorithm selection and automatic profitability-based switching remain disabled until at least two independent native engines and their matching pool/economic adapters have passed device-level verification.
 
 
+## Native SHA-256d runtime self-test (v1.4.0)
+
+Before selecting the ARMv8 SHA2 implementation, startup validates the candidate compressor against the Bitcoin genesis header and four independent SHA-256d known-answer vectors. If the ARM candidate fails any vector, the engine keeps the scalar implementation rather than selecting a compressor with an unverified result. These checks run at initialization, not inside the nonce-scanning hot loop.
+
+The local native C test suite also verifies target inclusivity, target-minus-one rejection, nonce boundary wrap, best-hash ordering, and bounded result-buffer overflow accounting. Host CI runs the scalar implementation; the ARM candidate is checked on-device during native initialization because host CI cannot execute the phone's ARM crypto instructions.
+
 ## Repeated worker-scaling benchmark (v1.3.0)
 
 The benchmark compares worker counts in a randomized order, warms each candidate once, records repeated monotonic-time samples, and uses the median rather than the single highest sample. The recommendation chooses the lowest worker count retaining 98.5% of peak median throughput. The worker threads are prepared before timing begins; each worker scans disjoint nonce lanes using a fixed-size chunk and wraps the nonce modulo 2^32. A zero target ensures this diagnostic benchmark does not generate pool shares.
