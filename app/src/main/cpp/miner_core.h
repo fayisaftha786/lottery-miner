@@ -10,6 +10,7 @@ typedef void (*compress_fn_t)(uint32_t state[8], const uint32_t w[16]);
 void miner_core_init(void);
 int miner_core_uses_hw(void);
 int miner_core_selftest_ok(void);
+int miner_core_uses_arm_pair_scan(void);
 
 /* Double SHA-256 of an 80 byte block header. out = digest bytes in internal order (little-endian number). */
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]);
