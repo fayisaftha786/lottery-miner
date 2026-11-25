@@ -24,7 +24,7 @@ class SustainedPerformanceMonitorTest {
         monitor.record(60_000L, 31_000_000_000L)
         val reading = monitor.record(120_000L, 331_000_000_000L)
         assertTrue(reading.thirtyMinuteWindowSeconds > reading.fiveMinuteWindowSeconds)
-        assertEquals(120_000.0 / 300.0, reading.fiveMinuteRateHps, 0.001)
+        assertEquals(60_000.0 / 300.0, reading.fiveMinuteRateHps, 0.001)
         assertEquals(120_000.0 / 330.0, reading.thirtyMinuteRateHps, 0.001)
     }
 
