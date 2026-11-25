@@ -15,6 +15,9 @@ object MinerState {
     /** Rolling average derived from cumulative native hashes over at most five minutes. */
     @Volatile var localHashrate5m = 0.0
     @Volatile var localHashrateWindowSeconds = 0.0
+    /** Real rolling average over the observed portion of up to thirty minutes. */
+    @Volatile var localHashrate30m = 0.0
+    @Volatile var localHashrate30mWindowSeconds = 0.0
     /** Wall-clock start of this app mining session; session counters reset on each start. */
     @Volatile var sessionStartedAtMillis = 0L
     @Volatile var totalHashes = 0L
@@ -38,6 +41,10 @@ object MinerState {
     @Volatile var tempC = Double.NaN
     @Volatile var tempAvailable = false
     @Volatile var androidThermalStatus = "N/A"
+    /** Android thermal headroom forecast; NaN means unsupported/unavailable. */
+    @Volatile var thermalHeadroomForecast = Double.NaN
+    /** True only when Android exposes manufacturer-defined headroom thresholds. */
+    @Volatile var thermalHeadroomThresholdsAvailable = false
     @Volatile var battery = 0
     @Volatile var batteryAvailable = false
     @Volatile var plugged = false
@@ -77,6 +84,8 @@ object MinerState {
         hashrate = 0.0
         localHashrate5m = 0.0
         localHashrateWindowSeconds = 0.0
+        localHashrate30m = 0.0
+        localHashrate30mWindowSeconds = 0.0
         sessionStartedAtMillis = System.currentTimeMillis()
         battery = 0
         plugged = false
@@ -102,6 +111,8 @@ object MinerState {
         tempC = Double.NaN
         tempAvailable = false
         androidThermalStatus = "N/A"
+        thermalHeadroomForecast = Double.NaN
+        thermalHeadroomThresholdsAvailable = false
         batteryAvailable = false
         batteryEnergyAvailable = false
         batteryCurrentMicroAmps = Long.MIN_VALUE
