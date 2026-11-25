@@ -29,6 +29,8 @@ extern const uint32_t SHA256_K[64];
 
 #ifdef HAVE_ARM_SHA2
 void compress_arm(uint32_t state[8], const uint32_t w[16]);
+void compress_arm_pair(uint32_t state_a[8], const uint32_t w_a[16],
+                       uint32_t state_b[8], const uint32_t w_b[16]);
 int arm_sha2_supported(void);
 #endif
 
