@@ -382,6 +382,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         }
     }
     private fun policyLoop() {
+        val batteryManager = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val batteryEnergyMonitor = BatteryEnergyMonitor()
         var lastHashes = 0L
         var lastTime = System.nanoTime()
         val rollingHashrate = HashrateWindow()
@@ -407,6 +409,32 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.plugged = plugged
             MinerState.tempAvailable = tempAvailable
             MinerState.tempC = if (tempAvailable) temp else Double.NaN
+
+            // Read the Android fuel-gauge's signed battery current. Positive is
+            // net charging; negative is net discharge. Prefer hardware-averaged
+            // current and fall back to instantaneous current only when unavailable.
+            fun validBatteryCurrent(value: Long?): Boolean =
+                value != null && value != Long.MIN_VALUE && value in -10_000_000L..10_000_000L
+            val averageCurrent = runCatching {
+                batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+            }.getOrNull()
+            val instantaneousCurrent = if (validBatteryCurrent(averageCurrent)) null else runCatching {
+                batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            }.getOrNull()
+            val batteryCurrent = averageCurrent.takeIf { validBatteryCurrent(it) }
+                ?: instantaneousCurrent.takeIf { validBatteryCurrent(it) }
+            val voltageMilliVolts = bi?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+            val energySnapshot = batteryEnergyMonitor.update(
+                currentMicroAmps = batteryCurrent,
+                voltageMilliVolts = voltageMilliVolts,
+                nowNanos = System.nanoTime()
+            )
+            MinerState.batteryEnergyAvailable = energySnapshot.available
+            MinerState.batteryCurrentMicroAmps = energySnapshot.currentMicroAmps ?: Long.MIN_VALUE
+            MinerState.batteryVoltageMilliVolts = energySnapshot.voltageMilliVolts ?: 0
+            MinerState.batteryNetPowerWatts = energySnapshot.netPowerWatts ?: Double.NaN
+            MinerState.batteryDischargedMilliWattHours = energySnapshot.dischargedMilliWattHours
+            MinerState.batteryEnergySampleCount = energySnapshot.validSampleCount
 
             if (tempAvailable && temp >= cfg.maxTemp) hot = true else if (tempAvailable && temp <= cfg.maxTemp - 4.0) hot = false
             // A limit of 100 means "no battery limit"; otherwise pause at the limit and resume 2% below it.
