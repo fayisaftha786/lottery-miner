@@ -207,23 +207,39 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         }
     }
 
-    override fun onCandidateSubmitted() {
-        MinerState.log("Block-candidate submit sent; awaiting pool response (not block confirmation)")
+    override fun onCandidateSubmitted(candidateId: String) {
+        updateCandidateJournal(candidateId, "ATTEMPTED_UNCONFIRMED")
+        MinerState.log("Block-candidate $candidateId submit sent; awaiting pool response (not block confirmation)")
     }
 
-    override fun onCandidateResult(accepted: Boolean, reason: String?) {
+    override fun onCandidateResult(candidateId: String, accepted: Boolean, reason: String?) {
+        updateCandidateJournal(candidateId, if (accepted) "POOL_ACCEPTED_UNCONFIRMED" else "POOL_REJECTED")
         MinerState.log(
-            if (accepted) "Pool accepted candidate submit; Bitcoin block acceptance is NOT confirmed"
-            else "Pool rejected candidate submit: ${reason ?: "unknown reason"}"
+            if (accepted) "Pool accepted candidate $candidateId submit; Bitcoin block acceptance is NOT confirmed"
+            else "Pool rejected candidate $candidateId submit: ${reason ?: "unknown reason"}"
         )
     }
 
-    override fun onCandidateUnknown(count: Int) {
-        if (count > 0) MinerState.log("$count block-candidate submit response(s) unknown; not counted as accepted")
+    override fun onCandidateUnknown(candidateId: String) {
+        updateCandidateJournal(candidateId, "RESPONSE_UNKNOWN")
+        MinerState.log("Block-candidate $candidateId response unknown; not counted as accepted")
     }
 
-    override fun onCandidateDropped(count: Int) {
-        if (count > 0) MinerState.log("$count block-candidate submit(s) not sent: response queue full")
+    override fun onCandidateDropped(candidateId: String) {
+        updateCandidateJournal(candidateId, "NOT_SENT_QUEUE_FULL")
+        MinerState.log("Block-candidate $candidateId not sent: response queue full")
+    }
+
+    // A delayed response may only update the journal entry for its own hash.
+    // If a newer candidate replaced it, leave that newer entry untouched.
+    private fun updateCandidateJournal(candidateId: String, state: String) {
+        val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
+        if (journal.getString("hash", null) != candidateId) {
+            MinerState.log("Late response for older candidate $candidateId ignored by current journal")
+            return
+        }
+        journal.edit().putString("submission_state", state)
+            .putLong("last_response_at_ms", System.currentTimeMillis()).commit()
     }
     override fun onShareResult(accepted: Boolean, reason: String?) {
         MinerState.lastShareResponseAt = System.currentTimeMillis()
@@ -444,7 +460,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                         activeClient.submit(
                             j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
                             isShare = shareHit,
-                            isBlockCandidate = true
+                            candidateId = candidateHash
                         )
                     }
                 }
