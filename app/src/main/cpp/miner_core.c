@@ -195,11 +195,51 @@ static int selftest(compress_fn_t fn) {
     static const uint8_t expect_display[32] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68, 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93,
         0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1, 0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f};
+    static const struct {
+        const char *header_hex;
+        const char *digest_hex;
+    } independent_vectors[] = {
+        {
+            "00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567b"
+            "a0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b"
+            "40658aafd4f91e43688db2d740302010",
+            "739f31ec63e5b01cd933fcb42f27ece2663dd02009b9b1e0a2a809f02ffb93c2"
+        },
+        {
+            "355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0"
+            "d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50"
+            "759abfe4092e53789dc2e70c41312111",
+            "446f8c36675dcba95c9a4ea2d07b19ed400871034f1a30182597056ed6c2b66b"
+        },
+        {
+            "6a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e5"
+            "0a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085"
+            "aacff4193e6388add2f71c4142322212",
+            "c0408d345262a2e27f6de904a895afb464127d3f65b6426821a6a4556ec10153"
+        },
+        {
+            "9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a"
+            "3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095ba"
+            "df04294e7398bde2072c517643332313",
+            "5f77e202d08675a2ff8d72ec616e90570ba97ad9074dec54c72a1b4eac34f01f"
+        }
+    };
+
     uint8_t hdr[80], out[32];
     hex2bin(GENESIS_HEX, hdr, 80);
     hash_with(fn, hdr, out);
     for (int i = 0; i < 32; i++)
         if (out[31 - i] != expect_display[i]) return 0;
+
+    /* These independent known-answer vectors are checked for every candidate
+     * compressor, including ARM SHA2, before it is selected for mining. */
+    for (size_t v = 0; v < sizeof(independent_vectors) / sizeof(independent_vectors[0]); v++) {
+        uint8_t expected[32];
+        hex2bin(independent_vectors[v].header_hex, hdr, 80);
+        hex2bin(independent_vectors[v].digest_hex, expected, 32);
+        hash_with(fn, hdr, out);
+        if (memcmp(out, expected, 32) != 0) return 0;
+    }
 
     uint8_t tgt[32];
     memset(tgt, 0, 32);
