@@ -56,6 +56,11 @@ class StratumClient(
         fun onShareResult(accepted: Boolean, reason: String?)
         fun onShareUnknown(count: Int)
         fun onShareDropped(count: Int)
+        // Candidate-only submits are not ordinary pool feedback shares.
+        fun onCandidateSubmitted(candidateId: String) {}
+        fun onCandidateResult(candidateId: String, accepted: Boolean, reason: String?) {}
+        fun onCandidateUnknown(candidateId: String) {}
+        fun onCandidateDropped(candidateId: String) {}
         fun onStatus(msg: String)
     }
 
@@ -63,7 +68,9 @@ class StratumClient(
     @Volatile private var closed = false
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
-    private val pendingSubmits: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+    private val pendingSubmits: MutableMap<Int, PendingSubmit> = ConcurrentHashMap()
+
+    private data class PendingSubmit(val isShare: Boolean, val candidateId: String?)
 
     companion object { private const val MAX_PENDING_SUBMITS = 256; private const val MAX_LINE_CHARS = 65536 }
 
@@ -100,9 +107,11 @@ class StratumClient(
             try { s.close() } catch (_: Exception) { }
             socket = null
             writer = null
-            val unresolved = pendingSubmits.size
+            val unresolved = pendingSubmits.values.toList()
             pendingSubmits.clear()
-            if (unresolved > 0) listener.onShareUnknown(unresolved)
+            val shares = unresolved.count { it.isShare }
+            if (shares > 0) listener.onShareUnknown(shares)
+            unresolved.mapNotNull { it.candidateId }.forEach(listener::onCandidateUnknown)
         }
     }
 
@@ -139,21 +148,24 @@ class StratumClient(
         try { socket?.close() } catch (_: Exception) { }
     }
 
-    @Synchronized fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String) {
+    @Synchronized fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String, isShare: Boolean = true, candidateId: String? = null) {
         if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
-            listener.onShareDropped(1)
-            listener.onStatus("Share not submitted: pending-response queue is full")
+            if (isShare) listener.onShareDropped(1)
+            candidateId?.let(listener::onCandidateDropped)
+            listener.onStatus("Stratum submit not sent: pending-response queue is full")
             return
         }
         val id = nextId.incrementAndGet()
-        pendingSubmits.add(id)
+        pendingSubmits[id] = PendingSubmit(isShare, candidateId)
         try {
             send(id, "mining.submit", JSONArray().put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex))
-            listener.onShareSubmitted()
+            if (isShare) listener.onShareSubmitted()
+            candidateId?.let(listener::onCandidateSubmitted)
         } catch (e: Exception) {
             pendingSubmits.remove(id)
-            listener.onShareUnknown(1)
-            listener.onStatus("Share send failed; outcome is unknown: ${e.message}")
+            if (isShare) listener.onShareUnknown(1)
+            candidateId?.let(listener::onCandidateUnknown)
+            listener.onStatus("Stratum submit send failed; outcome is unknown: ${e.message}")
         }
     }
 
@@ -263,17 +275,25 @@ class StratumClient(
     // while worker submission can hold that lock before entering submit().
     @Synchronized
     private fun handleShareResponse(id: Int, message: JSONObject) {
-        if (!pendingSubmits.remove(id)) {
+        val pending = pendingSubmits.remove(id)
+        if (pending == null) {
             listener.onStatus("Ignored unmatched or duplicate pool response id=$id")
             return
         }
         val classification = classifyShareResponse(message)
         when (classification.accepted) {
-            true -> listener.onShareResult(true, null)
-            false -> listener.onShareResult(false, classification.reason)
+            true -> {
+                if (pending.isShare) listener.onShareResult(true, null)
+                pending.candidateId?.let { listener.onCandidateResult(it, true, null) }
+            }
+            false -> {
+                if (pending.isShare) listener.onShareResult(false, classification.reason)
+                pending.candidateId?.let { listener.onCandidateResult(it, false, classification.reason) }
+            }
             null -> {
-                listener.onShareUnknown(1)
-                listener.onStatus("Pool returned malformed share response; outcome unknown")
+                if (pending.isShare) listener.onShareUnknown(1)
+                pending.candidateId?.let(listener::onCandidateUnknown)
+                listener.onStatus("Pool returned malformed Stratum submit response; outcome unknown")
             }
         }
     }

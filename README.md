@@ -45,6 +45,18 @@ Configure these repository Actions secrets to enable signed releases:
 
 Never commit the keystore or passwords.
 
+## BOLT block-candidate rescue journal (v1.7.1)
+
+The native scan threshold is the numerically looser of the active pool share target and the Bitcoin network target. Every returned hash is classified independently in Kotlin:
+- Pool-share hits update the normal share counters only after their matching Stratum response.
+- Bitcoin network-target candidates are retained with their exact Stratum tuple (job ID, extranonce2, ntime, nonce, header, hash and network target) before submission is attempted.
+- Candidate submit responses are tracked by candidate hash, separately from ordinary feedback-share counters. Delayed responses can update only their matching history record.
+- The app retains up to the latest 100 distinct candidate records. The dashboard displays the latest candidate response state and history count.
+
+A pool response of accepted means only that the pool accepted the Stratum submit. It does **not** prove Bitcoin network acceptance or block confirmation. If no pool socket is active, the candidate is retained as waiting and stale Stratum work is never blindly replayed after reconnect. If local journal persistence fails, the app logs that the candidate cannot be recovered after a process death; it still makes one immediate in-memory submission attempt when a socket is active.
+
+This logic improves candidate detection and response bookkeeping; it does not speed up SHA-256d or increase the probability of a valid hash per nonce. Phone-only CPU mining remains extraordinarily unlikely to find a Bitcoin block.
+
 ## Android 16 compatibility
 
 The app compiles and targets Android 16 (API 36). Its scrolling root applies system-bar and display-cutout insets for edge-to-edge layouts, keeping the mining controls and diagnostic panels accessible on modern devices. The foreground service remains explicitly user-started and uses the declared `specialUse` service type.

@@ -40,6 +40,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val totalHashes = AtomicLong(0)
     private val jobGeneration = AtomicLong(0)
     private val workLock = Any()
+    private val candidateJournalLock = Any()
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
     private val adaptiveWorkerController = AdaptiveWorkerController()
@@ -206,6 +207,94 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.log("$count share(s) not submitted: pool response queue full")
         }
     }
+
+    override fun onCandidateSubmitted(candidateId: String) {
+        updateCandidateJournal(candidateId, "ATTEMPTED_UNCONFIRMED")
+        MinerState.log("Block-candidate $candidateId submit sent; awaiting pool response (not block confirmation)")
+    }
+
+    override fun onCandidateResult(candidateId: String, accepted: Boolean, reason: String?) {
+        updateCandidateJournal(candidateId, if (accepted) "POOL_ACCEPTED_UNCONFIRMED" else "POOL_REJECTED")
+        MinerState.log(
+            if (accepted) "Pool accepted candidate $candidateId submit; Bitcoin block acceptance is NOT confirmed"
+            else "Pool rejected candidate $candidateId submit: ${reason ?: "unknown reason"}"
+        )
+    }
+
+    override fun onCandidateUnknown(candidateId: String) {
+        updateCandidateJournal(candidateId, "RESPONSE_UNKNOWN")
+        MinerState.log("Block-candidate $candidateId response unknown; not counted as accepted")
+    }
+
+    override fun onCandidateDropped(candidateId: String) {
+        updateCandidateJournal(candidateId, "NOT_SENT_QUEUE_FULL")
+        MinerState.log("Block-candidate $candidateId not sent: response queue full")
+    }
+
+    private data class CandidateRecordOutcome(val duplicate: Boolean, val persisted: Boolean)
+
+    // A delayed response updates only its own history record. The latest summary
+    // is updated only while it still points at that candidate hash.
+    private fun updateCandidateJournal(candidateId: String, state: String) {
+        synchronized(candidateJournalLock) {
+            val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            val updated = CandidateHistory.updateState(
+                journal.getString("history_json", null), candidateId, state, now
+            )
+            val edit = journal.edit().putString("history_json", updated.json)
+            if (journal.getString("hash", null) == candidateId) {
+                edit.putString("submission_state", state).putLong("last_response_at_ms", now)
+            } else if (!updated.matched) {
+                MinerState.log("Late response for candidate $candidateId has no retained history record")
+            }
+            edit.commit()
+        }
+    }
+
+    private fun recordCandidateDetection(
+        journal: android.content.SharedPreferences,
+        jobId: String,
+        extranonce2: String,
+        ntime: String,
+        nonce: String,
+        header: String,
+        hash: String,
+        networkTarget: String,
+        detectedAt: Long
+    ): CandidateRecordOutcome = synchronized(candidateJournalLock) {
+        val appended = CandidateHistory.append(
+            journal.getString("history_json", null),
+            CandidateHistory.Record(
+                jobId = jobId,
+                extranonce2 = extranonce2,
+                ntime = ntime,
+                nonce = nonce,
+                header = header,
+                hash = hash,
+                networkTarget = networkTarget,
+                detectedAtMs = detectedAt
+            )
+        )
+        if (journal.getString("hash", null) == hash || appended.duplicate) {
+            return@synchronized CandidateRecordOutcome(duplicate = true, persisted = true)
+        }
+
+        val saved = journal.edit()
+            .putString("job_id", jobId)
+            .putString("extranonce2", extranonce2)
+            .putString("ntime", ntime)
+            .putString("nonce", nonce)
+            .putString("header", header)
+            .putString("hash", hash)
+            .putString("network_target", networkTarget)
+            .putString("submission_state", "DETECTED_NOT_CONFIRMED")
+            .putLong("detected_at_ms", detectedAt)
+            .putString("history_json", appended.json)
+            .putInt("history_count", appended.count)
+            .commit()
+        CandidateRecordOutcome(duplicate = false, persisted = saved)
+    }
     override fun onShareResult(accepted: Boolean, reason: String?) {
         MinerState.lastShareResponseAt = System.currentTimeMillis()
         if (accepted) {
@@ -312,7 +401,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val en2 = encodeEn2(counter, size)
             counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
             val header = j.buildHeader(en1Snapshot, en2)
-            val target = shareTarget.copyOf()
+            // Scan against the numerically larger (looser) of the pool share target
+            // and Bitcoin network target. This guarantees that every network-target
+            // candidate reaches Kotlin for exact classification, even if it is not
+            // a pool-difficulty share.
+            val networkTarget = Util.toBytes32(Util.nbitsToTarget(j.nbitsHex))
+            val target = Util.candidateScanTarget(shareTarget.copyOf(), networkTarget)
 
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
@@ -327,7 +421,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     /**
      * If the native result buffer overflows, discard the partial result and rescan
-     * the range as smaller non-overlapping chunks so every pool-target hit is submitted.
+     * the range as smaller non-overlapping chunks so every scan-target hit reaches Kotlin for exact share/candidate classification.
      * Hash accounting includes the extra real work performed by retry scans.
      */
     private fun scanRange(
@@ -362,10 +456,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
             return
         }
-        for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
+        for (k in 0 until nf) handleShare(j, generation, header, found[k], en2)
     }
 
-    private fun handleShare(j: Job, generation: Long, target: ByteArray, header: ByteArray, nonce: Int, en2: ByteArray) {
+    private fun handleShare(j: Job, generation: Long, header: ByteArray, nonce: Int, en2: ByteArray) {
         if (!running || current !== j || jobGeneration.get() != generation) return
         val h = header.copyOf()
         h[76] = nonce.toByte()
@@ -375,16 +469,56 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val digest = Native.sha256dHeader(h)
         val value = BigInteger(1, digest.reversedArray())
-        if (value > BigInteger(1, target)) return
+        val shareHit = value <= BigInteger(1, shareTarget)
+        val networkTarget = Util.nbitsToTarget(j.nbitsHex)
+        val isBlock = value <= networkTarget
+        if (!shareHit && !isBlock) return
         val nonceHex = String.format(java.util.Locale.US, "%08x", nonce)
-        val isBlock = value <= Util.nbitsToTarget(j.nbitsHex)
         synchronized(workLock) {
             if (!running || current !== j || jobGeneration.get() != generation) return
             if (isBlock) {
-                MinerState.blockCandidateDetected = true
-                MinerState.log("Local network-target candidate detected; submitting to pool (not confirmed)")
+                // Persist the exact Stratum candidate tuple before attempting network I/O.
+                // CKPool reconstructs the full block from its retained job template.
+                val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
+                val candidateHash = Util.bytesToHex(digest.reversedArray())
+                val detectedAt = System.currentTimeMillis()
+                val candidateRecord = recordCandidateDetection(
+                    journal, j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
+                    Util.bytesToHex(h), candidateHash,
+                    networkTarget.toString(16).padStart(64, '0'), detectedAt
+                )
+                val duplicate = candidateRecord.duplicate
+                if (!duplicate) {
+                    MinerState.blockCandidateDetected = true
+                    MinerState.log(
+                        if (candidateRecord.persisted) "BLOCK CANDIDATE saved to bounded history; pool submission will be attempted (not confirmed)"
+                        else "BLOCK CANDIDATE history save failed; submitting current candidate once without durable recovery"
+                    )
+                } else {
+                    MinerState.log("Duplicate block-candidate hash suppressed; retained candidate record unchanged")
+                }
+                if (!duplicate) {
+                    val activeClient = client
+                    if (activeClient == null) {
+                        updateCandidateJournal(candidateHash, "WAITING_NO_CONNECTION")
+                        MinerState.log("BLOCK CANDIDATE retained: no active pool socket; not replaying stale work")
+                    } else {
+                        // Mark before I/O: a process death after this point must not
+                        // trigger an unsafe blind replay on a different Stratum session.
+                        updateCandidateJournal(candidateHash, "ATTEMPTED_UNCONFIRMED")
+                        activeClient.submit(
+                            j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
+                            isShare = shareHit,
+                            candidateId = candidateHash
+                        )
+                    }
+                }
+            } else {
+                client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
             }
-            client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+            // Network-target candidates are submitted even when they miss the pool
+            // share target. Candidate-only submissions are tracked separately in
+            // the rescue journal and are never presented as confirmed block wins.
         }
     }
     private fun policyLoop() {
