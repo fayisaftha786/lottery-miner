@@ -203,14 +203,23 @@ class MainActivity : AppCompatActivity() {
                     thermalStatus == null || thermalStatus < PowerManager.THERMAL_STATUS_NONE
                 ) 1 else cores
                 val thermalSafe = {
+                    // Re-read battery temperature during the benchmark, not just at start.
+                    val batteryNow = applicationContext.registerReceiver(
+                        null,
+                        IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                    )
+                    val rawTempNow = batteryNow?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                    val batteryStillSafe = rawTempNow > 0 &&
+                        rawTempNow / 10.0 < configuredMaxTemp - 3.0
                     val currentStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         powerManager.currentThermalStatus
                     } else {
                         null
                     }
-                    currentStatus == null ||
+                    val androidThermalSafe = currentStatus == null ||
                         (currentStatus >= PowerManager.THERMAL_STATUS_NONE &&
                             currentStatus < PowerManager.THERMAL_STATUS_MODERATE)
+                    batteryStillSafe && androidThermalSafe
                 }
                 val result = Sha256dBenchmark.runScaling(
                     benchmarkWorkers,
