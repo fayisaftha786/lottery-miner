@@ -12,7 +12,7 @@ object Native {
     external fun usesArmPairScan(): Boolean
 
     /**
-     * Scans nonces [start, start+count). Returns number of shares found (nonces in [found]).
+     * Scans nonces [start, start+count). Returns hashes at or below the supplied scan target (nonces in [found]); Kotlin classifies each hit as a pool share and/or network block candidate.
      * best[0] = best share difficulty, best[1] = its nonce, best[2] = extra hits beyond found buffer.
      */
     external fun scan(
