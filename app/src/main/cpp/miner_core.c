@@ -129,9 +129,10 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
         fn(d, w3);
 
         /*
-         * Compare the nonce hash with the pool target and current best hash
+         * Compare the nonce hash with the supplied scan target and current best hash
          * directly as 32-bit words. Only a new best hash needs conversion to
-         * floating point, and only a pool hit is later re-hashed for submit.
+         * floating point. Kotlin re-hashes returned scan-target hits and classifies
+         * them independently against the pool share target and Bitcoin network target.
          */
         int target_order = 0;
         int best_order = 0;
