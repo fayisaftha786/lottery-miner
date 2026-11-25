@@ -253,14 +253,17 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         val forecast = runCatching {
                             powerManager.getThermalHeadroom(10).toDouble()
-                        }.getOrNull()
-                        val decision = ThermalHeadroomPolicy.evaluate(
-                            configuredWorkers = cores,
-                            requestedWorkers = benchmarkWorkers,
-                            forecastHeadroom = forecast,
-                            manufacturerThresholds = headroomThresholds
-                        )
-                        cachedHeadroomSafe = decision.workerCount == benchmarkWorkers
+                        }.getOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+                        // A missing forecast must not clear an earlier safety abort condition.
+                        if (forecast != null) {
+                            val decision = ThermalHeadroomPolicy.evaluate(
+                                configuredWorkers = cores,
+                                requestedWorkers = benchmarkWorkers,
+                                forecastHeadroom = forecast,
+                                manufacturerThresholds = headroomThresholds
+                            )
+                            cachedHeadroomSafe = decision.workerCount == benchmarkWorkers
+                        }
                         lastHeadroomCheckNanos = nowNanos
                     }
                     batteryStillSafe && androidThermalSafe && cachedHeadroomSafe
