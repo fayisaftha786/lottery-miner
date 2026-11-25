@@ -1,7 +1,5 @@
 package com.lottery.miner
 
-import kotlin.math.abs
-
 /**
  * Estimates net battery-side power/energy from Android fuel-gauge telemetry.
  *
@@ -39,8 +37,6 @@ internal class BatteryEnergyMonitor(
         voltageMilliVolts: Int?,
         nowNanos: Long
     ): BatteryEnergySnapshot {
-        require(nowNanos >= 0L)
-
         val current = currentMicroAmps?.takeIf {
             it != Long.MIN_VALUE && it in MIN_VALID_CURRENT_MICRO_AMPS..MAX_VALID_CURRENT_MICRO_AMPS
         }
