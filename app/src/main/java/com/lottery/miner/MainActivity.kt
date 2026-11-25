@@ -198,7 +198,7 @@ class MainActivity : AppCompatActivity() {
                 // When Android cannot report thermal state, follow the miner's fail-safe
                 // policy and benchmark only one worker rather than stress all CPU cores.
                 val benchmarkWorkers = if (
-                    thermalStatus == PowerManager.THERMAL_STATUS_UNKNOWN
+                    thermalStatus < PowerManager.THERMAL_STATUS_NONE
                 ) 1 else cores
                 val thermalSafe = {
                     val currentStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -207,7 +207,6 @@ class MainActivity : AppCompatActivity() {
                         null
                     }
                     currentStatus == null ||
-                        currentStatus == PowerManager.THERMAL_STATUS_UNKNOWN ||
                         currentStatus < PowerManager.THERMAL_STATUS_MODERATE
                 }
                 val result = Sha256dBenchmark.runScaling(
