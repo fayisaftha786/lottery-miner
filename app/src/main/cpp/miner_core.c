@@ -427,6 +427,7 @@ void miner_core_init(void) {
     g_fn = compress_scalar;
     g_hw = 0;
     g_ok = selftest(compress_scalar);
+    g_arm_pair_scan = 0;
 #ifdef HAVE_ARM_SHA2
     if (arm_sha2_supported() && selftest(compress_arm)) {
         g_fn = compress_arm;
