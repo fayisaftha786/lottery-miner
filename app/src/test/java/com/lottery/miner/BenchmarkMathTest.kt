@@ -5,6 +5,16 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class BenchmarkMathTest {
+    @Test fun candidateWorkersTestsEveryCountWithinDeviceLimit() {
+        assertEquals(listOf(1, 2, 3, 4, 5), BenchmarkMath.candidateWorkers(5))
+        assertEquals((1..8).toList(), BenchmarkMath.candidateWorkers(8))
+    }
+
+    @Test fun candidateWorkersRejectsOutOfRangeLimits() {
+        assertThrows(IllegalArgumentException::class.java) { BenchmarkMath.candidateWorkers(0) }
+        assertThrows(IllegalArgumentException::class.java) { BenchmarkMath.candidateWorkers(9) }
+    }
+
     @Test fun medianUsesMiddleSampleForOddCount() {
         assertEquals(4.0, BenchmarkMath.median(listOf(8.0, 2.0, 4.0)), 0.0)
     }
