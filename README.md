@@ -132,3 +132,12 @@ The local native C test suite also verifies target inclusivity, target-minus-one
 The benchmark compares worker counts in a randomized order, warms each candidate once, records repeated monotonic-time samples, and uses the median rather than the single highest sample. The recommendation chooses the lowest worker count retaining 98.5% of peak median throughput. The worker threads are prepared before timing begins; each worker scans disjoint nonce lanes using a fixed-size chunk and wraps the nonce modulo 2^32. A zero target ensures this diagnostic benchmark does not generate pool shares.
 
 The recommendation is explicitly throughput-based. The app does not claim it measures energy efficiency: battery percentage and battery temperature are not calibrated wall-power or CPU-junction sensors. The benchmark refuses to run when battery temperature is unavailable or too close to the configured limit; it re-checks battery temperature during the run, aborting if the safety margin is lost. Android thermal MODERATE or higher aborts the run, and unavailable Android thermal status caps the benchmark at one worker. A 30–60 minute real-device test is required before adopting a long-run worker setting. The benchmark does not run while mining is active and never starts mining automatically.
+
+
+## Battery-side energy telemetry (v1.5.0)
+
+During a mining session, the app samples Android `BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE` and falls back to `CURRENT_NOW` only if the averaged reading is unavailable. It combines signed battery current with the battery voltage broadcast to estimate net battery-side power. Positive current/power means net charging; negative means net discharging, per the Android API contract.
+
+The app integrates only contiguous samples where both endpoints show battery discharge, using monotonic time and a maximum 15-second sample gap. Unsupported/invalid current or voltage readings are shown as N/A and break the integration chain; missing telemetry is never replaced with zero. The discharge estimate resets with each new mining session.
+
+This is not USB input power, wall power, whole-device consumption, or mining-only power. Fuel-gauge availability, averaging period, and calibration vary by device. Use an external USB power meter when entering watts for electricity-cost estimation. This estimate must not be used as a safety limit or profitability input.
