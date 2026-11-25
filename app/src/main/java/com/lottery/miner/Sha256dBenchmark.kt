@@ -218,8 +218,10 @@ object Sha256dBenchmark {
             }, "sha256d-bench-$index")
         }
 
-        threads.forEach { it.start() }
         try {
+            // Start inside the guarded block: if the OS refuses to create one
+            // worker thread, release already-started workers and join them below.
+            threads.forEach { it.start() }
             check(ready.await(READY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 "Benchmark workers did not become ready"
             }
