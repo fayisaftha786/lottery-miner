@@ -161,12 +161,14 @@ object Sha256dBenchmark {
         val chunk = BENCHMARK_CHUNK
         val threads = (0 until workers).map { index ->
             Thread({
-                ready.countDown()
+                var announcedReady = false
                 try {
                     Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
                     val found = IntArray(8)
                     val best = DoubleArray(3)
                     var nonce = index.toLong() * chunk.toLong()
+                    ready.countDown()
+                    announcedReady = true
                     startGate.await()
                     while (!stop.get() && System.nanoTime() < deadlineNanos.get()) {
                         val result = Native.scan(header, nonce.toInt(), chunk, target, found, best)
@@ -176,6 +178,7 @@ object Sha256dBenchmark {
                         nonce = (nonce + workers.toLong() * chunk.toLong()) and UINT32_MASK
                     }
                 } catch (error: Throwable) {
+                    if (!announcedReady) ready.countDown()
                     failure.compareAndSet(null, error)
                     stop.set(true)
                 }
