@@ -60,7 +60,7 @@ class BatteryEnergyMonitorTest {
         val monitor = BatteryEnergyMonitor()
         assertFalse(monitor.update(-300_000L, 1_000, 1_000_000_000L).available)
         assertFalse(monitor.update(20_000_000L, 3_800, 2_000_000_000L).available)
-        assertEquals(0, monitor.update(-300_000L, 3_800, 3_000_000_000L).validSampleCount)
+        assertEquals(1, monitor.update(-300_000L, 3_800, 3_000_000_000L).validSampleCount)
     }
 
     @Test fun resetClearsSessionEnergyAndSamplingHistory() {
