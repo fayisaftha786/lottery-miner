@@ -184,18 +184,34 @@ class MainActivity : AppCompatActivity() {
                     "Battery temperature is too close to the configured limit; let the phone cool before benchmarking."
                 }
                 val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    check(powerManager.currentThermalStatus < PowerManager.THERMAL_STATUS_MODERATE) {
+                val cores = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
+                val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    powerManager.currentThermalStatus
+                } else {
+                    null
+                }
+                if (thermalStatus != null) {
+                    check(thermalStatus < PowerManager.THERMAL_STATUS_MODERATE) {
                         "Android thermal status is MODERATE or higher; let the phone cool before benchmarking."
                     }
                 }
-                val cores = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
+                // When Android cannot report thermal state, follow the miner's fail-safe
+                // policy and benchmark only one worker rather than stress all CPU cores.
+                val benchmarkWorkers = if (
+                    thermalStatus == PowerManager.THERMAL_STATUS_UNKNOWN
+                ) 1 else cores
                 val thermalSafe = {
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-                        powerManager.currentThermalStatus < PowerManager.THERMAL_STATUS_MODERATE
+                    val currentStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        powerManager.currentThermalStatus
+                    } else {
+                        null
+                    }
+                    currentStatus == null ||
+                        currentStatus == PowerManager.THERMAL_STATUS_UNKNOWN ||
+                        currentStatus < PowerManager.THERMAL_STATUS_MODERATE
                 }
                 val result = Sha256dBenchmark.runScaling(
-                    cores,
+                    benchmarkWorkers,
                     durationMillis = 900L,
                     repeatCount = 2,
                     shouldContinue = thermalSafe
@@ -213,6 +229,7 @@ class MainActivity : AppCompatActivity() {
                     tvBenchmark.text = buildString {
                         appendLine("ADAPTIVE MINING LAB · REPEATED DEVICE SCALING")
                         appendLine("Algorithm: Bitcoin SHA-256d · Hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
+                        appendLine("Maximum benchmark workers: $benchmarkWorkers")
                         appendLine("Each configuration: warm-up + 2 randomized measurements")
                         result.results.forEach { reading ->
                             appendLine("${reading.workers} worker(s): median ${Util.fmtRate(reading.medianHashesPerSecond)}")
