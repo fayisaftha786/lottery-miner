@@ -303,12 +303,82 @@ static uint32_t scan_impl_arm_pair(
     return stored;
 }
 
+/*
+ * Run the complete 80-byte double-SHA256 header flow for two independent
+ * headers through the paired compressor. Startup compares both outputs with
+ * the already validated single-state ARM implementation.
+ */
+static void hash_pair_with_arm(
+    const uint8_t header_a[80], const uint8_t header_b[80],
+    uint8_t out_a[32], uint8_t out_b[32]
+) {
+    uint32_t first_a[16], first_b[16], mid_a[8], mid_b[8];
+    uint32_t second_a[16], second_b[16], state_a[8], state_b[8];
+    uint32_t third_a[16], third_b[16], digest_a[8], digest_b[8];
+
+    for (int i = 0; i < 16; ++i) {
+        first_a[i] = be32(header_a + 4 * i);
+        first_b[i] = be32(header_b + 4 * i);
+    }
+    memcpy(mid_a, IV, 32);
+    memcpy(mid_b, IV, 32);
+    compress_arm_pair(mid_a, first_a, mid_b, first_b);
+
+    const uint8_t *headers[2] = {header_a, header_b};
+    uint32_t *second_blocks[2] = {second_a, second_b};
+    for (int which = 0; which < 2; ++which) {
+        uint32_t *block = second_blocks[which];
+        const uint8_t *header = headers[which];
+        block[0] = be32(header + 64);
+        block[1] = be32(header + 68);
+        block[2] = be32(header + 72);
+        block[3] = be32(header + 76);
+        block[4] = 0x80000000u;
+        for (int i = 5; i < 15; ++i) block[i] = 0;
+        block[15] = 640;
+    }
+    memcpy(state_a, mid_a, 32);
+    memcpy(state_b, mid_b, 32);
+    compress_arm_pair(state_a, second_a, state_b, second_b);
+
+    uint32_t *third_blocks[2] = {third_a, third_b};
+    uint32_t *states[2] = {state_a, state_b};
+    for (int which = 0; which < 2; ++which) {
+        uint32_t *block = third_blocks[which];
+        memcpy(block, states[which], 32);
+        block[8] = 0x80000000u;
+        for (int i = 9; i < 15; ++i) block[i] = 0;
+        block[15] = 256;
+    }
+    memcpy(digest_a, IV, 32);
+    memcpy(digest_b, IV, 32);
+    compress_arm_pair(digest_a, third_a, digest_b, third_b);
+    digest_bytes(digest_a, out_a);
+    digest_bytes(digest_b, out_b);
+}
+
 /* Runtime equivalence gate: compare the paired scanner against the known-good
  * single-state ARM scanner, including odd counts, target hits and uint32 wrap. */
 static int selftest_arm_pair_scan(void) {
     uint8_t header[80], target[32];
     for (size_t i = 0; i < sizeof(header); ++i) {
         header[i] = (uint8_t)(i * 37u + 19u);
+    }
+
+    /* First verify every block stage of the paired hash path against the
+     * single-state ARM compressor, whose four independent vectors passed. */
+    for (uint32_t trial = 0; trial < 8; ++trial) {
+        uint8_t header_a[80], header_b[80], expected_a[32], expected_b[32];
+        uint8_t actual_a[32], actual_b[32];
+        for (size_t i = 0; i < 80; ++i) {
+            header_a[i] = (uint8_t)(i * 29u + trial * 17u + 3u);
+            header_b[i] = (uint8_t)(i * 43u + trial * 31u + 11u);
+        }
+        hash_with(compress_arm, header_a, expected_a);
+        hash_with(compress_arm, header_b, expected_b);
+        hash_pair_with_arm(header_a, header_b, actual_a, actual_b);
+        if (memcmp(expected_a, actual_a, 32) != 0 ||
+            memcmp(expected_b, actual_b, 32) != 0) return 0;
     }
 
     const uint8_t target_modes[3] = {0xffu, 0x7fu, 0x00u};
