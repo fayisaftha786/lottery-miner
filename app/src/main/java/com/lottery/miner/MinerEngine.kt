@@ -28,6 +28,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
+        private const val MAX_CANDIDATE_HISTORY = 100
     }
 
     @Volatile private var running = false
@@ -43,7 +44,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val jobGeneration = AtomicLong(0)
     private val workLock = Any()
     private val candidateJournalLock = Any()
-    private companion object CandidateJournalLimits { const val MAX_CANDIDATE_HISTORY = 100 }
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
     private val adaptiveWorkerController = AdaptiveWorkerController()
