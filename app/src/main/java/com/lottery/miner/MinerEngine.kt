@@ -110,6 +110,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         // The next session starts a fresh monotonic-time window in policyLoop.
         MinerState.localHashrate5m = 0.0
         MinerState.localHashrateWindowSeconds = 0.0
+        MinerState.localHashrate30m = 0.0
+        MinerState.localHashrate30mWindowSeconds = 0.0
         MinerState.activeThreads = 0
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
@@ -384,9 +386,15 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun policyLoop() {
         val batteryManager = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val batteryEnergyMonitor = BatteryEnergyMonitor()
+        val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val headroomThresholds: Map<Int, Float> = if (Build.VERSION.SDK_INT >= 35 && powerManager != null) {
+            runCatching { powerManager.thermalHeadroomThresholds }.getOrDefault(emptyMap())
+        } else emptyMap()
+        var lastHeadroomSampleAtMillis = 0L
+        var latestHeadroomForecast: Double? = null
         var lastHashes = 0L
         var lastTime = System.nanoTime()
-        val rollingHashrate = HashrateWindow()
+        val sustainedPerformance = SustainedPerformanceMonitor()
         var hot = false
         var full = false
         while (running) {
@@ -461,14 +469,24 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             // already paused mining. Otherwise a moderate thermal status would
             // overwrite the real pause reason (for example, "not charging")
             // while the effective worker count remains zero.
-            val thermalStatus: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                runCatching {
-                    (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
-                }.getOrElse { ThermalWorkerPolicy.UNKNOWN }
-            } else {
-                null
-            }
+            val thermalStatus: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
+                runCatching { powerManager.currentThermalStatus }.getOrElse { ThermalWorkerPolicy.UNKNOWN }
+            } else null
             MinerState.androidThermalStatus = ThermalWorkerPolicy.label(thermalStatus)
+
+            // Android recommends polling this slow-moving estimate no more than about once per second.
+            // Ten-second sampling reduces overhead and uses device-provided thresholds only.
+            val elapsedNow = SystemClock.elapsedRealtime()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && powerManager != null &&
+                (lastHeadroomSampleAtMillis == 0L || elapsedNow - lastHeadroomSampleAtMillis >= 10_000L)
+            ) {
+                latestHeadroomForecast = runCatching {
+                    powerManager.getThermalHeadroom(10).toDouble()
+                }.getOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+                lastHeadroomSampleAtMillis = elapsedNow
+            }
+            MinerState.thermalHeadroomForecast = latestHeadroomForecast ?: Double.NaN
+            MinerState.thermalHeadroomThresholdsAvailable = headroomThresholds.isNotEmpty()
             if (target > 0 && thermalStatus != null) {
                 val thermalDecision = ThermalWorkerPolicy.evaluate(
                     configuredWorkers = cfg.threads,
@@ -477,6 +495,16 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 )
                 target = thermalDecision.workerCount
                 if (thermalDecision.reason.isNotBlank()) reason = thermalDecision.reason
+            }
+            if (target > 0 && headroomThresholds.isNotEmpty()) {
+                val headroomDecision = ThermalHeadroomPolicy.evaluate(
+                    configuredWorkers = cfg.threads,
+                    requestedWorkers = target,
+                    forecastHeadroom = latestHeadroomForecast,
+                    manufacturerThresholds = headroomThresholds
+                )
+                target = headroomDecision.workerCount
+                if (headroomDecision.reason.isNotBlank()) reason = headroomDecision.reason
             }
             // Do not ramp while waiting for pool authorization or a mining job.
             // Start conservatively only when real work is ready.
@@ -513,9 +541,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
-            val rolling = rollingHashrate.record(total, now)
-            MinerState.localHashrate5m = rolling.hashRateHps
-            MinerState.localHashrateWindowSeconds = rolling.windowSeconds
+            val sustained = sustainedPerformance.record(total, now)
+            MinerState.localHashrate5m = sustained.fiveMinuteRateHps
+            MinerState.localHashrateWindowSeconds = sustained.fiveMinuteWindowSeconds
+            MinerState.localHashrate30m = sustained.thirtyMinuteRateHps
+            MinerState.localHashrate30mWindowSeconds = sustained.thirtyMinuteWindowSeconds
             lastHashes = total
             lastTime = now
         }
