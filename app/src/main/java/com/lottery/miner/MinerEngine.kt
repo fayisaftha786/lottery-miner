@@ -391,25 +391,46 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 // Persist the exact Stratum candidate tuple before attempting network I/O.
                 // CKPool reconstructs the full block from its retained job template.
                 val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
-                val saved = journal.edit()
-                    .putString("job_id", j.id)
-                    .putString("extranonce2", Util.bytesToHex(en2))
-                    .putString("ntime", j.ntimeHex)
-                    .putString("nonce", nonceHex)
-                    .putString("header", Util.bytesToHex(h))
-                    .putString("hash", Util.bytesToHex(digest.reversedArray()))
-                    .putString("network_target", networkTarget.toString(16).padStart(64, '0'))
-                    .putLong("detected_at_ms", System.currentTimeMillis())
-                    .commit()
-                MinerState.blockCandidateDetected = true
-                MinerState.log(
-                    if (saved) "BLOCK CANDIDATE saved to rescue journal; submitting to Solo CKPool (not confirmed)"
-                    else "BLOCK CANDIDATE detected but journal save failed; attempting immediate pool submission"
-                )
+                val candidateHash = Util.bytesToHex(digest.reversedArray())
+                val duplicate = journal.getString("hash", null) == candidateHash
+                if (!duplicate) {
+                    val saved = journal.edit()
+                        .putString("job_id", j.id)
+                        .putString("extranonce2", Util.bytesToHex(en2))
+                        .putString("ntime", j.ntimeHex)
+                        .putString("nonce", nonceHex)
+                        .putString("header", Util.bytesToHex(h))
+                        .putString("hash", candidateHash)
+                        .putString("network_target", networkTarget.toString(16).padStart(64, '0'))
+                        .putString("submission_state", "DETECTED_NOT_CONFIRMED")
+                        .putLong("detected_at_ms", System.currentTimeMillis())
+                        .commit()
+                    MinerState.blockCandidateDetected = true
+                    MinerState.log(
+                        if (saved) "BLOCK CANDIDATE saved; pool submission will be attempted (not confirmed)"
+                        else "BLOCK CANDIDATE detected but journal save failed; immediate submission will be attempted"
+                    )
+                } else {
+                    MinerState.log("Duplicate block-candidate hash suppressed; existing journal entry retained")
+                }
+                if (!duplicate) {
+                    val activeClient = client
+                    if (activeClient == null) {
+                        journal.edit().putString("submission_state", "WAITING_NO_CONNECTION").commit()
+                        MinerState.log("BLOCK CANDIDATE retained: no active pool socket; not replaying stale work")
+                    } else {
+                        // Mark before I/O: a process death after this point must not
+                        // trigger an unsafe blind replay on a different Stratum session.
+                        journal.edit().putString("submission_state", "ATTEMPTED_UNCONFIRMED").commit()
+                        activeClient.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+                    }
+                }
+            } else {
+                client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
             }
-            // A network-target candidate must be submitted even if it did not meet
-            // the pool share target. Ordinary non-share hashes are never submitted.
-            client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+            // Network-target candidates are submitted even when they miss the pool
+            // share target. Candidate-only submissions are tracked separately in
+            // the rescue journal and are never presented as confirmed block wins.
         }
     }
     private fun policyLoop() {
