@@ -170,6 +170,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val configuredMaxTemp = etTemp.text.toString().trim().toDoubleOrNull() ?: 40.0
+        if (!configuredMaxTemp.isFinite() || configuredMaxTemp !in 30.0..45.0) {
+            Toast.makeText(this, "Temperature limit 30–45°C ഇടയിൽ നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
         btn.isEnabled = false
