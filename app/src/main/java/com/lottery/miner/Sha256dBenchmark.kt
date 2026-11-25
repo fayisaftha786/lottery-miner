@@ -103,6 +103,7 @@ object Sha256dBenchmark {
      * - randomized candidate order in each measured round,
      * - repeated measurements and median throughput,
      * - a short cool-down between trials.
+     * - every worker count from one through the device limit, not only powers of two.
      *
      * Timing starts only after all worker threads are ready, so thread creation
      * time is excluded. Nonce ranges are disjoint: worker i starts at i*chunk
@@ -111,21 +112,18 @@ object Sha256dBenchmark {
     fun runScaling(
         maxWorkers: Int,
         durationMillis: Long = 900L,
-        repeatCount: Int = 2,
+        repeatCount: Int = 3,
         shouldContinue: () -> Boolean = { true }
     ): ScalingResult {
         require(maxWorkers in 1..8) { "Worker count must be 1–8" }
         require(durationMillis in 500L..2_000L) { "Each benchmark must be 0.5–2 seconds" }
-        require(repeatCount in 2..4) { "Use 2–4 measured repetitions" }
+        require(repeatCount in 2..5) { "Use 2–4 measured repetitions" }
         check(running.compareAndSet(false, true)) { "A benchmark is already running" }
         try {
             val hw = Native.initCore()
             check(hw >= 0) { "Native SHA-256 self-test failed" }
 
-            val candidates = listOf(1, 2, 4, maxWorkers)
-                .filter { it <= maxWorkers }
-                .distinct()
-                .sorted()
+            val candidates = BenchmarkMath.candidateWorkers(maxWorkers)
             val samples = candidates.associateWith { mutableListOf<ScanReading>() }
             val warmed = HashSet<Int>()
 
