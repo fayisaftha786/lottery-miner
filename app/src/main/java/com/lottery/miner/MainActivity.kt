@@ -220,9 +220,11 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         null
                     }
-                    val androidThermalSafe = currentStatus == null ||
-                        (currentStatus >= PowerManager.THERMAL_STATUS_NONE &&
-                            currentStatus < PowerManager.THERMAL_STATUS_MODERATE)
+                    val androidThermalSafe = when {
+                        currentStatus == null -> true // pre-Android 10: battery-temperature guard only
+                        currentStatus < PowerManager.THERMAL_STATUS_NONE -> benchmarkWorkers == 1
+                        else -> currentStatus < PowerManager.THERMAL_STATUS_MODERATE
+                    }
                     batteryStillSafe && androidThermalSafe
                 }
                 val result = Sha256dBenchmark.runScaling(
@@ -434,6 +436,10 @@ class MainActivity : AppCompatActivity() {
             appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
             appendLine("Battery: ${if (s.batteryAvailable) "${s.battery}%" else "unavailable"}; charging: ${s.plugged}")
             appendLine("Battery temperature: ${if (s.tempAvailable) "${s.tempC} C" else "unavailable"}")
+            appendLine("Battery fuel-gauge current: ${if (s.batteryEnergyAvailable) "${s.batteryCurrentMicroAmps} uA" else "unavailable"}")
+            appendLine("Battery-side net power: ${if (s.batteryEnergyAvailable) "${s.batteryNetPowerWatts} W" else "unavailable"}")
+            appendLine("Session battery discharge estimate: ${s.batteryDischargedMilliWattHours} mWh (${s.batteryEnergySampleCount} samples)")
+            appendLine("Note: fuel-gauge data is battery-side net flow, not USB input power or miner-only power.")
             appendLine("Thermal state: ${s.pauseReason.ifBlank { "none" }}")
             appendLine("Last disconnect: ${s.lastDisconnectReason.ifBlank { "none recorded" }}")
             appendLine("Last pool event: ${s.lastPoolEvent.ifBlank { "none" }}")
@@ -679,6 +685,25 @@ class MainActivity : AppCompatActivity() {
         sb.append("ബാറ്ററി താപനില: ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
             .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
             .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
+        if (s.batteryEnergyAvailable) {
+            val currentMilliAmps = s.batteryCurrentMicroAmps / 1000.0
+            val direction = when {
+                currentMilliAmps > 1.0 -> "net charging"
+                currentMilliAmps < -1.0 -> "net discharging"
+                else -> "near-zero battery current"
+            }
+            sb.append("BATTERY FUEL-GAUGE: ")
+                .append(String.format(Locale.US, "%+.0f mA", currentMilliAmps))
+                .append(" · ").append(direction)
+                .append(" · ").append(String.format(Locale.US, "%+.2f W", s.batteryNetPowerWatts))
+                .append('\n')
+            sb.append("Session battery discharge estimate: ")
+                .append(String.format(Locale.US, "%.2f mWh", s.batteryDischargedMilliWattHours))
+                .append(" · samples ").append(s.batteryEnergySampleCount).append('\n')
+        } else {
+            sb.append("Battery power: N/A (fuel-gauge current/voltage unavailable)\n")
+        }
+        sb.append("കുറിപ്പ്: ഇത് battery-side sensor estimate മാത്രം; USB wall power അല്ല, miner-only power-ഉം അല്ല.\n")
         sb.append("Android thermal: ").append(s.androidThermalStatus).append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
