@@ -152,3 +152,11 @@ The worker benchmark now tests every integer worker count from 1 through the saf
 
 The 30-minute rolling reading and headroom forecast are live telemetry, not proof that a 30–60 minute physical-device test has been completed. Validate sustained hashrate, thermal behaviour, battery drain, accepted/rejected pool shares and reconnect behaviour on the target phone before treating a configuration as device-verified.
 
+## Paired ARM SHA-256d nonce scanning (v1.7.0)
+
+On ARM64 devices that report the ARMv8 SHA2 Crypto Extension, the native miner can process two independent nonce candidates in an interleaved SHA-256 compression schedule. The first 64-byte header midstate is still computed once per scan batch; each pair then runs the second and third SHA-256 compression blocks through the paired ARM compressor. An odd final nonce uses the already validated single-state compressor.
+
+The paired scanner is **not selected merely because the CPU advertises SHA2**. At native initialization it is compared against the previously validated single-state ARM scanner across 129-nonce ranges that cover odd batch length, uint32 nonce wrap, all-hit/partial-hit/no-hit targets, stored-hit order, overflow count, best nonce and best-difficulty output. The paired path is enabled only when all compared outputs match exactly. Otherwise the app retains the prior single-state ARM SHA2 path; if ARM SHA2 itself is unavailable or fails its independent known-answer self-tests, the scalar software implementation remains the fallback.
+
+The dashboard and diagnostic export explicitly state whether the paired path passed its runtime equivalence gate. The optimization is a throughput candidate, not a promised percentage improvement. A real ARM phone benchmark and sustained thermal test are required to quantify its effect; host CI can compile Android ARM libraries but cannot execute the phone's SHA2 instructions.
+
