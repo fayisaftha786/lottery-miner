@@ -421,7 +421,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     /**
      * If the native result buffer overflows, discard the partial result and rescan
-     * the range as smaller non-overlapping chunks so every pool-target hit is submitted.
+     * the range as smaller non-overlapping chunks so every scan-target hit reaches Kotlin for exact share/candidate classification.
      * Hash accounting includes the extra real work performed by retry scans.
      */
     private fun scanRange(
@@ -456,10 +456,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
             return
         }
-        for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
+        for (k in 0 until nf) handleShare(j, generation, header, found[k], en2)
     }
 
-    private fun handleShare(j: Job, generation: Long, target: ByteArray, header: ByteArray, nonce: Int, en2: ByteArray) {
+    private fun handleShare(j: Job, generation: Long, header: ByteArray, nonce: Int, en2: ByteArray) {
         if (!running || current !== j || jobGeneration.get() != generation) return
         val h = header.copyOf()
         h[76] = nonce.toByte()
