@@ -76,7 +76,7 @@ Automatic algorithm switching remains disabled until live market/network/pool da
 
 ## Adaptive Mining Lab and profitability estimates
 
-The in-app single-thread reference benchmark is bounded to five seconds. The worker-scaling benchmark compares 1, 2, 4 and the device's maximum supported worker count, using a warm-up, randomized candidate order and two repeated 900 ms measurements by default. It runs at reduced thread priority only while phone mining is stopped. It scans deterministic synthetic headers against a zero target and never connects to a pool or submits shares. The near-peak median rate is saved locally for the estimator; it is not a wall-power or sustained-thermal measurement.
+The in-app single-thread reference benchmark is bounded to five seconds. The worker-scaling benchmark checks every worker count from 1 through the device's allowed maximum, with one warm-up and three randomized 900 ms measurements per count by default. It runs at reduced thread priority only while phone mining is stopped. It scans deterministic synthetic headers against a zero target and never connects to a pool or submits shares. The near-peak median rate is saved locally for the estimator; it is not a wall-power or sustained-thermal measurement.
 
 The Bitcoin estimator refreshes read-only public data on user request:
 - Bitcoin network difficulty and current block subsidy: Blockchain.com simple network API.
@@ -131,7 +131,7 @@ The local native C test suite also verifies target inclusivity, target-minus-one
 
 The benchmark compares worker counts in a randomized order, warms each candidate once, records repeated monotonic-time samples, and uses the median rather than the single highest sample. The recommendation chooses the lowest worker count retaining 98.5% of peak median throughput. The worker threads are prepared before timing begins; each worker scans disjoint nonce lanes using a fixed-size chunk and wraps the nonce modulo 2^32. A zero target ensures this diagnostic benchmark does not generate pool shares.
 
-The recommendation is explicitly throughput-based. The app does not claim it measures energy efficiency: battery percentage and battery temperature are not calibrated wall-power or CPU-junction sensors. The benchmark refuses to run when battery temperature is unavailable or too close to the configured limit; it re-checks battery temperature during the run, aborting if the safety margin is lost. Android thermal MODERATE or higher aborts the run, and unavailable Android thermal status caps the benchmark at one worker. A 30–60 minute real-device test is required before adopting a long-run worker setting. The benchmark does not run while mining is active and never starts mining automatically.
+The recommendation is explicitly throughput-based. The app does not claim it measures energy efficiency: battery percentage and battery temperature are not calibrated wall-power or CPU-junction sensors. The benchmark refuses to run when battery temperature is unavailable or too close to the configured limit; it re-checks battery temperature during the run, aborting if the safety margin is lost. Android thermal MODERATE or higher aborts the run, and unavailable Android thermal status caps the benchmark at one worker. When the device exposes manufacturer-defined thermal headroom thresholds, the benchmark also honours the 10-second headroom forecast and stops if the corresponding worker limit is reached. Missing headroom/threshold data is reported as unavailable and never replaced with a guessed value. A 30–60 minute real-device test is still required before adopting a long-run worker setting. The benchmark does not run while mining is active and never starts mining automatically.
 
 
 ## Battery-side energy telemetry (v1.5.0)
@@ -141,3 +141,14 @@ During a mining session, the app samples Android `BatteryManager.BATTERY_PROPERT
 The app integrates only contiguous samples where both endpoints show battery discharge, using monotonic time and a maximum 15-second sample gap. Unsupported/invalid current or voltage readings are shown as N/A and break the integration chain; missing telemetry is never replaced with zero. The discharge estimate resets with each new mining session.
 
 This is not USB input power, wall power, whole-device consumption, or mining-only power. Fuel-gauge availability, averaging period, and calibration vary by device. Use an external USB power meter when entering watts for electricity-cost estimation. This estimate must not be used as a safety limit or profitability input.
+
+## Sustained performance and thermal headroom (v1.6.0)
+
+During an actual mining session, the dashboard records both the existing five-minute rolling hashrate and a thirty-minute rolling hashrate. Both are calculated from cumulative hashes returned by native nonce scans and monotonic elapsed time; the thirty-minute display grows only as real session time is observed. It does not fill missing history or forecast future hashrate. The 30-minute window retains up to 901 samples at the approximately two-second policy interval.
+
+On Android 11/API 30 and later, the miner samples `PowerManager.getThermalHeadroom(10)` at most once every ten seconds. On Android 15/API 35 and later, it also reads the manufacturer's thermal-headroom thresholds. Worker reductions based on the headroom forecast are enabled only when the device supplies usable thresholds. The forecast is compared with the matching device-provided LIGHT/MODERATE/SEVERE thresholds; it is never interpreted using a universal guessed threshold. Existing battery-temperature and Android thermal-status safeguards remain in force. Devices without the API or threshold data continue using those existing safeguards and display headroom as unavailable or informational.
+
+The worker benchmark now tests every integer worker count from 1 through the safe maximum, with three randomized measured rounds after one warm-up per candidate. It still runs only while mining is stopped, never opens a pool connection, uses a zero target, and does not submit shares. The recommendation remains the lowest worker count retaining at least 98.5% of peak median throughput. It is not an energy-efficiency claim.
+
+The 30-minute rolling reading and headroom forecast are live telemetry, not proof that a 30–60 minute physical-device test has been completed. Validate sustained hashrate, thermal behaviour, battery drain, accepted/rejected pool shares and reconnect behaviour on the target phone before treating a configuration as device-verified.
+
