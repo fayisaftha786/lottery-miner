@@ -91,6 +91,7 @@ object MinerState {
         battery = 0
         plugged = false
         activeThreads = 0
+        armPairScan = false
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
