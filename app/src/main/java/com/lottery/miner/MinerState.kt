@@ -41,6 +41,13 @@ object MinerState {
     @Volatile var battery = 0
     @Volatile var batteryAvailable = false
     @Volatile var plugged = false
+    /** Device fuel-gauge telemetry; this is battery-side net power, not USB wall power. */
+    @Volatile var batteryEnergyAvailable = false
+    @Volatile var batteryCurrentMicroAmps = Long.MIN_VALUE
+    @Volatile var batteryVoltageMilliVolts = 0
+    @Volatile var batteryNetPowerWatts = Double.NaN
+    @Volatile var batteryDischargedMilliWattHours = 0.0
+    @Volatile var batteryEnergySampleCount = 0
     @Volatile var activeThreads = 0
     @Volatile var totalThreads = 0
     @Volatile var hwSha = false
@@ -96,6 +103,12 @@ object MinerState {
         tempAvailable = false
         androidThermalStatus = "N/A"
         batteryAvailable = false
+        batteryEnergyAvailable = false
+        batteryCurrentMicroAmps = Long.MIN_VALUE
+        batteryVoltageMilliVolts = 0
+        batteryNetPowerWatts = Double.NaN
+        batteryDischargedMilliWattHours = 0.0
+        batteryEnergySampleCount = 0
         blockCandidateDetected = false
         pauseReason = ""
         logs.clear()
