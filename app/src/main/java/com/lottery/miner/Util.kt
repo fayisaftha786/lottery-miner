@@ -147,6 +147,18 @@ object Util {
 
     fun networkDifficulty(nbitsHex: String): Double = DIFF1.toDouble() / nbitsToTarget(nbitsHex).toDouble()
 
+    /**
+     * Native scan accepts one inclusive target. Use the looser (larger unsigned)
+     * threshold so its result set contains every pool share AND every Bitcoin
+     * network-target candidate. Kotlin then classifies each returned hash exactly.
+     */
+    fun candidateScanTarget(shareTarget: ByteArray, networkTarget: ByteArray): ByteArray {
+        require(shareTarget.size == 32 && networkTarget.size == 32) { "targets must be 32 bytes" }
+        val share = BigInteger(1, shareTarget)
+        val network = BigInteger(1, networkTarget)
+        return if (share >= network) shareTarget.copyOf() else networkTarget.copyOf()
+    }
+
     /** Expected pool feedback-share interval; this is not a block-finding or payout estimate. */
     fun expectedShareIntervalSeconds(difficulty: Double, hashRate: Double): Double {
         require(difficulty.isFinite() && difficulty > 0.0) { "difficulty must be positive and finite" }
