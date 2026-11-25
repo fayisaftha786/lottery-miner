@@ -16,6 +16,12 @@ internal object BenchmarkMath {
         }
     }
 
+    /** Returns every worker count in the bounded device-supported range. */
+    fun candidateWorkers(maxWorkers: Int): List<Int> {
+        require(maxWorkers in 1..8) { "Worker count must be 1–8" }
+        return (1..maxWorkers).toList()
+    }
+
     /**
      * Select the lowest worker count that retains the requested fraction of
      * peak median throughput. This is a throughput trade-off only; it is not
