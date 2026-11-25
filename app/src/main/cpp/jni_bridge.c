@@ -9,6 +9,11 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_initCore(JNIEnv *env, jobje
     return miner_core_uses_hw();
 }
 
+JNIEXPORT jboolean JNICALL Java_com_lottery_miner_Native_usesArmPairScan(JNIEnv *env, jobject thiz) {
+    (void)env; (void)thiz;
+    return miner_core_uses_arm_pair_scan() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scan(JNIEnv *env, jobject thiz, jbyteArray jheader,
                                                           jint start, jint count, jbyteArray jtarget,
                                                           jintArray jfound, jdoubleArray jbest) {
