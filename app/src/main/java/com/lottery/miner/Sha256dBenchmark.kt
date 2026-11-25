@@ -58,6 +58,27 @@ object Sha256dBenchmark {
         val hashesPerSecond: Double
     )
 
+    /** Poll a system thermal API at most once per interval across all benchmark workers. */
+    private class ThrottledSafetyCheck(private val check: () -> Boolean) {
+        private val lock = Any()
+        @Volatile private var nextCheckAtNanos = 0L
+        @Volatile private var lastSafe = true
+
+        fun isSafe(): Boolean {
+            val now = System.nanoTime()
+            if (now >= nextCheckAtNanos) {
+                synchronized(lock) {
+                    val checkedAt = System.nanoTime()
+                    if (checkedAt >= nextCheckAtNanos) {
+                        lastSafe = check()
+                        nextCheckAtNanos = checkedAt + SAFETY_CHECK_INTERVAL_NANOS
+                    }
+                }
+            }
+            return lastSafe
+        }
+    }
+
     private val running = AtomicBoolean(false)
 
     fun isRunning(): Boolean = running.get()
@@ -161,6 +182,7 @@ object Sha256dBenchmark {
         val failure = AtomicReference<Throwable?>(null)
         val stop = AtomicBoolean(false)
         val thermalAbort = AtomicBoolean(false)
+        val safetyCheck = ThrottledSafetyCheck(shouldContinue)
         val deadlineNanos = AtomicLong(0L)
         val ready = CountDownLatch(workers)
         val startGate = CountDownLatch(1)
@@ -177,7 +199,7 @@ object Sha256dBenchmark {
                     announcedReady = true
                     startGate.await()
                     while (!stop.get() && System.nanoTime() < deadlineNanos.get()) {
-                        if (!shouldContinue()) {
+                        if (!safetyCheck.isSafe()) {
                             thermalAbort.set(true)
                             stop.set(true)
                             break
@@ -248,5 +270,6 @@ object Sha256dBenchmark {
     private const val READY_TIMEOUT_SECONDS = 5L
     private const val JOIN_GRACE_MILLIS = 3_000L
     private const val STUCK_THREAD_JOIN_MILLIS = 1_000L
+    private const val SAFETY_CHECK_INTERVAL_NANOS = 500_000_000L
     private const val UINT32_MASK = 0xffff_ffffL
 }
