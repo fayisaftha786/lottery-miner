@@ -23,7 +23,7 @@ internal object CandidateHistory {
         val detectedAtMs: Long
     )
 
-    data class AppendResult(val json: String, val duplicate: Boolean)
+    data class AppendResult(val json: String, val duplicate: Boolean, val count: Int)
     data class UpdateResult(val json: String, val matched: Boolean)
 
     fun append(rawJson: String?, record: Record): AppendResult {
@@ -31,7 +31,7 @@ internal object CandidateHistory {
         val exists = (0 until history.length()).any { index ->
             history.optJSONObject(index)?.optString("hash") == record.hash
         }
-        if (exists) return AppendResult(history.toString(), duplicate = true)
+        if (exists) return AppendResult(history.toString(), duplicate = true, count = history.length())
 
         history.put(
             JSONObject()
@@ -46,7 +46,7 @@ internal object CandidateHistory {
                 .put("detected_at_ms", record.detectedAtMs)
         )
         while (history.length() > MAX_RECORDS) history.remove(0)
-        return AppendResult(history.toString(), duplicate = false)
+        return AppendResult(history.toString(), duplicate = false, count = history.length())
     }
 
     fun updateState(
