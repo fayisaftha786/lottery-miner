@@ -169,6 +169,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Benchmark നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
+        val configuredMaxTemp = etTemp.text.toString().trim().toDoubleOrNull() ?: 40.0
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
         btn.isEnabled = false
@@ -178,7 +179,6 @@ class MainActivity : AppCompatActivity() {
                 val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val batteryTempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
                 val batteryTempC = batteryTempTenths / 10.0
-                val configuredMaxTemp = etTemp.text.toString().trim().toDoubleOrNull() ?: 40.0
                 check(batteryTempTenths > 0) { "Battery temperature is unavailable; benchmark refused for safety." }
                 check(batteryTempC < configuredMaxTemp - 3.0) {
                     "Battery temperature is too close to the configured limit; let the phone cool before benchmarking."
