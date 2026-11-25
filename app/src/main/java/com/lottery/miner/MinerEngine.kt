@@ -291,6 +291,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             .putString("submission_state", "DETECTED_NOT_CONFIRMED")
             .putLong("detected_at_ms", detectedAt)
             .putString("history_json", appended.json)
+            .putInt("history_count", appended.count)
             .commit()
         CandidateRecordOutcome(duplicate = false, persisted = saved)
     }
