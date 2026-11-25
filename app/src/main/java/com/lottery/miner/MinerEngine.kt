@@ -512,12 +512,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 if (!duplicate) {
                     val activeClient = client
                     if (activeClient == null) {
-                        journal.edit().putString("submission_state", "WAITING_NO_CONNECTION").commit()
+                        updateCandidateJournal(candidateHash, "WAITING_NO_CONNECTION")
                         MinerState.log("BLOCK CANDIDATE retained: no active pool socket; not replaying stale work")
                     } else {
                         // Mark before I/O: a process death after this point must not
                         // trigger an unsafe blind replay on a different Stratum session.
-                        journal.edit().putString("submission_state", "ATTEMPTED_UNCONFIRMED").commit()
+                        updateCandidateJournal(candidateHash, "ATTEMPTED_UNCONFIRMED")
                         activeClient.submit(
                             j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
                             isShare = shareHit,
