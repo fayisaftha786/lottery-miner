@@ -9,8 +9,6 @@ import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import java.math.BigInteger
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -28,7 +26,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
-        private const val MAX_CANDIDATE_HISTORY = 100
     }
 
     @Volatile private var running = false
