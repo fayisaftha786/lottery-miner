@@ -60,6 +60,6 @@ class AdaptiveWorkerController(
     }
 
     companion object {
-        const val DEFAULT_RAMP_INTERVAL_MILLIS = 45_000L
+        const val DEFAULT_RAMP_INTERVAL_MILLIS = 2_000L
     }
 }

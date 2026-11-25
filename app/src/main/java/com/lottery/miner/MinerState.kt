@@ -10,7 +10,16 @@ object MinerState {
     @Volatile var running = false
     @Volatile var connected = false
     @Volatile var status = "നിർത്തി"
+    /** EMA of real native scan throughput, updated by the policy loop every ~2 seconds. */
     @Volatile var hashrate = 0.0
+    /** Rolling average derived from cumulative native hashes over at most five minutes. */
+    @Volatile var localHashrate5m = 0.0
+    @Volatile var localHashrateWindowSeconds = 0.0
+    /** Real rolling average over the observed portion of up to thirty minutes. */
+    @Volatile var localHashrate30m = 0.0
+    @Volatile var localHashrate30mWindowSeconds = 0.0
+    /** Wall-clock start of this app mining session; session counters reset on each start. */
+    @Volatile var sessionStartedAtMillis = 0L
     @Volatile var totalHashes = 0L
     val accepted = AtomicInteger(0)
     val rejected = AtomicInteger(0)
@@ -32,12 +41,24 @@ object MinerState {
     @Volatile var tempC = Double.NaN
     @Volatile var tempAvailable = false
     @Volatile var androidThermalStatus = "N/A"
+    /** Android thermal headroom forecast; NaN means unsupported/unavailable. */
+    @Volatile var thermalHeadroomForecast = Double.NaN
+    /** True only when Android exposes manufacturer-defined headroom thresholds. */
+    @Volatile var thermalHeadroomThresholdsAvailable = false
     @Volatile var battery = 0
     @Volatile var batteryAvailable = false
     @Volatile var plugged = false
+    /** Device fuel-gauge telemetry; this is battery-side net power, not USB wall power. */
+    @Volatile var batteryEnergyAvailable = false
+    @Volatile var batteryCurrentMicroAmps = Long.MIN_VALUE
+    @Volatile var batteryVoltageMilliVolts = 0
+    @Volatile var batteryNetPowerWatts = Double.NaN
+    @Volatile var batteryDischargedMilliWattHours = 0.0
+    @Volatile var batteryEnergySampleCount = 0
     @Volatile var activeThreads = 0
     @Volatile var totalThreads = 0
     @Volatile var hwSha = false
+    @Volatile var armPairScan = false
     @Volatile var blockCandidateDetected = false
     @Volatile var pauseReason = ""
 
@@ -62,9 +83,15 @@ object MinerState {
     fun reset() {
         connected = false
         hashrate = 0.0
+        localHashrate5m = 0.0
+        localHashrateWindowSeconds = 0.0
+        localHashrate30m = 0.0
+        localHashrate30mWindowSeconds = 0.0
+        sessionStartedAtMillis = System.currentTimeMillis()
         battery = 0
         plugged = false
         activeThreads = 0
+        armPairScan = false
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
@@ -86,7 +113,15 @@ object MinerState {
         tempC = Double.NaN
         tempAvailable = false
         androidThermalStatus = "N/A"
+        thermalHeadroomForecast = Double.NaN
+        thermalHeadroomThresholdsAvailable = false
         batteryAvailable = false
+        batteryEnergyAvailable = false
+        batteryCurrentMicroAmps = Long.MIN_VALUE
+        batteryVoltageMilliVolts = 0
+        batteryNetPowerWatts = Double.NaN
+        batteryDischargedMilliWattHours = 0.0
+        batteryEnergySampleCount = 0
         blockCandidateDetected = false
         pauseReason = ""
         logs.clear()

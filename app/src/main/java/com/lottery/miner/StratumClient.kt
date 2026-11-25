@@ -80,7 +80,14 @@ class StratumClient(
             val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
             send(1, "mining.subscribe", JSONArray().put("LotteryMiner/1.0"))
             while (true) {
-                val line = readBoundedLine(reader, MAX_LINE_CHARS) ?: break
+                val line = try {
+                    readBoundedLine(reader, MAX_LINE_CHARS)
+                } catch (e: java.net.SocketException) {
+                    // Closing the socket is the normal way to stop this blocking read.
+                    // Suppress only the expected close exception; unexpected socket errors
+                    // still reach the reconnect loop.
+                    if (closed) break else throw e
+                } ?: break
                 if (line.isBlank()) continue
                 try {
                     handle(JSONObject(line))
@@ -247,16 +254,26 @@ class StratumClient(
                 // The pool's mining.set_difficulty notification is the source of truth.
                 send(3, "mining.suggest_difficulty", JSONArray().put(1))
             }
-            else -> if (id >= 100 && pendingSubmits.remove(id)) {
-                val classification = classifyShareResponse(message)
-                when (classification.accepted) {
-                    true -> listener.onShareResult(true, null)
-                    false -> listener.onShareResult(false, classification.reason)
-                    null -> {
-                        listener.onShareUnknown(1)
-                        listener.onStatus("Pool returned malformed share response; outcome unknown")
-                    }
-                }
+            else -> if (id >= 100) handleShareResponse(id, message)
+        }
+    }
+
+    // Only share-response processing shares submit()'s monitor. Do not synchronize
+    // the full message handler: job notifications acquire the engine work lock,
+    // while worker submission can hold that lock before entering submit().
+    @Synchronized
+    private fun handleShareResponse(id: Int, message: JSONObject) {
+        if (!pendingSubmits.remove(id)) {
+            listener.onStatus("Ignored unmatched or duplicate pool response id=$id")
+            return
+        }
+        val classification = classifyShareResponse(message)
+        when (classification.accepted) {
+            true -> listener.onShareResult(true, null)
+            false -> listener.onShareResult(false, classification.reason)
+            null -> {
+                listener.onShareUnknown(1)
+                listener.onStatus("Pool returned malformed share response; outcome unknown")
             }
         }
     }

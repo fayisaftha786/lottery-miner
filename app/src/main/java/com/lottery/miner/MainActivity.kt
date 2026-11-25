@@ -2,10 +2,13 @@ package com.lottery.miner
 
 import android.Manifest
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -52,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var benchmarkRunning = false
     @Volatile private var profitabilityFetchInFlight = false
     private var lastBenchmarkHps = 0.0
+    private var lastBenchmarkUsedArmPair = false
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
@@ -108,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
         lastBenchmarkHps = p.getString("lastBenchmarkHps", "0.0")?.toDoubleOrNull() ?: 0.0
+        lastBenchmarkUsedArmPair = p.getBoolean("lastBenchmarkUsedArmPair", false)
         etMiningPower.setText(p.getString("miningPowerWatts", ""))
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
@@ -166,26 +171,155 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Benchmark നടത്താൻ mining നിർത്തിയിരിക്കണം.", Toast.LENGTH_LONG).show()
             return
         }
+        val configuredMaxTemp = etTemp.text.toString().trim().toDoubleOrNull() ?: 40.0
+        if (!configuredMaxTemp.isFinite() || configuredMaxTemp !in 30.0..45.0) {
+            Toast.makeText(this, "Temperature limit 30–45°C ഇടയിൽ നൽകുക.", Toast.LENGTH_LONG).show()
+            return
+        }
         benchmarkRunning = true
         btnBenchmark.isEnabled = false
         btn.isEnabled = false
         tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
         Thread {
             try {
-                val result = Sha256dBenchmark.run(5_000L)
+                val previousSavedBenchmarkHps = lastBenchmarkHps
+                val previousSavedUsedArmPair = lastBenchmarkUsedArmPair
+                val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val batteryTempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                val batteryTempC = batteryTempTenths / 10.0
+                check(batteryTempTenths > 0) { "Battery temperature is unavailable; benchmark refused for safety." }
+                check(batteryTempC < configuredMaxTemp - 3.0) {
+                    "Battery temperature is too close to the configured limit; let the phone cool before benchmarking."
+                }
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                val cores = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
+                val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    powerManager.currentThermalStatus
+                } else {
+                    null
+                }
+                if (thermalStatus != null) {
+                    check(thermalStatus < PowerManager.THERMAL_STATUS_MODERATE) {
+                        "Android thermal status is MODERATE or higher; let the phone cool before benchmarking."
+                    }
+                }
+                // When Android cannot report thermal state, follow the miner's fail-safe
+                // policy and benchmark only one worker rather than stress all CPU cores.
+                // No Android thermal API (pre-Android 10) or UNKNOWN thermal
+                // status means benchmark conservatively with one worker only.
+                val initialWorkers = if (
+                    thermalStatus == null || thermalStatus < PowerManager.THERMAL_STATUS_NONE
+                ) 1 else cores
+                val headroomThresholds: Map<Int, Float> = if (Build.VERSION.SDK_INT >= 35) {
+                    runCatching { powerManager.thermalHeadroomThresholds }.getOrDefault(emptyMap())
+                } else emptyMap()
+                val initialHeadroom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    runCatching { powerManager.getThermalHeadroom(10).toDouble() }.getOrNull()
+                } else null
+                val initialHeadroomDecision = ThermalHeadroomPolicy.evaluate(
+                    configuredWorkers = cores,
+                    requestedWorkers = initialWorkers,
+                    forecastHeadroom = initialHeadroom,
+                    manufacturerThresholds = headroomThresholds
+                )
+                val benchmarkWorkers = initialHeadroomDecision.workerCount
+                check(benchmarkWorkers > 0) {
+                    initialHeadroomDecision.reason.ifBlank {
+                        "Device thermal headroom is too close to its manufacturer limit; let the phone cool before benchmarking."
+                    }
+                }
+                var cachedHeadroomSafe = true
+                var lastHeadroomCheckNanos = System.nanoTime()
+                val thermalSafe = {
+                    // Re-read battery temperature during the benchmark, not just at start.
+                    val batteryNow = applicationContext.registerReceiver(
+                        null,
+                        IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                    )
+                    val rawTempNow = batteryNow?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                    val batteryStillSafe = rawTempNow > 0 &&
+                        rawTempNow / 10.0 < configuredMaxTemp - 3.0
+                    val currentStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        powerManager.currentThermalStatus
+                    } else {
+                        null
+                    }
+                    val androidThermalSafe = when {
+                        currentStatus == null -> true // pre-Android 10: battery-temperature guard only
+                        currentStatus < PowerManager.THERMAL_STATUS_NONE -> benchmarkWorkers == 1
+                        else -> currentStatus < PowerManager.THERMAL_STATUS_MODERATE
+                    }
+                    // getThermalHeadroom is a slow-moving estimate; poll it no faster than every 2 seconds.
+                    val nowNanos = System.nanoTime()
+                    if (headroomThresholds.isNotEmpty() &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                        nowNanos - lastHeadroomCheckNanos >= 2_000_000_000L
+                    ) {
+                        val forecast = runCatching {
+                            powerManager.getThermalHeadroom(10).toDouble()
+                        }.getOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+                        // A missing forecast must not clear an earlier safety abort condition.
+                        if (forecast != null) {
+                            val decision = ThermalHeadroomPolicy.evaluate(
+                                configuredWorkers = cores,
+                                requestedWorkers = benchmarkWorkers,
+                                forecastHeadroom = forecast,
+                                manufacturerThresholds = headroomThresholds
+                            )
+                            cachedHeadroomSafe = decision.workerCount == benchmarkWorkers
+                        }
+                        lastHeadroomCheckNanos = nowNanos
+                    }
+                    batteryStillSafe && androidThermalSafe && cachedHeadroomSafe
+                }
+                val result = Sha256dBenchmark.runScaling(
+                    benchmarkWorkers,
+                    durationMillis = 900L,
+                    repeatCount = 3,
+                    shouldContinue = thermalSafe
+                )
                 runOnUiThread {
-                    lastBenchmarkHps = result.hashesPerSecond
+                    val peak = result.peak
+                    val recommended = result.recommended
+                    // Pre-fill, but do not auto-start, the measured worker recommendation.
+                    etThreads.setText(recommended.workers.toString())
+                    // Store the conservative near-peak median, not one lucky maximum sample.
+                    lastBenchmarkHps = recommended.medianHashesPerSecond
+                    lastBenchmarkUsedArmPair = Native.usesArmPairScan()
                     getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
-                        .putString("lastBenchmarkHps", result.hashesPerSecond.toString()).apply()
+                        .putString("lastBenchmarkHps", recommended.medianHashesPerSecond.toString())
+                        .putInt("recommendedThreads", recommended.workers)
+                        .putBoolean("lastBenchmarkUsedArmPair", Native.usesArmPairScan()).apply()
                     tvBenchmark.text = buildString {
-                        appendLine("ADAPTIVE MINING LAB · LOCAL MEASUREMENT")
-                        appendLine("Algorithm: Bitcoin SHA-256d")
-                        appendLine("Measured: ${Util.fmtRate(result.hashesPerSecond)}")
-                        appendLine("Hashes: ${result.hashes}")
-                        appendLine("Duration: ${result.elapsedMillis} ms")
-                        appendLine("Hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
-                        appendLine("Stored as the latest local benchmark for estimates.")
-                        appendLine("Other algorithm miners are not installed yet.")
+                        appendLine("ADAPTIVE MINING LAB · REPEATED DEVICE SCALING")
+                        appendLine("Algorithm: Bitcoin SHA-256d · Hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
+                        appendLine("Native scan path: ${when {
+                            result.hardwareSha && Native.usesArmPairScan() -> "paired ARM SHA2 (runtime equivalence passed)"
+                            result.hardwareSha -> "single-state ARM SHA2"
+                            else -> "scalar software SHA-256"
+                        }}")
+                        if (previousSavedBenchmarkHps.isFinite() && previousSavedBenchmarkHps > 0.0) {
+                            val changePct = (recommended.medianHashesPerSecond / previousSavedBenchmarkHps - 1.0) * 100.0
+                            appendLine("Compared with previous saved benchmark: ${String.format(Locale.US, "%+.1f%%", changePct)}")
+                            appendLine("Previous scan path: ${if (previousSavedUsedArmPair) "paired ARM SHA2" else "not recorded as paired ARM SHA2"}")
+                            appendLine("Comparison uses the previously saved phone result; conditions may differ.")
+                        } else {
+                            appendLine("No previous saved benchmark available for device A/B comparison.")
+                        }
+                        appendLine("Maximum benchmark workers: $benchmarkWorkers")
+                        appendLine("Configurations: every worker count from 1 to $benchmarkWorkers")
+                        appendLine("Each configuration: warm-up + 3 randomized measurements")
+                        result.results.forEach { reading ->
+                            appendLine("${reading.workers} worker(s): median ${Util.fmtRate(reading.medianHashesPerSecond)}")
+                            appendLine("  range ${Util.fmtRate(reading.minimumHashesPerSecond)}–${Util.fmtRate(reading.maximumHashesPerSecond)} · ${reading.sampleCount} samples")
+                        }
+                        appendLine("Peak median: ${peak.workers} workers · ${Util.fmtRate(peak.medianHashesPerSecond)}")
+                        appendLine("Recommended: ${recommended.workers} workers · ${Util.fmtRate(recommended.medianHashesPerSecond)}")
+                        appendLine("Recommendation retains at least 98.5% of peak median throughput.")
+                        appendLine("Suggested worker count was filled into the settings field; press Start to apply.")
+                        appendLine("Throughput-only recommendation; battery watts are not wall-power.")
+                        appendLine("Sustained 5m/30m hashrate is recorded during real mining sessions.")
+                        appendLine("Apply only after checking a 30–60 minute mining session.")
                         appendLine("No pool shares or earnings are generated by this test.")
                     }
                     benchmarkRunning = false
@@ -353,14 +487,26 @@ class MainActivity : AppCompatActivity() {
             appendLine("Last job: ${time(s.lastJobAt)}")
             appendLine("Last share submitted: ${time(s.lastShareSubmittedAt)}")
             appendLine("Last share response: ${time(s.lastShareResponseAt)}")
-            appendLine("Shares submitted/accepted/rejected: ${s.submittedShares.get()}/${s.accepted.get()}/${s.rejected.get()}")
-            appendLine("Unknown/dropped shares: ${s.unknownShares.get()}/${s.droppedShares.get()}")
+            val pendingResponses = (s.submittedShares.get() - s.accepted.get() - s.rejected.get() - s.unknownShares.get()).coerceAtLeast(0)
+            appendLine("Session shares submitted/accepted/rejected: ${s.submittedShares.get()}/${s.accepted.get()}/${s.rejected.get()}")
+            appendLine("Pending/unknown/not-submitted: $pendingResponses/${s.unknownShares.get()}/${s.droppedShares.get()}")
+            appendLine("Local rolling hashrate (up to 5m): ${Util.fmtRate(s.localHashrate5m)} over ${String.format(Locale.US, "%.1f", s.localHashrateWindowSeconds)} seconds")
+            appendLine("Sustained rolling hashrate (up to 30m): ${Util.fmtRate(s.localHashrate30m)} over ${String.format(Locale.US, "%.1f", s.localHashrate30mWindowSeconds)} seconds")
+            appendLine("Pool website totals are address-wide/cumulative and are not this session's counters.")
             appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
+            appendLine("Native SHA-256 implementation: ${if (s.hwSha) "ARMv8 SHA2 hardware" else "scalar software"}")
+            appendLine("Paired ARM nonce scan: ${if (s.armPairScan) "enabled (runtime equivalence tests passed)" else "not selected"}")
             appendLine("Android thermal status: ${s.androidThermalStatus}")
+            appendLine("Thermal headroom forecast (10s): ${if (s.thermalHeadroomForecast.isFinite()) String.format(Locale.US, "%.3f", s.thermalHeadroomForecast) else "unavailable"}")
+            appendLine("Manufacturer thermal thresholds: ${s.thermalHeadroomThresholdsAvailable}")
             appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
             appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
             appendLine("Battery: ${if (s.batteryAvailable) "${s.battery}%" else "unavailable"}; charging: ${s.plugged}")
             appendLine("Battery temperature: ${if (s.tempAvailable) "${s.tempC} C" else "unavailable"}")
+            appendLine("Battery fuel-gauge current: ${if (s.batteryEnergyAvailable) "${s.batteryCurrentMicroAmps} uA" else "unavailable"}")
+            appendLine("Battery-side net power: ${if (s.batteryEnergyAvailable) "${s.batteryNetPowerWatts} W" else "unavailable"}")
+            appendLine("Session battery discharge estimate: ${s.batteryDischargedMilliWattHours} mWh (${s.batteryEnergySampleCount} samples)")
+            appendLine("Note: fuel-gauge data is battery-side net flow, not USB input power or miner-only power.")
             appendLine("Thermal state: ${s.pauseReason.ifBlank { "none" }}")
             appendLine("Last disconnect: ${s.lastDisconnectReason.ifBlank { "none recorded" }}")
             appendLine("Last pool event: ${s.lastPoolEvent.ifBlank { "none" }}")
@@ -573,27 +719,73 @@ class MainActivity : AppCompatActivity() {
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
-        sb.append("PHONE MINING: ").append(Util.fmtRate(s.hashrate))
-            .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
+        sb.append("PHONE MINING · LOCAL CURRENT (2s EMA): ").append(Util.fmtRate(s.hashrate))
+            .append(when {
+                s.armPairScan -> "  [ARM SHA2 PAIRED ✓]"
+                s.hwSha -> "  [ARM SHA2 ✓]"
+                else -> "  [SCALAR SHA-256]"
+            }).append('\n')
+        val rollingWindowLabel = if (s.localHashrateWindowSeconds >= 60.0) {
+            String.format(Locale.US, "%.1f min", s.localHashrateWindowSeconds / 60.0)
+        } else {
+            String.format(Locale.US, "%.0f sec", s.localHashrateWindowSeconds)
+        }
+        sb.append("LOCAL ROLLING AVG (up to 5m): ").append(Util.fmtRate(s.localHashrate5m))
+            .append(" · window ").append(rollingWindowLabel).append('\n')
+        val sustainedWindowLabel = if (s.localHashrate30mWindowSeconds >= 60.0) {
+            String.format(Locale.US, "%.1f min", s.localHashrate30mWindowSeconds / 60.0)
+        } else {
+            String.format(Locale.US, "%.0f sec", s.localHashrate30mWindowSeconds)
+        }
+        sb.append("SUSTAINED AVG (up to 30m): ").append(Util.fmtRate(s.localHashrate30m))
+            .append(" · window ").append(sustainedWindowLabel).append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
-        sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
+        sb.append("ഫോൺ CPU workers: ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
-        sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
-            .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
+        val submitted = s.submittedShares.get()
+        val accepted = s.accepted.get()
+        val rejected = s.rejected.get()
+        val unknown = s.unknownShares.get()
+        val pendingResponses = (submitted - accepted - rejected - unknown).coerceAtLeast(0)
+        sb.append("SESSION shares: accepted ✓").append(accepted).append(" · rejected ✗").append(rejected).append('\n')
+        sb.append("Submitted: ").append(submitted).append(" · pending response: ").append(pendingResponses).append('\n')
+        sb.append("Unknown outcome: ").append(unknown).append(" · not submitted (queue full): ").append(s.droppedShares.get()).append('\n')
+        sb.append("Pool diff: ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append('\n')
+        sb.append("കുറിപ്പ്: CKPool Worker Count = pool account identity; ഫോൺ CPU workers-ന്റെ എണ്ണം അല്ല.\n")
+        sb.append("ഈ session counters പുതിയ mining start-ൽ reset ചെയ്യും; CKPool Total Shares address-wide cumulative ആണ്.\n")
         if (s.hashrate > 0.0 && s.poolDiff > 0.0) {
             val expectedSeconds = Util.expectedShareIntervalSeconds(s.poolDiff, s.hashrate)
             sb.append("ഏകദേശ share ഇടവേള: ").append(formatExpectedShareInterval(expectedSeconds)).append('\n')
             sb.append("ഇത് feedback share-ന്റെ ശരാശരി മാത്രം; block/payout ഉറപ്പല്ല.\n")
         }
-        sb.append("Pool-ലേക്ക് അയച്ചത്: ").append(s.submittedShares.get()).append("\n")
-        sb.append("അറിയാത്ത share response: ").append(s.unknownShares.get()).append("\n")
-        sb.append("Pool-ലേക്ക് അയക്കാത്തത്: ").append(s.droppedShares.get()).append("\n")
         sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
         sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
         sb.append("ബാറ്ററി താപനില: ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
             .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
             .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
+        if (s.batteryEnergyAvailable) {
+            val currentMilliAmps = s.batteryCurrentMicroAmps / 1000.0
+            val direction = when {
+                currentMilliAmps > 1.0 -> "net charging"
+                currentMilliAmps < -1.0 -> "net discharging"
+                else -> "near-zero battery current"
+            }
+            sb.append("BATTERY FUEL-GAUGE: ")
+                .append(String.format(Locale.US, "%+.0f mA", currentMilliAmps))
+                .append(" · ").append(direction)
+                .append(" · ").append(String.format(Locale.US, "%+.2f W", s.batteryNetPowerWatts))
+                .append('\n')
+            sb.append("Session battery discharge estimate: ")
+                .append(String.format(Locale.US, "%.2f mWh", s.batteryDischargedMilliWattHours))
+                .append(" · samples ").append(s.batteryEnergySampleCount).append('\n')
+        } else {
+            sb.append("Battery power: N/A (fuel-gauge current/voltage unavailable)\n")
+        }
+        sb.append("കുറിപ്പ്: ഇത് battery-side sensor estimate മാത്രം; USB wall power അല്ല, miner-only power-ഉം അല്ല.\n")
         sb.append("Android thermal: ").append(s.androidThermalStatus).append('\n')
+        sb.append("Thermal headroom forecast (10s): ")
+            .append(if (s.thermalHeadroomForecast.isFinite()) String.format(Locale.US, "%.3f", s.thermalHeadroomForecast) else "N/A")
+            .append(if (s.thermalHeadroomThresholdsAvailable) " · manufacturer thresholds active" else " · no device thresholds").append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
         sb.append("കുറിപ്പ്: accepted share എന്നത് block കണ്ടെത്തലോ payout-ഓ അല്ല.\n")
         tvStats.text = sb.toString()

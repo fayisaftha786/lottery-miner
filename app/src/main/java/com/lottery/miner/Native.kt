@@ -8,6 +8,9 @@ object Native {
     /** Returns 1 if ARM hardware SHA-256 is used, 0 for software, -1 if the built-in self-test failed. */
     external fun initCore(): Int
 
+    /** True only when the paired ARM SHA2 scan passed its startup equivalence tests. */
+    external fun usesArmPairScan(): Boolean
+
     /**
      * Scans nonces [start, start+count). Returns number of shares found (nonces in [found]).
      * best[0] = best share difficulty, best[1] = its nonce, best[2] = extra hits beyond found buffer.

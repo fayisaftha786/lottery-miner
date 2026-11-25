@@ -15,6 +15,9 @@ static void hex2bin(const char *hex, uint8_t *out, size_t n) {
 int main(void) {
     miner_core_init();
     assert(miner_core_selftest_ok() == 1);
+#ifndef HAVE_ARM_SHA2
+    assert(miner_core_uses_arm_pair_scan() == 0);
+#endif
 
     uint8_t header[80] = {0};
     uint8_t target[32];

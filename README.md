@@ -66,7 +66,7 @@ This app performs SHA-256d mining on the Android device and submits work to the 
 
 ## Adaptive Mining Lab
 
-The app includes a local SHA-256d benchmark and a conservative profitability calculation model. The benchmark runs only while mining is stopped, scans a synthetic header against a zero target, and never opens a pool connection or submits shares.
+The app includes a local SHA-256d benchmark and a conservative profitability calculation model. The repeated scaling benchmark runs only while mining is stopped, scans a synthetic header against a zero target, and never opens a pool connection or submits shares. It warms each candidate once, randomizes the candidate order across rounds, measures repeated samples after worker threads are ready, and reports median/minimum/maximum hashrate. Its recommendation is the lowest worker count retaining at least 98.5% of peak median throughput. This is a throughput-only recommendation, not a measured energy-efficiency result; battery watts and sustained thermal performance require separate device measurements.
 
 The algorithm registry currently marks SHA-256d as installed. RandomX, VerusHash, GhostRider, and AstroBWT are research candidates only; they are not executable miners in this app yet. They must not be selected or advertised as available until a native implementation is integrated, licensed correctly, cross-checked against an independent reference implementation, and benchmarked on real ARM64 hardware.
 
@@ -76,7 +76,7 @@ Automatic algorithm switching remains disabled until live market/network/pool da
 
 ## Adaptive Mining Lab and profitability estimates
 
-The in-app SHA-256d benchmark runs for at most five seconds, at reduced thread priority, only while phone mining is stopped. It scans a deterministic synthetic header against a zero target and does not connect to a pool or submit shares. The most recent measured rate is saved locally for the estimator.
+The in-app single-thread reference benchmark is bounded to five seconds. The worker-scaling benchmark checks every worker count from 1 through the device's allowed maximum, with one warm-up and three randomized 900 ms measurements per count by default. It runs at reduced thread priority only while phone mining is stopped. It scans deterministic synthetic headers against a zero target and never connects to a pool or submits shares. The near-peak median rate is saved locally for the estimator; it is not a wall-power or sustained-thermal measurement.
 
 The Bitcoin estimator refreshes read-only public data on user request:
 - Bitcoin network difficulty and current block subsidy: Blockchain.com simple network API.
@@ -88,12 +88,75 @@ For CKPool solo mining the displayed net value is only a long-run mathematical e
 
 Only SHA-256d has a native miner implementation in this application. VerusHash, RandomX, Scrypt, and other algorithm entries are research targets, not selectable or executable miners. Automatic multi-algorithm switching is disabled until a separately audited native engine, compatible pool protocol, license notices, per-device benchmarks, and network/economic data adapters are integrated and validated.
 
+
+## Installing CI test APKs safely
+
+GitHub Actions debug-test APKs are signed with the runner's debug key. A later workflow run can have a different signing certificate, so Android may refuse an in-place update over a debug APK from an earlier run. Before uninstalling an older test build, record the public Bitcoin payout address and the pool host, port, worker/thread count, charging option, and battery/temperature limits. Never record or enter a seed phrase or private key. Uninstall the older test APK only when those settings can be re-entered, then install the newly verified debug APK.
+
+The release APK remains unsigned until all four protected release-signing secrets are configured. A successful release APK assembly is not a production signing pass. Production updates must use the same privately controlled release keystore for every version; never commit the keystore or passwords.
+
+
+## Local hashrate and pool-share accounting (v1.2; retained in 1.3.0)
+
+The mining dashboard reports separate measurements so the local phone rate is not confused with pool-side averages:
+- **Local current rate** is an exponential moving average of actual native scan throughput, refreshed by the policy loop about every two seconds.
+- **Local rolling average** is derived from cumulative native hashes and a monotonic clock over the observed portion of a five-minute window. During the first five minutes, the measured window is shorter and its duration is shown.
+- Compare the local rolling average with the pool's five-minute rate, not with the two-second local EMA or the pool's one-hour/day/week averages. Short-window differences are expected because the time windows differ and the pool applies its own accounting/reporting.
+- The app's accepted/rejected/submitted/pending/unknown counters are for the current app mining session and reset when a new mining session starts. The CKPool web page's Total Shares is address-wide/cumulative and is not expected to match a single app session.
+- CKPool Worker Count describes a pool-side worker identity/connection, not the Android CPU thread count. One pool worker can receive shares generated by several local CPU threads.
+- Pending share responses are reconciled from submitted shares minus accepted, rejected and unknown outcomes. Queue-full submissions are shown separately as not submitted.
+
+## Adaptive native scan batches (v1.2; retained in 1.3.0)
+
+Each Android CPU worker tunes its contiguous native SHA-256d scan batch using measured scan-call duration. Repeated fast samples can grow the batch up to 65,536 nonces; repeated slow samples reduce it to a minimum of 8,192. Normal timing samples do not cause oscillation. This changes only how much contiguous work is passed to each JNI call; it does not skip nonce ranges or change Bitcoin SHA-256d proof-of-work. It is a measured overhead/stop-responsiveness trade-off, not a guaranteed hashrate increase. Real-device A/B and sustained thermal measurements are still required.
+
 ## Adaptive mining controller (v1)
 
-The existing Bitcoin SHA-256d native engine is preserved. The adaptive controller now ramps worker concurrency conservatively: it starts with one worker, adds at most one worker every 45 seconds, and applies battery/temperature/Android thermal safety reductions immediately. If telemetry is unavailable, the existing fail-safe policy remains authoritative. This is a sustained-load controller, not a claim of higher hashes per watt.
+The existing Bitcoin SHA-256d native engine is preserved. Once a real Stratum job is authorized, the controller starts one worker and can add at most one worker every 2 seconds (an 8-worker target takes about 14 seconds from the first eligible worker), while still respecting the configured thread count and live safety limits. Battery/thermal safety reductions and pauses apply immediately; missing telemetry keeps the existing fail-safe limits. This short ramp improves startup responsiveness but does not increase the phone's underlying SHA-256d capability or guarantee higher hashes per watt.
 
 Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain disabled research entries until their native implementations, pool protocols, independent known-answer tests, licensing review, and device benchmarks are complete. The app must never switch to an algorithm that is only listed in the registry.
 
 Profitability estimates currently support Bitcoin solo expected value only. The estimator rejects the proportional-pool mode unless pool-specific hashrate and payout data are available; network-wide Bitcoin data must not be misrepresented as a pool payout estimate. Android battery temperature and percentage are not treated as measured wall power. A real net-profit decision requires an external meter's incremental mining watts, the user's actual electricity tariff, a fresh market/network snapshot, and the applicable pool fee.
 
 Automatic multi-algorithm selection and automatic profitability-based switching remain disabled until at least two independent native engines and their matching pool/economic adapters have passed device-level verification.
+
+
+## Native SHA-256d runtime self-test (v1.4.0)
+
+Before selecting the ARMv8 SHA2 implementation, startup validates the candidate compressor against the Bitcoin genesis header and four independent SHA-256d known-answer vectors. If the ARM candidate fails any vector, the engine keeps the scalar implementation rather than selecting a compressor with an unverified result. These checks run at initialization, not inside the nonce-scanning hot loop.
+
+The local native C test suite also verifies target inclusivity, target-minus-one rejection, nonce boundary wrap, best-hash ordering, and bounded result-buffer overflow accounting. Host CI runs the scalar implementation; the ARM candidate is checked on-device during native initialization because host CI cannot execute the phone's ARM crypto instructions.
+
+## Repeated worker-scaling benchmark (introduced v1.3.0; exhaustive sampling in v1.6.0)
+
+The benchmark compares worker counts in a randomized order, warms each candidate once, records repeated monotonic-time samples, and uses the median rather than the single highest sample. The recommendation chooses the lowest worker count retaining 98.5% of peak median throughput. The worker threads are prepared before timing begins; each worker scans disjoint nonce lanes using a fixed-size chunk and wraps the nonce modulo 2^32. A zero target ensures this diagnostic benchmark does not generate pool shares.
+
+The recommendation is explicitly throughput-based. The app does not claim it measures energy efficiency: battery percentage and battery temperature are not calibrated wall-power or CPU-junction sensors. The benchmark refuses to run when battery temperature is unavailable or too close to the configured limit; it re-checks battery temperature during the run, aborting if the safety margin is lost. Android thermal MODERATE or higher aborts the run, and unavailable Android thermal status caps the benchmark at one worker. When the device exposes manufacturer-defined thermal headroom thresholds, the benchmark also honours the 10-second headroom forecast and stops if the corresponding worker limit is reached. Missing headroom/threshold data is reported as unavailable and never replaced with a guessed value. A 30–60 minute real-device test is still required before adopting a long-run worker setting. The benchmark does not run while mining is active and never starts mining automatically.
+
+
+## Battery-side energy telemetry (v1.5.0)
+
+During a mining session, the app samples Android `BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE` and falls back to `CURRENT_NOW` only if the averaged reading is unavailable. It combines signed battery current with the battery voltage broadcast to estimate net battery-side power. Positive current/power means net charging; negative means net discharging, per the Android API contract.
+
+The app integrates only contiguous samples where both endpoints show battery discharge, using monotonic time and a maximum 15-second sample gap. Unsupported/invalid current or voltage readings are shown as N/A and break the integration chain; missing telemetry is never replaced with zero. The discharge estimate resets with each new mining session.
+
+This is not USB input power, wall power, whole-device consumption, or mining-only power. Fuel-gauge availability, averaging period, and calibration vary by device. Use an external USB power meter when entering watts for electricity-cost estimation. This estimate must not be used as a safety limit or profitability input.
+
+## Sustained performance and thermal headroom (v1.6.0)
+
+During an actual mining session, the dashboard records both the existing five-minute rolling hashrate and a thirty-minute rolling hashrate. Both are calculated from cumulative hashes returned by native nonce scans and monotonic elapsed time; the thirty-minute display grows only as real session time is observed. It does not fill missing history or forecast future hashrate. The 30-minute window retains up to 901 samples at the approximately two-second policy interval.
+
+On Android 11/API 30 and later, the miner samples `PowerManager.getThermalHeadroom(10)` at most once every ten seconds. On Android 15/API 35 and later, it also reads the manufacturer's thermal-headroom thresholds. Worker reductions based on the headroom forecast are enabled only when the device supplies usable thresholds. The forecast is compared with the matching device-provided LIGHT/MODERATE/SEVERE thresholds; it is never interpreted using a universal guessed threshold. Existing battery-temperature and Android thermal-status safeguards remain in force. Devices without the API or threshold data continue using those existing safeguards and display headroom as unavailable or informational.
+
+The worker benchmark now tests every integer worker count from 1 through the safe maximum, with three randomized measured rounds after one warm-up per candidate. It still runs only while mining is stopped, never opens a pool connection, uses a zero target, and does not submit shares. The recommendation remains the lowest worker count retaining at least 98.5% of peak median throughput. It is not an energy-efficiency claim.
+
+The 30-minute rolling reading and headroom forecast are live telemetry, not proof that a 30–60 minute physical-device test has been completed. Validate sustained hashrate, thermal behaviour, battery drain, accepted/rejected pool shares and reconnect behaviour on the target phone before treating a configuration as device-verified.
+
+## Paired ARM SHA-256d nonce scanning (v1.7.0)
+
+On ARM64 devices that report the ARMv8 SHA2 Crypto Extension, the native miner can process two independent nonce candidates in an interleaved SHA-256 compression schedule. The first 64-byte header midstate is still computed once per scan batch; each pair then runs the second and third SHA-256 compression blocks through the paired ARM compressor. An odd final nonce uses the already validated single-state compressor.
+
+The paired scanner is **not selected merely because the CPU advertises SHA2**. At native initialization it is compared against the previously validated single-state ARM scanner across 129-nonce ranges that cover odd batch length, uint32 nonce wrap, all-hit/partial-hit/no-hit targets, stored-hit order, overflow count, best nonce and best-difficulty output. The paired path is enabled only when all compared outputs match exactly. Otherwise the app retains the prior single-state ARM SHA2 path; if ARM SHA2 itself is unavailable or fails its independent known-answer self-tests, the scalar software implementation remains the fallback.
+
+The dashboard and diagnostic export explicitly state whether the paired path passed its runtime equivalence gate. The optimization is a throughput candidate, not a promised percentage improvement. A real ARM phone benchmark and sustained thermal test are required to quantify its effect; host CI can compile Android ARM libraries but cannot execute the phone's SHA2 instructions.
+

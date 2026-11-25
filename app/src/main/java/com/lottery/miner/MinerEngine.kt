@@ -26,7 +26,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
     companion object {
         private const val SPACE = 0x100000000L
-        private const val CHUNK = 1L shl 15
     }
 
     @Volatile private var running = false
@@ -61,6 +60,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val hw = Native.initCore()
         MinerState.hwSha = hw == 1
+        MinerState.armPairScan = if (hw == 1) runCatching { Native.usesArmPairScan() }.getOrDefault(false) else false
+        if (MinerState.armPairScan) MinerState.log("Paired ARM SHA2 nonce scan enabled after runtime equivalence tests")
         when (hw) {
             1 -> MinerState.log("ARM hardware SHA-256 ഓൺ")
             0 -> MinerState.log("software SHA-256 (hardware ഇല്ല)")
@@ -107,6 +108,14 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.running = false
         MinerState.connected = false
         MinerState.hashrate = 0.0
+        // Do not leave the last rolling measurement on screen after stop.
+        // The next session starts a fresh monotonic-time window in policyLoop.
+        MinerState.localHashrate5m = 0.0
+        MinerState.localHashrateWindowSeconds = 0.0
+        MinerState.localHashrate30m = 0.0
+        MinerState.localHashrate30mWindowSeconds = 0.0
+        MinerState.thermalHeadroomForecast = Double.NaN
+        MinerState.thermalHeadroomThresholdsAvailable = false
         MinerState.activeThreads = 0
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
@@ -276,6 +285,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
         val best = DoubleArray(3)
+        // Each CPU worker tunes its own contiguous scan batch using measured native call duration.
+        val scanChunks = AdaptiveScanChunkController()
         var counter = idx.toLong()
         var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
@@ -305,8 +316,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
-                val count = minOf(CHUNK, SPACE - start).toInt()
+                val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
+                val scanStartedAt = System.nanoTime()
                 scanRange(j, generation, target, header, en2, start, count, found, best)
+                scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
                 start += count
             }
         }
@@ -375,8 +388,17 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         }
     }
     private fun policyLoop() {
+        val batteryManager = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val batteryEnergyMonitor = BatteryEnergyMonitor()
+        val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        var headroomThresholds: Map<Int, Float> = if (Build.VERSION.SDK_INT >= 35 && powerManager != null) {
+            runCatching { powerManager.thermalHeadroomThresholds }.getOrDefault(emptyMap())
+        } else emptyMap()
+        var lastHeadroomSampleAtMillis = 0L
+        var latestHeadroomForecast: Double? = null
         var lastHashes = 0L
         var lastTime = System.nanoTime()
+        val sustainedPerformance = SustainedPerformanceMonitor()
         var hot = false
         var full = false
         while (running) {
@@ -399,6 +421,32 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.plugged = plugged
             MinerState.tempAvailable = tempAvailable
             MinerState.tempC = if (tempAvailable) temp else Double.NaN
+
+            // Read the Android fuel-gauge's signed battery current. Positive is
+            // net charging; negative is net discharge. Prefer hardware-averaged
+            // current and fall back to instantaneous current only when unavailable.
+            fun validBatteryCurrent(value: Long?): Boolean =
+                value != null && value != Long.MIN_VALUE && value in -10_000_000L..10_000_000L
+            val averageCurrent = runCatching {
+                batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+            }.getOrNull()
+            val instantaneousCurrent = if (validBatteryCurrent(averageCurrent)) null else runCatching {
+                batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            }.getOrNull()
+            val batteryCurrent = averageCurrent.takeIf { validBatteryCurrent(it) }
+                ?: instantaneousCurrent.takeIf { validBatteryCurrent(it) }
+            val voltageMilliVolts = bi?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+            val energySnapshot = batteryEnergyMonitor.update(
+                currentMicroAmps = batteryCurrent,
+                voltageMilliVolts = voltageMilliVolts,
+                nowNanos = System.nanoTime()
+            )
+            MinerState.batteryEnergyAvailable = energySnapshot.available
+            MinerState.batteryCurrentMicroAmps = energySnapshot.currentMicroAmps ?: Long.MIN_VALUE
+            MinerState.batteryVoltageMilliVolts = energySnapshot.voltageMilliVolts ?: 0
+            MinerState.batteryNetPowerWatts = energySnapshot.netPowerWatts ?: Double.NaN
+            MinerState.batteryDischargedMilliWattHours = energySnapshot.dischargedMilliWattHours
+            MinerState.batteryEnergySampleCount = energySnapshot.validSampleCount
 
             if (tempAvailable && temp >= cfg.maxTemp) hot = true else if (tempAvailable && temp <= cfg.maxTemp - 4.0) hot = false
             // A limit of 100 means "no battery limit"; otherwise pause at the limit and resume 2% below it.
@@ -425,14 +473,29 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             // already paused mining. Otherwise a moderate thermal status would
             // overwrite the real pause reason (for example, "not charging")
             // while the effective worker count remains zero.
-            val thermalStatus: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                runCatching {
-                    (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
-                }.getOrElse { ThermalWorkerPolicy.UNKNOWN }
-            } else {
-                null
-            }
+            val thermalStatus: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
+                runCatching { powerManager.currentThermalStatus }.getOrElse { ThermalWorkerPolicy.UNKNOWN }
+            } else null
             MinerState.androidThermalStatus = ThermalWorkerPolicy.label(thermalStatus)
+
+            // Android recommends polling this slow-moving estimate no more than about once per second.
+            // Ten-second sampling reduces overhead and uses device-provided thresholds only.
+            val elapsedNow = SystemClock.elapsedRealtime()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && powerManager != null &&
+                (lastHeadroomSampleAtMillis == 0L || elapsedNow - lastHeadroomSampleAtMillis >= 10_000L)
+            ) {
+                latestHeadroomForecast = runCatching {
+                    powerManager.getThermalHeadroom(10).toDouble()
+                }.getOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+                // Android 16+ may update manufacturer thresholds while the device is running.
+                if (Build.VERSION.SDK_INT >= 35) {
+                    headroomThresholds = runCatching { powerManager.thermalHeadroomThresholds }
+                        .getOrDefault(headroomThresholds)
+                }
+                lastHeadroomSampleAtMillis = elapsedNow
+            }
+            MinerState.thermalHeadroomForecast = latestHeadroomForecast ?: Double.NaN
+            MinerState.thermalHeadroomThresholdsAvailable = headroomThresholds.isNotEmpty()
             if (target > 0 && thermalStatus != null) {
                 val thermalDecision = ThermalWorkerPolicy.evaluate(
                     configuredWorkers = cfg.threads,
@@ -442,13 +505,23 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 target = thermalDecision.workerCount
                 if (thermalDecision.reason.isNotBlank()) reason = thermalDecision.reason
             }
+            if (target > 0 && headroomThresholds.isNotEmpty()) {
+                val headroomDecision = ThermalHeadroomPolicy.evaluate(
+                    configuredWorkers = cfg.threads,
+                    requestedWorkers = target,
+                    forecastHeadroom = latestHeadroomForecast,
+                    manufacturerThresholds = headroomThresholds
+                )
+                target = headroomDecision.workerCount
+                if (headroomDecision.reason.isNotBlank()) reason = headroomDecision.reason
+            }
             // Do not ramp while waiting for pool authorization or a mining job.
             // Start conservatively only when real work is ready.
             val hasReadyWork = MinerState.connected && current != null
             val safetyWorkerLimit = if (hasReadyWork) target else 0
 
             // Thermal/battery reductions apply immediately. Worker increases are
-            // limited to one every 45 seconds while an authorized job is active.
+            // limited to one every 2 seconds while an authorized job is active.
             target = adaptiveWorkerController.selectWorkerCount(
                 safetyWorkerLimit = safetyWorkerLimit,
                 currentWorkerCount = activeThreads,
@@ -477,6 +550,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
+            val sustained = sustainedPerformance.record(total, now)
+            MinerState.localHashrate5m = sustained.fiveMinuteRateHps
+            MinerState.localHashrateWindowSeconds = sustained.fiveMinuteWindowSeconds
+            MinerState.localHashrate30m = sustained.thirtyMinuteRateHps
+            MinerState.localHashrate30mWindowSeconds = sustained.thirtyMinuteWindowSeconds
             lastHashes = total
             lastTime = now
         }
