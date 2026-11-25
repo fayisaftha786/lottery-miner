@@ -58,6 +58,7 @@ object MinerState {
     @Volatile var activeThreads = 0
     @Volatile var totalThreads = 0
     @Volatile var hwSha = false
+    @Volatile var armPairScan = false
     @Volatile var blockCandidateDetected = false
     @Volatile var pauseReason = ""
 
