@@ -180,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
         Thread {
             try {
+                val previousSavedBenchmarkHps = lastBenchmarkHps
                 val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val batteryTempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
                 val batteryTempC = batteryTempTenths / 10.0
@@ -283,10 +284,23 @@ class MainActivity : AppCompatActivity() {
                     lastBenchmarkHps = recommended.medianHashesPerSecond
                     getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
                         .putString("lastBenchmarkHps", recommended.medianHashesPerSecond.toString())
-                        .putInt("recommendedThreads", recommended.workers).apply()
+                        .putInt("recommendedThreads", recommended.workers)
+                        .putBoolean("lastBenchmarkUsedArmPair", Native.usesArmPairScan()).apply()
                     tvBenchmark.text = buildString {
                         appendLine("ADAPTIVE MINING LAB · REPEATED DEVICE SCALING")
                         appendLine("Algorithm: Bitcoin SHA-256d · Hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
+                        appendLine("Native scan path: ${when {
+                            result.hardwareSha && Native.usesArmPairScan() -> "paired ARM SHA2 (runtime equivalence passed)"
+                            result.hardwareSha -> "single-state ARM SHA2"
+                            else -> "scalar software SHA-256"
+                        }}")
+                        if (previousSavedBenchmarkHps.isFinite() && previousSavedBenchmarkHps > 0.0) {
+                            val changePct = (recommended.medianHashesPerSecond / previousSavedBenchmarkHps - 1.0) * 100.0
+                            appendLine("Compared with previous saved benchmark: ${String.format(Locale.US, "%+.1f%%", changePct)}")
+                            appendLine("Comparison uses the previously saved phone result; conditions may differ.")
+                        } else {
+                            appendLine("No previous saved benchmark available for device A/B comparison.")
+                        }
                         appendLine("Maximum benchmark workers: $benchmarkWorkers")
                         appendLine("Configurations: every worker count from 1 to $benchmarkWorkers")
                         appendLine("Each configuration: warm-up + 3 randomized measurements")
