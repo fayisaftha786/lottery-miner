@@ -1,5 +1,6 @@
 #include "miner_core.h"
 #include <string.h>
+#include <time.h>
 
 const uint32_t SHA256_K[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -407,6 +408,90 @@ static int selftest_arm_pair_scan(void) {
     }
     return 1;
 }
+
+/*
+ * A correct paired compressor is not necessarily faster on every ARM core:
+ * interleaving can lose to register pressure or the CPU's issue width.
+ * Benchmark both complete nonce scanners on this device and enable paired
+ * scanning only when its median is at least 1.5% faster.
+ *
+ * The test uses real SHA-256d work, a zero target (so no shares are emitted),
+ * equal nonce ranges, monotonic timing, one warm-up per path, and alternating
+ * measurement order. The small one-time cost is paid during core init only.
+ */
+#define ARM_PAIR_BENCH_HASHES (1u << 18)
+#define ARM_PAIR_BENCH_ROUNDS 5
+
+static volatile uint32_t g_arm_benchmark_sink;
+
+static uint64_t arm_benchmark_scan(int paired, const uint8_t header[80],
+                                   const uint8_t target[32], uint32_t count) {
+    struct timespec begin, end;
+    uint32_t found[8] = {0}, best_nonce = 0, overflow = 0;
+    double best_diff = 0.0;
+    if (clock_gettime(CLOCK_MONOTONIC, &begin) != 0) return 0;
+
+    uint32_t stored = paired
+        ? scan_impl_arm_pair(header, 0x13572468u, count, target, found, 8,
+                             &best_diff, &best_nonce, &overflow)
+        : scan_impl(compress_arm, header, 0x13572468u, count, target, found, 8,
+                    &best_diff, &best_nonce, &overflow);
+
+    if (clock_gettime(CLOCK_MONOTONIC, &end) != 0) return 0;
+    /* Keep observable use of all result paths without adding work per nonce. */
+    g_arm_benchmark_sink ^= stored ^ best_nonce ^ overflow;
+    const int64_t elapsed =
+        ((int64_t)end.tv_sec - (int64_t)begin.tv_sec) * 1000000000LL +
+        ((int64_t)end.tv_nsec - (int64_t)begin.tv_nsec);
+    return elapsed > 0 ? (uint64_t)elapsed : 0;
+}
+
+static uint64_t median_u64(const uint64_t values[ARM_PAIR_BENCH_ROUNDS]) {
+    uint64_t sorted[ARM_PAIR_BENCH_ROUNDS];
+    memcpy(sorted, values, sizeof(sorted));
+    for (size_t i = 1; i < ARM_PAIR_BENCH_ROUNDS; ++i) {
+        const uint64_t value = sorted[i];
+        size_t j = i;
+        while (j > 0 && sorted[j - 1] > value) {
+            sorted[j] = sorted[j - 1];
+            --j;
+        }
+        sorted[j] = value;
+    }
+    return sorted[ARM_PAIR_BENCH_ROUNDS / 2];
+}
+
+static int benchmark_arm_pair_scan(void) {
+    uint8_t header[80], target[32] = {0};
+    for (size_t i = 0; i < sizeof(header); ++i) {
+        header[i] = (uint8_t)(i * 41u + 23u);
+    }
+
+    /* Warm both implementations before collecting timed samples. */
+    if (arm_benchmark_scan(0, header, target, 1u << 16) == 0 ||
+        arm_benchmark_scan(1, header, target, 1u << 16) == 0) return 0;
+
+    uint64_t single[ARM_PAIR_BENCH_ROUNDS];
+    uint64_t paired[ARM_PAIR_BENCH_ROUNDS];
+    for (uint32_t round = 0; round < ARM_PAIR_BENCH_ROUNDS; ++round) {
+        /* Alternate order to reduce systematic clock/temperature bias. */
+        if ((round & 1u) == 0) {
+            single[round] = arm_benchmark_scan(0, header, target, ARM_PAIR_BENCH_HASHES);
+            paired[round] = arm_benchmark_scan(1, header, target, ARM_PAIR_BENCH_HASHES);
+        } else {
+            paired[round] = arm_benchmark_scan(1, header, target, ARM_PAIR_BENCH_HASHES);
+            single[round] = arm_benchmark_scan(0, header, target, ARM_PAIR_BENCH_HASHES);
+        }
+        if (single[round] == 0 || paired[round] == 0) return 0;
+    }
+
+    const uint64_t single_median = median_u64(single);
+    const uint64_t paired_median = median_u64(paired);
+    if (single_median == 0) return 0;
+
+    /* Lower elapsed time is faster; require a 1.5% margin to avoid noisy flips. */
+    return paired_median * 1000ULL < single_median * 985ULL;
+}
 #endif
 
 
@@ -504,7 +589,7 @@ void miner_core_init(void) {
         g_hw = 1;
         /* Only select the paired hot loop when its full scan output matches
          * the validated single-state ARM scanner on multiple target patterns. */
-        g_arm_pair_scan = selftest_arm_pair_scan();
+        g_arm_pair_scan = selftest_arm_pair_scan() && benchmark_arm_pair_scan();
     }
 #endif
 }
