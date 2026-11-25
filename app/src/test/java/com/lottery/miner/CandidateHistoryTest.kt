@@ -56,7 +56,7 @@ class CandidateHistoryTest {
         repeat(105) { index ->
             json = CandidateHistory.append(json, record("hash-$index", index.toLong())).json
         }
-        val history = JSONArray(json)
+        val history = JSONArray(requireNotNull(json))
         assertEquals(100, history.length())
         assertEquals("hash-5", history.getJSONObject(0).getString("hash"))
         assertEquals("hash-104", history.getJSONObject(99).getString("hash"))
