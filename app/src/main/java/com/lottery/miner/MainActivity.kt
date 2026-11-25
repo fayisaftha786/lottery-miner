@@ -2,10 +2,13 @@ package com.lottery.miner
 
 import android.Manifest
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -172,8 +175,31 @@ class MainActivity : AppCompatActivity() {
         tvBenchmark.text = "ADAPTIVE MINING LAB\nSHA-256d benchmark നടക്കുന്നു…\nPool connection ഇല്ല; share submit ചെയ്യില്ല."
         Thread {
             try {
+                val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val batteryTempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                val batteryTempC = batteryTempTenths / 10.0
+                val configuredMaxTemp = etTemp.text.toString().trim().toDoubleOrNull() ?: 40.0
+                check(batteryTempTenths > 0) { "Battery temperature is unavailable; benchmark refused for safety." }
+                check(batteryTempC < configuredMaxTemp - 3.0) {
+                    "Battery temperature is too close to the configured limit; let the phone cool before benchmarking."
+                }
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    check(powerManager.currentThermalStatus < PowerManager.THERMAL_STATUS_MODERATE) {
+                        "Android thermal status is MODERATE or higher; let the phone cool before benchmarking."
+                    }
+                }
                 val cores = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
-                val result = Sha256dBenchmark.runScaling(cores, durationMillis = 900L, repeatCount = 2)
+                val thermalSafe = {
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                        powerManager.currentThermalStatus < PowerManager.THERMAL_STATUS_MODERATE
+                }
+                val result = Sha256dBenchmark.runScaling(
+                    cores,
+                    durationMillis = 900L,
+                    repeatCount = 2,
+                    shouldContinue = thermalSafe
+                )
                 runOnUiThread {
                     val peak = result.peak
                     val recommended = result.recommended
