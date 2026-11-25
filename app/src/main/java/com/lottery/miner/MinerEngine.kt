@@ -206,6 +206,25 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.log("$count share(s) not submitted: pool response queue full")
         }
     }
+
+    override fun onCandidateSubmitted() {
+        MinerState.log("Block-candidate submit sent; awaiting pool response (not block confirmation)")
+    }
+
+    override fun onCandidateResult(accepted: Boolean, reason: String?) {
+        MinerState.log(
+            if (accepted) "Pool accepted candidate submit; Bitcoin block acceptance is NOT confirmed"
+            else "Pool rejected candidate submit: ${reason ?: "unknown reason"}"
+        )
+    }
+
+    override fun onCandidateUnknown(count: Int) {
+        if (count > 0) MinerState.log("$count block-candidate submit response(s) unknown; not counted as accepted")
+    }
+
+    override fun onCandidateDropped(count: Int) {
+        if (count > 0) MinerState.log("$count block-candidate submit(s) not sent: response queue full")
+    }
     override fun onShareResult(accepted: Boolean, reason: String?) {
         MinerState.lastShareResponseAt = System.currentTimeMillis()
         if (accepted) {
@@ -422,7 +441,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                         // Mark before I/O: a process death after this point must not
                         // trigger an unsafe blind replay on a different Stratum session.
                         journal.edit().putString("submission_state", "ATTEMPTED_UNCONFIRMED").commit()
-                        activeClient.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+                        activeClient.submit(
+                            j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
+                            isShare = shareHit,
+                            isBlockCandidate = true
+                        )
                     }
                 }
             } else {
