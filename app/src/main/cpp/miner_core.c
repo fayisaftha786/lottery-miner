@@ -241,6 +241,8 @@ static int selftest(compress_fn_t fn) {
         if (memcmp(out, expected, 32) != 0) return 0;
     }
 
+    /* Restore the genesis header before the known-share scan below. */
+    hex2bin(GENESIS_HEX, hdr, 80);
     uint8_t tgt[32];
     memset(tgt, 0, 32);
     tgt[4] = 0xff;
