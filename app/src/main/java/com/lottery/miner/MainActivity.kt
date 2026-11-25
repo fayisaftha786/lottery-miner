@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var benchmarkRunning = false
     @Volatile private var profitabilityFetchInFlight = false
     private var lastBenchmarkHps = 0.0
+    private var lastBenchmarkUsedArmPair = false
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
@@ -111,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
         lastBenchmarkHps = p.getString("lastBenchmarkHps", "0.0")?.toDoubleOrNull() ?: 0.0
+        lastBenchmarkUsedArmPair = p.getBoolean("lastBenchmarkUsedArmPair", false)
         etMiningPower.setText(p.getString("miningPowerWatts", ""))
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
@@ -181,6 +183,7 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val previousSavedBenchmarkHps = lastBenchmarkHps
+                val previousSavedUsedArmPair = lastBenchmarkUsedArmPair
                 val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val batteryTempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
                 val batteryTempC = batteryTempTenths / 10.0
@@ -282,6 +285,7 @@ class MainActivity : AppCompatActivity() {
                     etThreads.setText(recommended.workers.toString())
                     // Store the conservative near-peak median, not one lucky maximum sample.
                     lastBenchmarkHps = recommended.medianHashesPerSecond
+                    lastBenchmarkUsedArmPair = Native.usesArmPairScan()
                     getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
                         .putString("lastBenchmarkHps", recommended.medianHashesPerSecond.toString())
                         .putInt("recommendedThreads", recommended.workers)
@@ -297,6 +301,7 @@ class MainActivity : AppCompatActivity() {
                         if (previousSavedBenchmarkHps.isFinite() && previousSavedBenchmarkHps > 0.0) {
                             val changePct = (recommended.medianHashesPerSecond / previousSavedBenchmarkHps - 1.0) * 100.0
                             appendLine("Compared with previous saved benchmark: ${String.format(Locale.US, "%+.1f%%", changePct)}")
+                            appendLine("Previous scan path: ${if (previousSavedUsedArmPair) "paired ARM SHA2" else "not recorded as paired ARM SHA2"}")
                             appendLine("Comparison uses the previously saved phone result; conditions may differ.")
                         } else {
                             appendLine("No previous saved benchmark available for device A/B comparison.")
