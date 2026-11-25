@@ -234,36 +234,25 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.log("Block-candidate $candidateId not sent: response queue full")
     }
 
-    // Candidate history is bounded and append-only by hash. Responses update only
-    // their matching record; a delayed response cannot overwrite the latest summary.
+    private data class CandidateRecordOutcome(val duplicate: Boolean, val persisted: Boolean)
+
+    // A delayed response updates only its own history record. The latest summary
+    // is updated only while it still points at that candidate hash.
     private fun updateCandidateJournal(candidateId: String, state: String) {
         synchronized(candidateJournalLock) {
             val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
             val now = System.currentTimeMillis()
-            val history = readCandidateHistory(journal.getString("history_json", null))
-            var matched = false
-            for (i in 0 until history.length()) {
-                val item = history.optJSONObject(i) ?: continue
-                if (item.optString("hash") == candidateId) {
-                    item.put("submission_state", state)
-                    item.put("last_response_at_ms", now)
-                    matched = true
-                    break
-                }
-            }
-            val edit = journal.edit().putString("history_json", history.toString())
+            val updated = CandidateHistory.updateState(
+                journal.getString("history_json", null), candidateId, state, now
+            )
+            val edit = journal.edit().putString("history_json", updated.json)
             if (journal.getString("hash", null) == candidateId) {
                 edit.putString("submission_state", state).putLong("last_response_at_ms", now)
-            } else if (!matched) {
+            } else if (!updated.matched) {
                 MinerState.log("Late response for candidate $candidateId has no retained history record")
             }
             edit.commit()
         }
-    }
-
-    private fun readCandidateHistory(raw: String?): JSONArray {
-        if (raw.isNullOrBlank()) return JSONArray()
-        return try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
     }
 
     private fun recordCandidateDetection(
@@ -276,29 +265,25 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         hash: String,
         networkTarget: String,
         detectedAt: Long
-    ): Boolean = synchronized(candidateJournalLock) {
-        val history = readCandidateHistory(journal.getString("history_json", null))
-        var duplicate = journal.getString("hash", null) == hash
-        for (i in 0 until history.length()) {
-            if (history.optJSONObject(i)?.optString("hash") == hash) duplicate = true
+    ): CandidateRecordOutcome = synchronized(candidateJournalLock) {
+        val appended = CandidateHistory.append(
+            journal.getString("history_json", null),
+            CandidateHistory.Record(
+                jobId = jobId,
+                extranonce2 = extranonce2,
+                ntime = ntime,
+                nonce = nonce,
+                header = header,
+                hash = hash,
+                networkTarget = networkTarget,
+                detectedAtMs = detectedAt
+            )
+        )
+        if (journal.getString("hash", null) == hash || appended.duplicate) {
+            return@synchronized CandidateRecordOutcome(duplicate = true, persisted = true)
         }
-        if (duplicate) return@synchronized false
 
-        val record = JSONObject()
-            .put("job_id", jobId)
-            .put("extranonce2", extranonce2)
-            .put("ntime", ntime)
-            .put("nonce", nonce)
-            .put("header", header)
-            .put("hash", hash)
-            .put("network_target", networkTarget)
-            .put("submission_state", "DETECTED_NOT_CONFIRMED")
-            .put("detected_at_ms", detectedAt)
-        history.put(record)
-        while (history.length() > MAX_CANDIDATE_HISTORY) {
-            history.remove(0)
-        }
-        journal.edit()
+        val saved = journal.edit()
             .putString("job_id", jobId)
             .putString("extranonce2", extranonce2)
             .putString("ntime", ntime)
@@ -308,8 +293,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             .putString("network_target", networkTarget)
             .putString("submission_state", "DETECTED_NOT_CONFIRMED")
             .putLong("detected_at_ms", detectedAt)
-            .putString("history_json", history.toString())
+            .putString("history_json", appended.json)
             .commit()
+        CandidateRecordOutcome(duplicate = false, persisted = saved)
     }
     override fun onShareResult(accepted: Boolean, reason: String?) {
         MinerState.lastShareResponseAt = System.currentTimeMillis()
@@ -498,14 +484,18 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 val journal = ctx.getSharedPreferences("block_candidate_journal", Context.MODE_PRIVATE)
                 val candidateHash = Util.bytesToHex(digest.reversedArray())
                 val detectedAt = System.currentTimeMillis()
-                val duplicate = !recordCandidateDetection(
+                val candidateRecord = recordCandidateDetection(
                     journal, j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
                     Util.bytesToHex(h), candidateHash,
                     networkTarget.toString(16).padStart(64, '0'), detectedAt
                 )
+                val duplicate = candidateRecord.duplicate
                 if (!duplicate) {
                     MinerState.blockCandidateDetected = true
-                    MinerState.log("BLOCK CANDIDATE saved to bounded history; pool submission will be attempted (not confirmed)")
+                    MinerState.log(
+                        if (candidateRecord.persisted) "BLOCK CANDIDATE saved to bounded history; pool submission will be attempted (not confirmed)"
+                        else "BLOCK CANDIDATE history save failed; submitting current candidate once without durable recovery"
+                    )
                 } else {
                     MinerState.log("Duplicate block-candidate hash suppressed; retained candidate record unchanged")
                 }
