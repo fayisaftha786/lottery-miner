@@ -39,8 +39,17 @@ class Job(
      * BIP310 version_bits. The pool recomputes the submitted version from the
      * original job version and this same version_bits value.
      */
-    fun buildHeader(en1: ByteArray, en2: ByteArray, versionBits: Long = 0L): ByteArray {
+    fun buildHeader(
+        en1: ByteArray,
+        en2: ByteArray,
+        versionBits: Long = 0L,
+        versionMask: Long = 0L
+    ): ByteArray {
         require(versionBits in 0L..0xffff_ffffL) { "version_bits must be an unsigned 32-bit value" }
+        require(versionMask in 0L..0xffff_ffffL) { "version mask must be an unsigned 32-bit value" }
+        require((versionBits and versionMask.inv()) == 0L) {
+            "version_bits contains bits outside the negotiated version mask"
+        }
         val cb = ByteArray(coinb1.size + en1.size + en2.size + coinb2.size)
         var o = 0
         for (part in arrayOf(coinb1, en1, en2, coinb2)) {
@@ -51,7 +60,11 @@ class Job(
         for (b in merkle) h = Util.sha256d(h + b)
 
         val header = ByteArray(80)
-        val rolledVersion = (versionHex.toLong(16) or versionBits)
+        // BIP310 requires: (job_version & ~last_mask) | (version_bits & last_mask).
+        // A simple OR is incorrect because it cannot clear a bit that the pool
+        // permits the miner to roll from 1 to 0.
+        val jobVersion = versionHex.toLong(16)
+        val rolledVersion = ((jobVersion and versionMask.inv()) or (versionBits and versionMask))
             .toString(16).padStart(8, '0')
         copyReversed(Util.hexToBytes(rolledVersion), header, 0)
         System.arraycopy(prevInternal, 0, header, 4, 32)
