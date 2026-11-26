@@ -493,6 +493,14 @@ static int selftest_arm_pair_scan(void) {
  * hits, overflow count, best nonce and displayed best difficulty with the
  * validated single-stream ARM implementation across tails and uint32 wrap.
  */
+#define ARM_PAIR_BENCH_HASHES (1u << 18)
+#define ARM_PAIR_BENCH_ROUNDS 5
+
+static volatile uint32_t g_arm_benchmark_sink;
+static uint64_t arm_benchmark_scan(int paired, const uint8_t header[80],
+                                   const uint8_t target[32], uint32_t count);
+static uint64_t median_u64(const uint64_t values[ARM_PAIR_BENCH_ROUNDS]);
+
 static int selftest_arm_quad_scan(void) {
     uint8_t header[80], target[32];
     for (size_t i = 0; i < sizeof(header); ++i) header[i] = (uint8_t)(i * 37u + 19u);
@@ -582,11 +590,6 @@ static int benchmark_arm_quad_scan(int baseline_paired) {
  * equal nonce ranges, monotonic timing, one warm-up per path, and alternating
  * measurement order. The small one-time cost is paid during core init only.
  */
-#define ARM_PAIR_BENCH_HASHES (1u << 18)
-#define ARM_PAIR_BENCH_ROUNDS 5
-
-static volatile uint32_t g_arm_benchmark_sink;
-
 static uint64_t arm_benchmark_scan(int paired, const uint8_t header[80],
                                    const uint8_t target[32], uint32_t count) {
     struct timespec begin, end;
