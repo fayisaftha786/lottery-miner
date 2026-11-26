@@ -107,6 +107,26 @@ class JobTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetWithSignBitSet() {
+        validJob(nbits = "1d80ffff")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetWithExponentAboveThirtyTwo() {
+        validJob(nbits = "2100ffff")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetAboveBitcoinMainnetProofOfWorkLimit() {
+        validJob(nbits = "1d010000")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetThatRoundsToZero() {
+        validJob(nbits = "1d000000")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun rejectsWrongPrevHashLength() {
         validJob(prevHash = "00")
     }
