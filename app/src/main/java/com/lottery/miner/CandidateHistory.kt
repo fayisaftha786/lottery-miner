@@ -17,6 +17,7 @@ internal object CandidateHistory {
         val extranonce2: String,
         val ntime: String,
         val nonce: String,
+        val versionBits: String,
         val header: String,
         val hash: String,
         val networkTarget: String,
@@ -39,6 +40,7 @@ internal object CandidateHistory {
                 .put("extranonce2", record.extranonce2)
                 .put("ntime", record.ntime)
                 .put("nonce", record.nonce)
+                .put("version_bits", record.versionBits)
                 .put("header", record.header)
                 .put("hash", record.hash)
                 .put("network_target", record.networkTarget)
