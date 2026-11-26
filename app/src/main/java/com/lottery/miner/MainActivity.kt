@@ -728,6 +728,9 @@ class MainActivity : AppCompatActivity() {
         if (!hash.isNullOrBlank()) {
             val displayHash = if (hash.length > 24) hash.take(12) + "…" + hash.takeLast(12) else hash
             sb.append("Latest candidate: ").append(displayHash).append('\n')
+            sb.append("Candidate version bits/mask: ")
+                .append(journal.getString("version_bits", "N/A")).append('/')
+                .append(journal.getString("version_mask", "N/A")).append('\n')
             sb.append("Pool candidate response (not block confirmation): ")
                 .append(journal.getString("submission_state", "DETECTED_NOT_CONFIRMED"))
                 .append('\n')
