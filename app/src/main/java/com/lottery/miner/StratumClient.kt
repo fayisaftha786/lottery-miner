@@ -303,8 +303,7 @@ class StratumClient(
                 val enabled = error == null && result?.opt("version-rolling") == true
                 val maskValue = result?.opt("version-rolling.mask") as? String
                 val parsedMask = if (enabled) VersionRolling.parseMask(maskValue) else null
-                if (enabled && (parsedMask == null ||
-                        !VersionRolling.meetsRequestedMinimumBitCount(parsedMask))) {
+                if (enabled && parsedMask == null) {
                     // The server has activated the extension and will require a
                     // sixth submit parameter. Continuing in fixed-version mode
                     // would silently generate invalid submits, so reconnect safely.
