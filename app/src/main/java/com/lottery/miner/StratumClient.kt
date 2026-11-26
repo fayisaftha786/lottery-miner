@@ -173,21 +173,27 @@ class StratumClient(
         nonceHex: String,
         isShare: Boolean = true,
         candidateId: String? = null,
-        versionBits: Long = 0L
+        versionBits: Long = 0L,
+        versionMask: Long = 0L
     ) {
         // One immutable snapshot prevents an enabled flag from being observed
         // with a mask from a different negotiation/update.
         val rollingState = versionRollingState
         val rollingEnabled = rollingState.enabled
         val allowedMask = rollingState.mask
-        if (rollingEnabled && (
-                versionBits !in 0L..0xffff_ffffL ||
-                    (versionBits and allowedMask.inv()) != 0L
-            )
-        ) {
+        val workMatchesNegotiation = if (rollingEnabled) {
+            versionMask == allowedMask &&
+                versionBits in 0L..0xffff_ffffL &&
+                (versionBits and allowedMask.inv()) == 0L
+        } else {
+            versionMask == 0L && versionBits == 0L
+        }
+        if (!workMatchesNegotiation) {
             if (isShare) listener.onShareDropped(1)
             candidateId?.let(listener::onCandidateDropped)
-            listener.onStatus("Stratum submit not sent: version_bits is outside the active BIP310 mask")
+            listener.onStatus(
+                "Stratum submit not sent: scanned header uses a stale or unsupported BIP310 version mask"
+            )
             return
         }
         if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
