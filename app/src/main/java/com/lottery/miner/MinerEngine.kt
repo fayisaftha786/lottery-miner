@@ -66,8 +66,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val hw = Native.initCore()
         MinerState.hwSha = hw == 1
-        MinerState.armPairScan = if (hw == 1) runCatching { Native.usesArmPairScan() }.getOrDefault(false) else false
-        if (MinerState.armPairScan) MinerState.log("Paired ARM SHA2 nonce scan enabled after runtime equivalence tests")
+        MinerState.armQuadScan = if (hw == 1) runCatching { Native.usesArmQuadScan() }.getOrDefault(false) else false
+        MinerState.armPairScan = if (hw == 1 && !MinerState.armQuadScan) runCatching { Native.usesArmPairScan() }.getOrDefault(false) else false
+        if (MinerState.armQuadScan) MinerState.log("Four-stream ARM SHA2 nonce scan enabled after device equivalence and benchmark gates")
+        else if (MinerState.armPairScan) MinerState.log("Paired ARM SHA2 nonce scan enabled after runtime equivalence tests")
         when (hw) {
             1 -> MinerState.log("ARM hardware SHA-256 ഓൺ")
             0 -> MinerState.log("software SHA-256 (hardware ഇല്ല)")
