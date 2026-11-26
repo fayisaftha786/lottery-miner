@@ -9,6 +9,7 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -61,6 +62,8 @@ class StratumClient(
         fun onCandidateResult(candidateId: String, accepted: Boolean, reason: String?) {}
         fun onCandidateUnknown(candidateId: String) {}
         fun onCandidateDropped(candidateId: String) {}
+        /** Current BIP310 version-rolling mask; zero means fixed-version mining. */
+        fun onVersionMask(mask: Long) {}
         fun onStatus(msg: String)
     }
 
@@ -68,6 +71,8 @@ class StratumClient(
     @Volatile private var closed = false
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
+    @Volatile private var versionRollingEnabled = false
+    @Volatile private var versionRollingMask = 0L
     private val pendingSubmits: MutableMap<Int, PendingSubmit> = ConcurrentHashMap()
 
     private data class PendingSubmit(val isShare: Boolean, val candidateId: String?)
@@ -85,6 +90,17 @@ class StratumClient(
             s.keepAlive = true
             writer = OutputStreamWriter(s.getOutputStream(), Charsets.UTF_8)
             val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
+            // BIP310 configure is deliberately the first Stratum request. A pool
+            // that declines or ignores the optional extension continues in the
+            // original fixed-version mode after the ordinary subscribe response.
+            val configureParameters = JSONArray()
+                .put(JSONArray().put("version-rolling"))
+                .put(
+                    JSONObject()
+                        .put("version-rolling.mask", String.format(Locale.US, "%08x", VersionRolling.REQUESTED_MASK))
+                        .put("version-rolling.min-bit-count", 1)
+                )
+            send(10, "mining.configure", configureParameters)
             send(1, "mining.subscribe", JSONArray().put("LotteryMiner/1.0"))
             while (true) {
                 val line = try {
@@ -148,7 +164,27 @@ class StratumClient(
         try { socket?.close() } catch (_: Exception) { }
     }
 
-    @Synchronized fun submit(jobId: String, en2Hex: String, ntimeHex: String, nonceHex: String, isShare: Boolean = true, candidateId: String? = null) {
+    @Synchronized fun submit(
+        jobId: String,
+        en2Hex: String,
+        ntimeHex: String,
+        nonceHex: String,
+        isShare: Boolean = true,
+        candidateId: String? = null,
+        versionBits: Long = 0L
+    ) {
+        val rollingEnabled = versionRollingEnabled
+        val allowedMask = versionRollingMask
+        if (rollingEnabled && (
+                versionBits !in 0L..0xffff_ffffL ||
+                    (versionBits and allowedMask.inv()) != 0L
+            )
+        ) {
+            if (isShare) listener.onShareDropped(1)
+            candidateId?.let(listener::onCandidateDropped)
+            listener.onStatus("Stratum submit not sent: version_bits is outside the active BIP310 mask")
+            return
+        }
         if (pendingSubmits.size >= MAX_PENDING_SUBMITS) {
             if (isShare) listener.onShareDropped(1)
             candidateId?.let(listener::onCandidateDropped)
@@ -158,7 +194,12 @@ class StratumClient(
         val id = nextId.incrementAndGet()
         pendingSubmits[id] = PendingSubmit(isShare, candidateId)
         try {
-            send(id, "mining.submit", JSONArray().put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex))
+            val parameters = JSONArray()
+                .put(user).put(jobId).put(en2Hex).put(ntimeHex).put(nonceHex)
+            if (rollingEnabled) {
+                parameters.put(String.format(Locale.US, "%08x", versionBits))
+            }
+            send(id, "mining.submit", parameters)
             if (isShare) listener.onShareSubmitted()
             candidateId?.let(listener::onCandidateSubmitted)
         } catch (e: Exception) {
@@ -206,6 +247,19 @@ class StratumClient(
                         throw ProtocolException("Invalid mining.set_extranonce notification: ${e.message}")
                     }
                 }
+                "mining.set_version_mask" -> {
+                    if (!versionRollingEnabled) {
+                        listener.onStatus("Ignored mining.set_version_mask before BIP310 negotiation")
+                    } else {
+                        if (params.length() != 1 || params.isNull(0) || params.get(0) !is String)
+                            throw ProtocolException("Invalid mining.set_version_mask parameters")
+                        val mask = VersionRolling.parseMask(params.getString(0))
+                            ?: throw ProtocolException("Pool sent an invalid/out-of-range version mask")
+                        versionRollingMask = mask
+                        listener.onVersionMask(mask)
+                        listener.onStatus("BIP310 version mask updated: ${String.format(Locale.US, "%08x", mask)}")
+                    }
+                }
                 "mining.set_difficulty" -> {
                     val rawDiff = if (params.length() > 0) params.opt(0) else null
                     val diff = (rawDiff as? Number)?.toDouble() ?: Double.NaN
@@ -227,6 +281,24 @@ class StratumClient(
         }
 
         when (val id = message.optInt("id", -1)) {
+            10 -> {
+                val error = if (message.isNull("error")) null else message.opt("error")
+                val result = message.optJSONObject("result")
+                val enabled = error == null && result?.opt("version-rolling") == true
+                val parsedMask = if (enabled) {
+                    VersionRolling.parseMask(result?.optString("version-rolling.mask", null))
+                } else null
+                versionRollingEnabled = enabled && parsedMask != null
+                versionRollingMask = if (versionRollingEnabled) requireNotNull(parsedMask) else 0L
+                listener.onVersionMask(versionRollingMask)
+                listener.onStatus(
+                    if (versionRollingEnabled) {
+                        "BIP310 version rolling enabled; mask=${String.format(Locale.US, "%08x", versionRollingMask)}"
+                    } else {
+                        "BIP310 version rolling unavailable; fixed-version mining remains enabled"
+                    }
+                )
+            }
             1 -> {
                 if (!message.isNull("error")) throw ProtocolException("Pool subscribe rejected: ${message.opt("error")}")
                 val result = message.optJSONArray("result")
