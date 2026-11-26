@@ -80,7 +80,11 @@ class StratumClientTest {
             assertTrue("pool version-mask update was not applied",
                 listener.updatedMaskLatch.await(3, TimeUnit.SECONDS))
             val submitThread = thread {
-                client.submit("test-job", "00000000", "495fab29", "00000001", versionBits = 0x00002000L)
+                client.submit(
+                    "test-job", "00000000", "495fab29", "00000001",
+                    versionBits = 0x00002000L,
+                    versionMask = 0x00002000L
+                )
             }
             submitThread.join(3000)
             assertTrue("submit callback did not finish", !submitThread.isAlive)
