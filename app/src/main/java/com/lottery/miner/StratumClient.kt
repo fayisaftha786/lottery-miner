@@ -26,7 +26,9 @@ internal data class ShareResponseClassification(
 
 internal fun classifyShareResponse(message: JSONObject): ShareResponseClassification {
     val result = message.opt("result")
-    val error = if (message.isNull("error")) null else message.opt("error").toString()
+    val error = message.opt("error")
+        .takeUnless { it == null || it == JSONObject.NULL }
+        ?.toString()
     return when {
         result == true && error == null ->
             ShareResponseClassification(accepted = true, reason = null)
@@ -71,8 +73,8 @@ class StratumClient(
     @Volatile private var closed = false
     @Volatile private var writer: OutputStreamWriter? = null
     private val nextId = AtomicInteger(100)
-    @Volatile private var versionRollingEnabled = false
-    @Volatile private var versionRollingMask = 0L
+    private data class VersionRollingState(val enabled: Boolean, val mask: Long)
+    @Volatile private var versionRollingState = VersionRollingState(enabled = false, mask = 0L)
     private val pendingSubmits: MutableMap<Int, PendingSubmit> = ConcurrentHashMap()
 
     private data class PendingSubmit(val isShare: Boolean, val candidateId: String?)
@@ -173,8 +175,11 @@ class StratumClient(
         candidateId: String? = null,
         versionBits: Long = 0L
     ) {
-        val rollingEnabled = versionRollingEnabled
-        val allowedMask = versionRollingMask
+        // One immutable snapshot prevents an enabled flag from being observed
+        // with a mask from a different negotiation/update.
+        val rollingState = versionRollingState
+        val rollingEnabled = rollingState.enabled
+        val allowedMask = rollingState.mask
         if (rollingEnabled && (
                 versionBits !in 0L..0xffff_ffffL ||
                     (versionBits and allowedMask.inv()) != 0L
@@ -248,14 +253,15 @@ class StratumClient(
                     }
                 }
                 "mining.set_version_mask" -> {
-                    if (!versionRollingEnabled) {
+                    val state = versionRollingState
+                    if (!state.enabled) {
                         listener.onStatus("Ignored mining.set_version_mask before BIP310 negotiation")
                     } else {
                         if (params.length() != 1 || params.isNull(0) || params.get(0) !is String)
                             throw ProtocolException("Invalid mining.set_version_mask parameters")
                         val mask = VersionRolling.parseMask(params.getString(0))
                             ?: throw ProtocolException("Pool sent an invalid/out-of-range version mask")
-                        versionRollingMask = mask
+                        versionRollingState = state.copy(mask = mask)
                         listener.onVersionMask(mask)
                         listener.onStatus("BIP310 version mask updated: ${String.format(Locale.US, "%08x", mask)}")
                     }
@@ -282,18 +288,22 @@ class StratumClient(
 
         when (val id = message.optInt("id", -1)) {
             10 -> {
-                val error = if (message.isNull("error")) null else message.opt("error")
+                val errorValue = message.opt("error")
+                val error = errorValue.takeUnless { it == null || it == JSONObject.NULL }
                 val result = message.optJSONObject("result")
                 val enabled = error == null && result?.opt("version-rolling") == true
-                val parsedMask = if (enabled) {
-                    VersionRolling.parseMask(result?.optString("version-rolling.mask", null))
-                } else null
-                versionRollingEnabled = enabled && parsedMask != null
-                versionRollingMask = if (versionRollingEnabled) requireNotNull(parsedMask) else 0L
-                listener.onVersionMask(versionRollingMask)
+                val maskValue = result?.opt("version-rolling.mask") as? String
+                val parsedMask = if (enabled) VersionRolling.parseMask(maskValue) else null
+                val state = VersionRollingState(
+                    enabled = enabled && parsedMask != null,
+                    mask = if (enabled && parsedMask != null) parsedMask else 0L
+                )
+                // Publish the extension state atomically before notifying the engine.
+                versionRollingState = state
+                listener.onVersionMask(state.mask)
                 listener.onStatus(
-                    if (versionRollingEnabled) {
-                        "BIP310 version rolling enabled; mask=${String.format(Locale.US, "%08x", versionRollingMask)}"
+                    if (state.enabled) {
+                        "BIP310 version rolling enabled; mask=${String.format(Locale.US, "%08x", state.mask)}"
                     } else {
                         "BIP310 version rolling unavailable; fixed-version mining remains enabled"
                     }
