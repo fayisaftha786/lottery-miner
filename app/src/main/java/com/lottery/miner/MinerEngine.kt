@@ -133,6 +133,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 client?.close()
                 return
             }
+            MinerState.extranonce2Bytes = extranonce2Size
             val allocationChanged = !hasExtranonceAllocation || !ExtranonceAllocation(en1, en2Size).matches(extranonce1, extranonce2Size)
             if (reconnectingForExhaustion.get() && !allocationChanged) {
                 MinerState.status = "Pool reused exhausted extranonce; mining stopped to prevent duplicate work"
@@ -153,7 +154,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
                 en1 = extranonce1.copyOf()
                 en2Size = extranonce2Size
-                MinerState.extranonce2Bytes = extranonce2Size
                 extranonce2Cursor.reset(extranonce2Size)
                 hasExtranonceAllocation = true
             }
