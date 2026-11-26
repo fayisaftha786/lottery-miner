@@ -153,6 +153,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
                 en1 = extranonce1.copyOf()
                 en2Size = extranonce2Size
+                MinerState.extranonce2Bytes = extranonce2Size
                 extranonce2Cursor.reset(extranonce2Size)
                 hasExtranonceAllocation = true
             }
@@ -180,10 +181,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.log("പൂൾ difficulty = $diff ലഭിച്ചു; അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ വരും")
         }
     }
-    override fun onVersionMask(mask: Long) {
+    override fun onVersionMask(mask: Long, enabled: Boolean) {
         synchronized(workLock) {
-            if (versionMask != mask) {
+            val negotiationChanged = MinerState.versionRollingNegotiated != enabled
+            if (versionMask != mask || negotiationChanged) {
                 versionMask = mask
+                MinerState.versionRollingNegotiated = enabled
+                MinerState.versionRollingMask = if (enabled) mask else 0L
                 versionVariantCursor.set(0L)
                 // The pool mask is effective immediately. Invalidate in-flight
                 // scans and restart the current job under the new negotiated mask.
@@ -349,6 +353,9 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             synchronized(workLock) {
                 versionMask = 0L
                 versionVariantCursor.set(0L)
+                MinerState.versionRollingNegotiated = false
+                MinerState.versionRollingMask = 0L
+                MinerState.extranonce2Bytes = 0
                 jobGeneration.incrementAndGet()
             }
             val c = StratumClient(cfg.host, cfg.port, cfg.address, this)
