@@ -51,7 +51,7 @@ class StratumClientTest {
         override fun onStatus(msg: String) { statuses.add(msg) }
     }
 
-    @Test fun exchangesSubscribeAuthorizeJobAndShareWithMockPool() {
+    @Test fun negotiatesVersionRollingAndSubmitsTheExactVersionBits() {
         ServerSocket(0).use { server ->
             val serverFailure = AtomicReference<Throwable?>()
             val responseSent = CountDownLatch(1)
@@ -94,11 +94,11 @@ class StratumClientTest {
         }
     }
 
-    @Test fun marksPendingShareUnknownWhenPoolDisconnectsBeforeResponse() {
+    @Test fun fallsBackToFixedVersionWhenPoolDeclinesVersionRolling() {
         ServerSocket(0).use { server ->
             val serverFailure = AtomicReference<Throwable?>()
             val worker = thread {
-                try { server.accept().use { serveAndDrop(it) } }
+                try { server.accept().use { serveAndDrop(it, rollingEnabled = false) } }
                 catch (t: Throwable) { serverFailure.set(t) }
             }
             val listener = Listener()
@@ -111,6 +111,7 @@ class StratumClientTest {
             clientThread.join(3000)
             worker.join(3000)
 
+            assertEquals(0L, listener.versionMask)
             assertEquals(1, listener.submitted)
             assertEquals(1, listener.unknownShares)
             assertEquals(null, listener.accepted)
@@ -133,10 +134,10 @@ class StratumClientTest {
                             .put("error", JSONObject.NULL).toString() + "\n")
                         output.flush()
                         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-                        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
+                        output.write(subscribeResponse() + "\n")
                         output.flush()
                         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
-                        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+                        output.write(authorizeResponse() + "\n")
                         output.flush()
                         val difficultyRequest = JSONObject(input.readLine())
                         assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
@@ -172,15 +173,34 @@ class StratumClientTest {
             assertEquals(256, listener.unknownShares)
         }
     }
-    private fun serveAndDrop(socket: Socket) {
+
+    private fun serveAndDrop(socket: Socket, rollingEnabled: Boolean) {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
         val configure = JSONObject(input.readLine())
         assertEquals("mining.configure", configure.getString("method"))
-        output.write(JSONObject().put("id", 10)
-            .put("result", JSONObject().put("version-rolling", false))
+        val result = JSONObject().put("version-rolling", rollingEnabled)
+        if (rollingEnabled) result.put("version-rolling.mask", "00000003")
+        output.write(JSONObject().put("id", 10).put("result", result)
             .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
+        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
+        output.write(subscribeResponse() + "\n")
+        output.flush()
+        assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
+        output.write(authorizeResponse() + "\n")
+        output.flush()
+        assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
+        sendJob(output)
+        val submit = JSONObject(input.readLine())
+        assertEquals("mining.submit", submit.getString("method"))
+        assertEquals(if (rollingEnabled) 6 else 5, submit.getJSONArray("params").length())
+        socket.close() // Deliberately omit the submit response.
+    }
+
+    private fun serve(socket: Socket, responseSent: CountDownLatch? = null) {
+        val input = socket.getInputStream().bufferedReader()
+        val output = socket.getOutputStream().bufferedWriter()
         val configure = JSONObject(input.readLine())
         assertEquals("mining.configure", configure.getString("method"))
         assertEquals("version-rolling", configure.getJSONArray("params").getJSONArray(0).getString(0))
@@ -190,45 +210,42 @@ class StratumClientTest {
             .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(subscribeResponse() + "\n")
         output.flush()
         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
-        output.flush()
-        assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
-        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
-            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
-        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
-        output.flush()
-        val submit = JSONObject(input.readLine())
-        assertEquals("mining.submit", submit.getString("method"))
-        socket.close() // Deliberately omit the submit response.
-    }
-
-    private fun serve(socket: Socket, responseSent: CountDownLatch? = null) {
-        val input = socket.getInputStream().bufferedReader()
-        val output = socket.getOutputStream().bufferedWriter()
-        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
-        output.flush()
-        assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(authorizeResponse() + "\n")
         output.flush()
         val difficultyRequest = JSONObject(input.readLine())
         assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
         assertEquals(1, difficultyRequest.getJSONArray("params").getInt(0))
-        output.write(JSONObject().put("method", "mining.set_extranonce").put("params", JSONArray().put("cafe").put(4)).toString() + "\n")
-        output.write(JSONObject().put("method", "mining.set_difficulty").put("params", JSONArray().put(2.0)).toString() + "\n")
-        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
-            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
-        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
+        output.write(JSONObject().put("method", "mining.set_extranonce")
+            .put("params", JSONArray().put("cafe").put(4)).toString() + "\n")
+        output.write(JSONObject().put("method", "mining.set_difficulty")
+            .put("params", JSONArray().put(2.0)).toString() + "\n")
+        sendJob(output)
         output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
         assertEquals(6, submit.getJSONArray("params").length())
         assertEquals("00000002", submit.getJSONArray("params").getString(5))
-        output.write(JSONObject().put("id", submit.getInt("id")).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(JSONObject().put("id", submit.getInt("id")).put("result", true)
+            .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
         responseSent?.countDown()
+    }
+
+    private fun subscribeResponse(): String =
+        JSONObject().put("id", 1)
+            .put("result", JSONArray().put(JSONArray()).put("abcd").put(4))
+            .put("error", JSONObject.NULL).toString()
+
+    private fun authorizeResponse(): String =
+        JSONObject().put("id", 2).put("result", true)
+            .put("error", JSONObject.NULL).toString()
+
+    private fun sendJob(output: java.io.BufferedWriter) {
+        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
+            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
+        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
     }
 }
