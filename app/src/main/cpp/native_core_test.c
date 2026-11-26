@@ -17,6 +17,7 @@ int main(void) {
     assert(miner_core_selftest_ok() == 1);
 #ifndef HAVE_ARM_SHA2
     assert(miner_core_uses_arm_pair_scan() == 0);
+    assert(miner_core_uses_arm_quad_scan() == 0);
 #endif
 
     uint8_t header[80] = {0};
