@@ -34,6 +34,7 @@ class MinerService : Service() {
     private var engine: MinerEngine? = null
     private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var engineStartComplete = false
+    @Volatile private var engineStartThread: Thread? = null
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
@@ -87,7 +88,7 @@ class MinerService : Service() {
 
         // Native self-tests and the device-specific ARM paired-scan benchmark can
         // take noticeable time. Never run them on the service main thread.
-        Thread({
+        val startupThread = Thread({
             try {
                 e.start()
             } catch (failure: Throwable) {
@@ -98,12 +99,15 @@ class MinerService : Service() {
             } finally {
                 handler.post {
                     if (engine === e) {
+                        engineStartThread = null
                         engineStartComplete = true
                         if (!MinerState.running) stopMining { stopSelf() }
                     }
                 }
             }
-        }, "miner-engine-start").start()
+        }, "miner-engine-start")
+        engineStartThread = startupThread
+        startupThread.start()
     }
 
     private fun updateWakeLock() {
@@ -120,7 +124,9 @@ class MinerService : Service() {
     private fun stopMining(onStopped: (() -> Unit)? = null) {
         handler.removeCallbacks(ticker)
         val stoppingEngine = engine
+        val startupThread = engineStartThread
         engine = null
+        engineStartThread = null
         engineStartComplete = false
 
         // MinerEngine.stop() can wait for native scans/workers to exit. Keep that
@@ -132,6 +138,11 @@ class MinerService : Service() {
         }
         Thread({
             try {
+                // Preserve lifecycle order: a stop request arriving immediately
+                // after Start must not win the monitor race and then allow the
+                // queued startup thread to launch an orphan miner afterwards.
+                try { startupThread?.join() }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt() }
                 stoppingEngine.stop()
             } finally {
                 handler.post {
