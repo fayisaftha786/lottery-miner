@@ -163,7 +163,7 @@ class StratumClientTest {
             assertTrue("mock pool did not observe disconnect", peerClosed.await(3, TimeUnit.SECONDS))
             worker.join(3000)
             assertEquals(null, serverFailure.get())
-            assertTrue(clientFailure.get() is ProtocolException)
+            assertTrue(clientFailure.get()?.message?.contains("valid supported mask") == true)
             assertEquals(false, listener.authorized)
             assertEquals(0L, listener.versionMask)
             assertTrue(!listener.versionRollingEnabled)
