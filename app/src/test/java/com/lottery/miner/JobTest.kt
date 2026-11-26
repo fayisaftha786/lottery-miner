@@ -36,6 +36,17 @@ class JobTest {
         assertArrayEquals(Util.hexToBytes("ffff001d"), header.copyOfRange(72, 76))
     }
 
+    @Test fun appliesOnlyTheNegotiatedVersionBitsToTheHeader() {
+        val header = validJob(version = "00000001")
+            .buildHeader(byteArrayOf(), byteArrayOf(), 0x00002000L)
+        assertArrayEquals(Util.hexToBytes("01200000"), header.copyOfRange(0, 4))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsVersionBitsOutsideUnsignedThirtyTwoBitRange() {
+        validJob().buildHeader(byteArrayOf(), byteArrayOf(), 0x1_0000_0000L)
+    }
+
     @Test fun buildsTheBitcoinGenesisHeaderMerkleRootFromTheKnownCoinbaseVector() {
         val genesisCoinbase = Util.hexToBytes(
             "01000000" +
