@@ -37,6 +37,10 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val difficultyTargets = PoolDifficultyTargets()
     @Volatile private var shareTarget: ByteArray = difficultyTargets.activeTarget()
     @Volatile private var versionMask = 0L
+    // Each newly allocated extranonce2 receives the next negotiated version variant.
+    // Pairing the two independent search dimensions this way avoids spending an
+    // entire nonce-space sweep on one version before using the next variant.
+    private val versionVariantCursor = AtomicLong(0)
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
     private val jobGeneration = AtomicLong(0)
@@ -180,6 +184,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         synchronized(workLock) {
             if (versionMask != mask) {
                 versionMask = mask
+                versionVariantCursor.set(0L)
                 // The pool mask is effective immediately. Invalidate in-flight
                 // scans and restart the current job under the new negotiated mask.
                 jobGeneration.incrementAndGet()
@@ -416,29 +421,28 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             if (!running || current !== job || jobGeneration.get() != generation) continue
 
             val scanVersionMask = versionMask
-            val versionVariantCount = VersionRolling.variantCount(scanVersionMask)
+            val variantCount = VersionRolling.variantCount(scanVersionMask)
+            // Every allocated extranonce2 gets a distinct BIP310 version submask
+            // until the pool's negotiated variants have all been used. Subsequent
+            // extranonces continue advancing, so no worker is stuck sweeping all
+            // 2^32 nonces for 65,536 versions before moving to new coinbase work.
+            val variantOrdinal = Math.floorMod(versionVariantCursor.getAndIncrement(), variantCount)
+            val versionBits = VersionRolling.variantAt(scanVersionMask, variantOrdinal)
+            val header = job.buildHeader(en1Snapshot, en2, versionBits)
+            // Scan against the numerically larger (looser) target so every network
+            // candidate and every pool share reaches Kotlin for exact classification.
             val networkTarget = Util.toBytes32(Util.nbitsToTarget(job.nbitsHex))
             val target = Util.candidateScanTarget(shareTarget.copyOf(), networkTarget)
 
-            // Each negotiated version_bits submask is a distinct, valid header
-            // variant. Every variant gets its own complete uint32 nonce scan.
-            var versionOrdinal = 0L
+            var start = 0L
             while (running && current === job && jobGeneration.get() == generation &&
-                idx < activeThreads && versionOrdinal < versionVariantCount
+                idx < activeThreads && start < SPACE
             ) {
-                val versionBits = VersionRolling.variantAt(scanVersionMask, versionOrdinal)
-                val header = job.buildHeader(en1Snapshot, en2, versionBits)
-                var start = 0L
-                while (running && current === job && jobGeneration.get() == generation &&
-                    idx < activeThreads && start < SPACE
-                ) {
-                    val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
-                    val scanStartedAt = System.nanoTime()
-                    scanRange(job, generation, target, header, en2, versionBits, start, count, found, best)
-                    scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
-                    start += count
-                }
-                versionOrdinal++
+                val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
+                val scanStartedAt = System.nanoTime()
+                scanRange(job, generation, target, header, en2, versionBits, start, count, found, best)
+                scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
+                start += count
             }
         }
     }
