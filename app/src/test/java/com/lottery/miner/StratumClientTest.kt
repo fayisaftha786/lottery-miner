@@ -28,6 +28,7 @@ class StratumClientTest {
         @Volatile var versionMask = 0L
         val jobReceived = CountDownLatch(1)
         val authorizedLatch = CountDownLatch(1)
+        val updatedMaskLatch = CountDownLatch(1)
         val statuses = CopyOnWriteArrayList<String>()
         val shareEvents = CopyOnWriteArrayList<String>()
         @Volatile var onShareSubmittedHook: (() -> Unit)? = null
@@ -47,7 +48,10 @@ class StratumClientTest {
         }
         override fun onShareUnknown(count: Int) { unknownShares += count }
         override fun onShareDropped(count: Int) { droppedShares += count }
-        override fun onVersionMask(mask: Long) { versionMask = mask }
+        override fun onVersionMask(mask: Long) {
+            versionMask = mask
+            if (mask == 0x00002000L) updatedMaskLatch.countDown()
+        }
         override fun onStatus(msg: String) { statuses.add(msg) }
     }
 
@@ -71,8 +75,10 @@ class StratumClientTest {
 
             assertTrue("pool job was not received; server=${serverFailure.get()}; client=${listener.statuses}",
                 listener.jobReceived.await(3, TimeUnit.SECONDS))
+            assertTrue("pool version-mask update was not applied",
+                listener.updatedMaskLatch.await(3, TimeUnit.SECONDS))
             val submitThread = thread {
-                client.submit("test-job", "00000000", "495fab29", "00000001", versionBits = 0x00004000L)
+                client.submit("test-job", "00000000", "495fab29", "00000001", versionBits = 0x00002000L)
             }
             submitThread.join(3000)
             assertTrue("submit callback did not finish", !submitThread.isAlive)
@@ -89,7 +95,7 @@ class StratumClientTest {
             assertEquals(listOf("submitted", "accepted"), listener.shareEvents.toList())
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
-            assertEquals(0x00006000L, listener.versionMask)
+            assertEquals(0x00002000L, listener.versionMask)
             assertEquals(0, listener.unknownShares)
         }
     }
@@ -192,6 +198,8 @@ class StratumClientTest {
         output.flush()
         assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
         sendJob(output)
+        output.write(JSONObject().put("method", "mining.set_version_mask")
+            .put("params", JSONArray().put("00002000")).toString() + "\n")
         output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
@@ -228,7 +236,7 @@ class StratumClientTest {
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
         assertEquals(6, submit.getJSONArray("params").length())
-        assertEquals("00004000", submit.getJSONArray("params").getString(5))
+        assertEquals("00002000", submit.getJSONArray("params").getString(5))
         output.write(JSONObject().put("id", submit.getInt("id")).put("result", true)
             .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
