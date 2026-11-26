@@ -446,7 +446,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             ) {
                 val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
                 val scanStartedAt = System.nanoTime()
-                scanRange(job, generation, target, header, en2, versionBits, start, count, found, best)
+                scanRange(job, generation, target, header, en2, versionBits, scanVersionMask, start, count, found, best)
                 scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
                 start += count
             }
@@ -460,7 +460,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
      */
     private fun scanRange(
         j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
-        versionBits: Long, start: Long, count: Int, found: IntArray, best: DoubleArray
+        versionBits: Long, versionMask: Long, start: Long, count: Int, found: IntArray, best: DoubleArray
     ) {
         if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
         val nf = Native.scan(header, start.toInt(), count, target, found, best)
@@ -486,14 +486,22 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
             MinerState.log("Native result buffer full; splitting range to submit every hit")
             val firstCount = count / 2
-            scanRange(j, generation, target, header, en2, versionBits, start, firstCount, found, best)
-            scanRange(j, generation, target, header, en2, versionBits, start + firstCount, count - firstCount, found, best)
+            scanRange(j, generation, target, header, en2, versionBits, versionMask, start, firstCount, found, best)
+            scanRange(j, generation, target, header, en2, versionBits, versionMask, start + firstCount, count - firstCount, found, best)
             return
         }
-        for (k in 0 until nf) handleShare(j, generation, header, found[k], en2, versionBits)
+        for (k in 0 until nf) handleShare(j, generation, header, found[k], en2, versionBits, versionMask)
     }
 
-    private fun handleShare(j: Job, generation: Long, header: ByteArray, nonce: Int, en2: ByteArray, versionBits: Long) {
+    private fun handleShare(
+        j: Job,
+        generation: Long,
+        header: ByteArray,
+        nonce: Int,
+        en2: ByteArray,
+        versionBits: Long,
+        versionMask: Long
+    ) {
         if (!running || current !== j || jobGeneration.get() != generation) return
         val h = header.copyOf()
         h[76] = nonce.toByte()
@@ -519,6 +527,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 val candidateRecord = recordCandidateDetection(
                     journal, j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
                     String.format(java.util.Locale.US, "%08x", versionBits),
+                    String.format(java.util.Locale.US, "%08x", versionMask),
                     Util.bytesToHex(h), candidateHash,
                     networkTarget.toString(16).padStart(64, '0'), detectedAt
                 )
@@ -545,12 +554,17 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                             j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
                             isShare = shareHit,
                             candidateId = candidateHash,
-                            versionBits = versionBits
+                            versionBits = versionBits,
+                            versionMask = versionMask
                         )
                     }
                 }
             } else {
-                client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex, versionBits = versionBits)
+                client?.submit(
+                    j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
+                    versionBits = versionBits,
+                    versionMask = versionMask
+                )
             }
             // Network-target candidates are submitted even when they miss the pool
             // share target. Candidate-only submissions are tracked separately in
