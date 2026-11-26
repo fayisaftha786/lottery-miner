@@ -65,7 +65,7 @@ class StratumClient(
         fun onCandidateUnknown(candidateId: String) {}
         fun onCandidateDropped(candidateId: String) {}
         /** Current BIP310 version-rolling mask; zero means fixed-version mining. */
-        fun onVersionMask(mask: Long) {}
+        fun onVersionMask(mask: Long, enabled: Boolean) {}
         fun onStatus(msg: String)
     }
 
@@ -262,7 +262,7 @@ class StratumClient(
                         val mask = VersionRolling.parseMask(params.getString(0))
                             ?: throw ProtocolException("Pool sent an invalid/out-of-range version mask")
                         versionRollingState = state.copy(mask = mask)
-                        listener.onVersionMask(mask)
+                        listener.onVersionMask(mask, enabled = true)
                         listener.onStatus("BIP310 version mask updated: ${String.format(Locale.US, "%08x", mask)}")
                     }
                 }
@@ -306,7 +306,7 @@ class StratumClient(
                 )
                 // Publish the extension state atomically before notifying the engine.
                 versionRollingState = state
-                listener.onVersionMask(state.mask)
+                listener.onVersionMask(state.mask, state.enabled)
                 listener.onStatus(
                     if (state.enabled) {
                         "BIP310 version rolling enabled; mask=${String.format(Locale.US, "%08x", state.mask)}"
