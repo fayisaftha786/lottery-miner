@@ -33,12 +33,19 @@ class MinerService : Service() {
 
     private var engine: MinerEngine? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var engineStartComplete = false
+    @Volatile private var engineStartThread: Thread? = null
+    // Service callbacks run on the main thread. Serialize Stop -> Start so a new
+    // engine cannot overlap the previous engine's asynchronous shutdown.
+    private var stopInProgress = false
+    private var pendingStartIntent: Intent? = null
+    private val pendingStopCallbacks = mutableListOf<() -> Unit>()
+    private var serviceDestroyed = false
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
-            if (engine != null && !MinerState.running) {
-                stopMining()
-                stopSelf()
+            if (engine != null && engineStartComplete && !MinerState.running) {
+                stopMining { stopSelf() }
                 return
             }
             updateWakeLock()
@@ -53,15 +60,21 @@ class MinerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startMining(intent)
-            ACTION_STOP -> {
-                stopMining()
-                stopSelf()
-            }
+            ACTION_STOP -> stopMining { stopSelf() }
         }
         return START_NOT_STICKY
     }
 
     private fun startMining(i: Intent) {
+        if (serviceDestroyed) return
+        if (stopInProgress) {
+            // A Start supersedes stopSelf callbacks queued by the in-progress stop.
+            pendingStopCallbacks.clear()
+            // Keep only the newest requested configuration; start it after the old
+            // engine has joined and released its resources.
+            pendingStartIntent = Intent(i)
+            return
+        }
         if (Build.VERSION.SDK_INT >= 26) {
             val ch = NotificationChannel(CHANNEL, "Mining", NotificationManager.IMPORTANCE_LOW)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
@@ -85,8 +98,31 @@ class MinerService : Service() {
         )
         val e = MinerEngine(applicationContext, cfg)
         engine = e
-        e.start()
+        engineStartComplete = false
         handler.postDelayed(ticker, 5000)
+
+        // Native self-tests and the device-specific ARM paired-scan benchmark can
+        // take noticeable time. Never run them on the service main thread.
+        val startupThread = Thread({
+            try {
+                e.start()
+            } catch (failure: Throwable) {
+                MinerState.status = "Miner startup failed: ${failure.message ?: failure.javaClass.simpleName}"
+                MinerState.pauseReason = "Miner startup failed"
+                MinerState.running = false
+                MinerState.log(MinerState.status)
+            } finally {
+                handler.post {
+                    if (engine === e) {
+                        engineStartThread = null
+                        engineStartComplete = true
+                        if (!MinerState.running) stopMining { stopSelf() }
+                    }
+                }
+            }
+        }, "miner-engine-start")
+        engineStartThread = startupThread
+        startupThread.start()
     }
 
     private fun updateWakeLock() {
@@ -100,10 +136,61 @@ class MinerService : Service() {
             wakeLock = null
         }
     }
-    private fun stopMining() {
+    private fun stopMining(onStopped: (() -> Unit)? = null) {
+        if (stopInProgress) {
+            // A later Stop must cancel a queued restart and run its completion only
+            // after the in-flight engine shutdown has released resources.
+            pendingStartIntent = null
+            if (onStopped != null) pendingStopCallbacks.add(onStopped)
+            return
+        }
         handler.removeCallbacks(ticker)
-        engine?.stop()
+        val stoppingEngine = engine
+        val startupThread = engineStartThread
         engine = null
+        engineStartThread = null
+        engineStartComplete = false
+
+        // MinerEngine.stop() can wait for native scans/workers to exit. Keep that
+        // join off the main thread so Stop and service teardown remain responsive.
+        if (stoppingEngine == null) {
+            releaseMiningResources()
+            onStopped?.invoke()
+            return
+        }
+        stopInProgress = true
+        pendingStopCallbacks.clear()
+        if (onStopped != null) pendingStopCallbacks.add(onStopped)
+        Thread({
+            try {
+                // Preserve lifecycle order: a stop request arriving immediately
+                // after Start must not win the monitor race and then allow the
+                // queued startup thread to launch an orphan miner afterwards.
+                try { startupThread?.join() }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+                stoppingEngine.stop()
+            } finally {
+                handler.post {
+                    releaseMiningResources()
+                    stopInProgress = false
+                    val restart = pendingStartIntent
+                    pendingStartIntent = null
+                    if (!serviceDestroyed && restart != null) {
+                        // A Start received during shutdown supersedes the pending
+                        // stopSelf callbacks and starts only after cleanup completes.
+                        pendingStopCallbacks.clear()
+                        startMining(restart)
+                    } else {
+                        val callbacks = pendingStopCallbacks.toList()
+                        pendingStopCallbacks.clear()
+                        callbacks.forEach { it.invoke() }
+                    }
+                }
+            }
+        }, "miner-engine-stop").start()
+    }
+
+    private fun releaseMiningResources() {
         try { wakeLock?.release() } catch (_: Exception) { }
         wakeLock = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -134,6 +221,8 @@ class MinerService : Service() {
     }
 
     override fun onDestroy() {
+        serviceDestroyed = true
+        pendingStartIntent = null
         stopMining()
         super.onDestroy()
     }

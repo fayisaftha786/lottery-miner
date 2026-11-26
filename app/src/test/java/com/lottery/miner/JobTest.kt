@@ -36,6 +36,30 @@ class JobTest {
         assertArrayEquals(Util.hexToBytes("ffff001d"), header.copyOfRange(72, 76))
     }
 
+    @Test fun appliesOnlyTheNegotiatedVersionBitsToTheHeader() {
+        val header = validJob(version = "00000001")
+            .buildHeader(byteArrayOf(), byteArrayOf(), 0x00002000L, 0x00002000L)
+        assertArrayEquals(Util.hexToBytes("01200000"), header.copyOfRange(0, 4))
+    }
+
+    @Test fun versionRollingCanClearJobVersionBitsAllowedByThePoolMask() {
+        // Base version is 0x6001. The pool permits bits 13 and 14.
+        // version_bits=0x4000 must clear bit 13 rather than preserve it via OR.
+        val header = validJob(version = "00006001")
+            .buildHeader(byteArrayOf(), byteArrayOf(), 0x00004000L, 0x00006000L)
+        assertArrayEquals(Util.hexToBytes("01400000"), header.copyOfRange(0, 4))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsVersionBitsOutsideNegotiatedMask() {
+        validJob().buildHeader(byteArrayOf(), byteArrayOf(), 0x00004000L, 0x00002000L)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsVersionBitsOutsideUnsignedThirtyTwoBitRange() {
+        validJob().buildHeader(byteArrayOf(), byteArrayOf(), 0x1_0000_0000L, 0x1_0000_0000L)
+    }
+
     @Test fun buildsTheBitcoinGenesisHeaderMerkleRootFromTheKnownCoinbaseVector() {
         val genesisCoinbase = Util.hexToBytes(
             "01000000" +
@@ -80,6 +104,26 @@ class JobTest {
         val expectedRoot = Util.sha256d(coinbaseHash + branch)
         val header = validJob(merkle = listOf(branch)).buildHeader(byteArrayOf(), byteArrayOf())
         assertArrayEquals(expectedRoot, header.copyOfRange(36, 68))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetWithSignBitSet() {
+        validJob(nbits = "1d80ffff")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetWithExponentAboveThirtyTwo() {
+        validJob(nbits = "2100ffff")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetAboveBitcoinMainnetProofOfWorkLimit() {
+        validJob(nbits = "1d010000")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCompactTargetThatRoundsToZero() {
+        validJob(nbits = "1d000000")
     }
 
     @Test(expected = IllegalArgumentException::class)

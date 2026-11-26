@@ -25,8 +25,11 @@ class StratumClientTest {
         @Volatile var job: Job? = null
         @Volatile var accepted: Boolean? = null
         @Volatile var submitted = 0
+        @Volatile var versionMask = 0L
+        @Volatile var versionRollingEnabled = false
         val jobReceived = CountDownLatch(1)
         val authorizedLatch = CountDownLatch(1)
+        val updatedMaskLatch = CountDownLatch(1)
         val statuses = CopyOnWriteArrayList<String>()
         val shareEvents = CopyOnWriteArrayList<String>()
         @Volatile var onShareSubmittedHook: (() -> Unit)? = null
@@ -46,10 +49,19 @@ class StratumClientTest {
         }
         override fun onShareUnknown(count: Int) { unknownShares += count }
         override fun onShareDropped(count: Int) { droppedShares += count }
-        override fun onStatus(msg: String) { statuses.add(msg) }
+        override fun onVersionMask(mask: Long, enabled: Boolean) {
+            versionMask = mask
+            versionRollingEnabled = enabled
+        }
+        override fun onStatus(msg: String) {
+            statuses.add(msg)
+            // This status is emitted after StratumClient publishes its immutable
+            // negotiated state, so the stale-header test cannot race that write.
+            if (msg.contains("BIP310 version mask updated: 00000000")) updatedMaskLatch.countDown()
+        }
     }
 
-    @Test fun exchangesSubscribeAuthorizeJobAndShareWithMockPool() {
+    @Test fun negotiatesVersionRollingAndSubmitsTheExactVersionBits() {
         ServerSocket(0).use { server ->
             val serverFailure = AtomicReference<Throwable?>()
             val responseSent = CountDownLatch(1)
@@ -69,7 +81,23 @@ class StratumClientTest {
 
             assertTrue("pool job was not received; server=${serverFailure.get()}; client=${listener.statuses}",
                 listener.jobReceived.await(3, TimeUnit.SECONDS))
-            val submitThread = thread { client.submit("test-job", "00000000", "495fab29", "00000001") }
+            assertTrue("pool version-mask update was not applied",
+                listener.updatedMaskLatch.await(3, TimeUnit.SECONDS))
+            // A worker finishing old-mask work after a pool update must not
+            // pair the old header with the new sixth submit parameter.
+            client.submit(
+                "test-job", "00000000", "495fab29", "00000002",
+                versionBits = 0x00002000L,
+                versionMask = 0x00006000L
+            )
+            assertEquals(1, listener.droppedShares)
+            val submitThread = thread {
+                client.submit(
+                    "test-job", "00000000", "495fab29", "00000001",
+                    versionBits = 0L,
+                    versionMask = 0L
+                )
+            }
             submitThread.join(3000)
             assertTrue("submit callback did not finish", !submitThread.isAlive)
             clientThread.join(3000)
@@ -81,19 +109,22 @@ class StratumClientTest {
             assertEquals(2.0, listener.difficulty, 0.0)
             assertEquals("test-job", listener.job?.id)
             assertEquals(1, listener.submitted)
+            assertEquals(1, listener.droppedShares)
             assertEquals(true, listener.accepted)
             assertEquals(listOf("submitted", "accepted"), listener.shareEvents.toList())
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
+            assertEquals(0L, listener.versionMask)
+            assertTrue(listener.versionRollingEnabled)
             assertEquals(0, listener.unknownShares)
         }
     }
 
-    @Test fun marksPendingShareUnknownWhenPoolDisconnectsBeforeResponse() {
+    @Test fun fallsBackToFixedVersionWhenPoolDeclinesVersionRolling() {
         ServerSocket(0).use { server ->
             val serverFailure = AtomicReference<Throwable?>()
             val worker = thread {
-                try { server.accept().use { serveAndDrop(it) } }
+                try { server.accept().use { serveAndDrop(it, rollingEnabled = false) } }
                 catch (t: Throwable) { serverFailure.set(t) }
             }
             val listener = Listener()
@@ -106,9 +137,54 @@ class StratumClientTest {
             clientThread.join(3000)
             worker.join(3000)
 
+            assertEquals(0L, listener.versionMask)
+            assertTrue(!listener.versionRollingEnabled)
             assertEquals(1, listener.submitted)
             assertEquals(1, listener.unknownShares)
             assertEquals(null, listener.accepted)
+        }
+    }
+
+    @Test fun disconnectsWhenPoolClaimsVersionRollingWithoutAValidMask() {
+        ServerSocket(0).use { server ->
+            val serverFailure = AtomicReference<Throwable?>()
+            val peerClosed = CountDownLatch(1)
+            val worker = thread {
+                try {
+                    server.accept().use { socket ->
+                        val input = socket.getInputStream().bufferedReader()
+                        val output = socket.getOutputStream().bufferedWriter()
+                        assertEquals("mining.configure", JSONObject(input.readLine()).getString("method"))
+                        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
+                        output.write(JSONObject().put("id", 10)
+                            .put("result", JSONObject().put("version-rolling", true)
+                                .put("version-rolling.mask", "20000000"))
+                            .put("error", JSONObject.NULL).toString() + "\n")
+                        output.flush()
+                        while (input.readLine() != null) { }
+                        peerClosed.countDown()
+                    }
+                } catch (t: Throwable) {
+                    serverFailure.set(t)
+                }
+            }
+            val listener = Listener()
+            val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
+            val clientFailure = AtomicReference<Throwable?>()
+            val clientThread = thread {
+                try { client.connectAndRun() } catch (failure: Throwable) { clientFailure.set(failure) }
+            }
+
+            clientThread.join(3000)
+            assertTrue("malformed successful negotiation did not close the client", !clientThread.isAlive)
+            assertTrue("mock pool did not observe disconnect", peerClosed.await(3, TimeUnit.SECONDS))
+            worker.join(3000)
+            assertEquals(null, serverFailure.get())
+            assertTrue(clientFailure.get()?.message?.contains("valid supported mask") == true)
+            assertEquals(false, listener.authorized)
+            assertEquals(0L, listener.versionMask)
+            assertTrue(!listener.versionRollingEnabled)
+            assertTrue(listener.statuses.any { it.contains("valid supported mask") })
         }
     }
 
@@ -121,11 +197,17 @@ class StratumClientTest {
                     server.accept().use { socket ->
                         val input = socket.getInputStream().bufferedReader()
                         val output = socket.getOutputStream().bufferedWriter()
+                        val configure = JSONObject(input.readLine())
+                        assertEquals("mining.configure", configure.getString("method"))
+                        output.write(JSONObject().put("id", 10)
+                            .put("result", JSONObject().put("version-rolling", false))
+                            .put("error", JSONObject.NULL).toString() + "\n")
+                        output.flush()
                         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-                        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
+                        output.write(subscribeResponse() + "\n")
                         output.flush()
                         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
-                        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+                        output.write(authorizeResponse() + "\n")
                         output.flush()
                         val difficultyRequest = JSONObject(input.readLine())
                         assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
@@ -161,47 +243,82 @@ class StratumClientTest {
             assertEquals(256, listener.unknownShares)
         }
     }
-    private fun serveAndDrop(socket: Socket) {
+
+    private fun serveAndDrop(socket: Socket, rollingEnabled: Boolean) {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
+        val configure = JSONObject(input.readLine())
+        assertEquals("mining.configure", configure.getString("method"))
+        val result = JSONObject().put("version-rolling", rollingEnabled)
+        if (rollingEnabled) result.put("version-rolling.mask", "00000003")
+        output.write(JSONObject().put("id", 10).put("result", result)
+            .put("error", JSONObject.NULL).toString() + "\n")
+        output.flush()
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(subscribeResponse() + "\n")
         output.flush()
         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(authorizeResponse() + "\n")
         output.flush()
         assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
-        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
-            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
-        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
+        sendJob(output)
         output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
+        assertEquals(if (rollingEnabled) 6 else 5, submit.getJSONArray("params").length())
         socket.close() // Deliberately omit the submit response.
     }
 
     private fun serve(socket: Socket, responseSent: CountDownLatch? = null) {
         val input = socket.getInputStream().bufferedReader()
         val output = socket.getOutputStream().bufferedWriter()
+        val configure = JSONObject(input.readLine())
+        assertEquals("mining.configure", configure.getString("method"))
+        assertEquals("version-rolling", configure.getJSONArray("params").getJSONArray(0).getString(0))
+        assertEquals("1fffe000", configure.getJSONArray("params").getJSONObject(1).getString("version-rolling.mask"))
+        output.write(JSONObject().put("id", 10)
+            .put("result", JSONObject().put("version-rolling", true).put("version-rolling.mask", "00006000"))
+            .put("error", JSONObject.NULL).toString() + "\n")
+        output.flush()
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 1).put("result", JSONArray().put(JSONArray()).put("abcd").put(4)).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(subscribeResponse() + "\n")
         output.flush()
         assertEquals("mining.authorize", JSONObject(input.readLine()).getString("method"))
-        output.write(JSONObject().put("id", 2).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        output.write(authorizeResponse() + "\n")
         output.flush()
         val difficultyRequest = JSONObject(input.readLine())
         assertEquals("mining.suggest_difficulty", difficultyRequest.getString("method"))
         assertEquals(1, difficultyRequest.getJSONArray("params").getInt(0))
-        output.write(JSONObject().put("method", "mining.set_extranonce").put("params", JSONArray().put("cafe").put(4)).toString() + "\n")
-        output.write(JSONObject().put("method", "mining.set_difficulty").put("params", JSONArray().put(2.0)).toString() + "\n")
-        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
-            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
-        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
+        output.write(JSONObject().put("method", "mining.set_extranonce")
+            .put("params", JSONArray().put("cafe").put(4)).toString() + "\n")
+        output.write(JSONObject().put("method", "mining.set_difficulty")
+            .put("params", JSONArray().put(2.0)).toString() + "\n")
+        sendJob(output)
+        output.write(JSONObject().put("method", "mining.set_version_mask")
+            .put("params", JSONArray().put("00000000")).toString() + "\n")
         output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
-        output.write(JSONObject().put("id", submit.getInt("id")).put("result", true).put("error", JSONObject.NULL).toString() + "\n")
+        assertEquals(6, submit.getJSONArray("params").length())
+        assertEquals("00000000", submit.getJSONArray("params").getString(5))
+        output.write(JSONObject().put("id", submit.getInt("id")).put("result", true)
+            .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
         responseSent?.countDown()
+    }
+
+    private fun subscribeResponse(): String =
+        JSONObject().put("id", 1)
+            .put("result", JSONArray().put(JSONArray()).put("abcd").put(4))
+            .put("error", JSONObject.NULL).toString()
+
+    private fun authorizeResponse(): String =
+        JSONObject().put("id", 2).put("result", true)
+            .put("error", JSONObject.NULL).toString()
+
+    private fun sendJob(output: java.io.BufferedWriter) {
+        val job = JSONArray().put("test-job").put("00".repeat(32)).put("0102").put("0304")
+            .put(JSONArray()).put("00000001").put("1d00ffff").put("495fab29").put(true)
+        output.write(JSONObject().put("method", "mining.notify").put("params", job).toString() + "\n")
     }
 }
