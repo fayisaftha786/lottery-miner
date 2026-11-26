@@ -149,13 +149,17 @@ class StratumClientTest {
             }
             val listener = Listener()
             val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
-            val clientThread = thread { client.connectAndRun() }
+            val clientFailure = AtomicReference<Throwable?>()
+            val clientThread = thread {
+                try { client.connectAndRun() } catch (failure: Throwable) { clientFailure.set(failure) }
+            }
 
             clientThread.join(3000)
             assertTrue("malformed successful negotiation did not close the client", !clientThread.isAlive)
             assertTrue("mock pool did not observe disconnect", peerClosed.await(3, TimeUnit.SECONDS))
             worker.join(3000)
             assertEquals(null, serverFailure.get())
+            assertTrue(clientFailure.get() is ProtocolException)
             assertEquals(false, listener.authorized)
             assertEquals(0L, listener.versionMask)
             assertTrue(listener.statuses.any { it.contains("valid supported mask") })
