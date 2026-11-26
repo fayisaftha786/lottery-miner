@@ -172,3 +172,19 @@ The paired scanner is **not selected merely because the CPU advertises SHA2**. A
 
 The dashboard and diagnostic export explicitly state whether the paired path passed its runtime equivalence gate. The optimization is a throughput candidate, not a promised percentage improvement. A real ARM phone benchmark and sustained thermal test are required to quantify its effect; host CI can compile Android ARM libraries but cannot execute the phone's SHA2 instructions.
 
+
+
+## ORBIT-X search-space expansion (experimental, BIP310-compatible)
+
+This branch extends the existing SHA-256d scanner without claiming a faster SHA-256d algorithm:
+
+- **Full-width extranonce2 allocation:** a synchronized fixed-width cursor supports the Stratum-negotiated 1–16-byte extranonce2 field, preserves leading zeroes, handles byte carry and values above signed 64-bit range, and gives workers unique coinbase variants. Exhaustion causes a safe pool reconnect; an unchanged exhausted allocation stops rather than reusing duplicate work.
+- **BIP310 version rolling:** the client requests the standard `version-rolling` extension with mask `1fffe000`. It enables rolling only when the pool explicitly returns a valid supported mask. The miner enumerates the negotiated submasks and assigns a distinct variant to each newly allocated extranonce2. The exact `version_bits` value is included in `mining.submit` and persisted with a detected candidate. If the pool rejects or does not answer the optional configure request, the miner remains in fixed-version mode and continues ordinary Stratum V1 mining.
+- **Candidate identity:** a candidate journal record includes the exact header and the version bits used to construct it, so it can be independently reconstructed and audited.
+- **Tests:** JVM coverage checks fixed-width cursor encoding, carry, 8-byte signed-boundary crossing, 16-byte operation, exhaustion, concurrent uniqueness, version-mask validation and submask enumeration, block-header serialization, Stratum version-rolling negotiation, fixed-version fallback, and version_bits submission.
+
+The pool controls the effective version mask. The implementation fails closed on malformed or unsupported masks. CKPool's source supports the BIP310 configure response and sixth `mining.submit` parameter, but a live CKPool account/device session must still verify the actual deployed endpoint behaviour.
+
+Version rolling and extranonce expansion do **not** make any individual SHA-256d hash more likely to satisfy the Bitcoin network target. They expose additional valid header variants; all hashes still use ordinary Bitcoin SHA-256d proof-of-work. This branch does not implement a SHA-256 shortcut, does not promise a block, and does not create cloud hashrate.
+
+The following roadmap items remain separate and are **not** represented as implemented here: parallel multi-job scheduling for `clean_jobs=false`, pool-constrained nTime rolling, 4-way/8-way ARM SHA2 kernels, and physical-device sustained/live-pool validation. The existing paired 2-way ARM SHA2 scanner remains guarded by its prior runtime equivalence tests and on-device performance gate.
