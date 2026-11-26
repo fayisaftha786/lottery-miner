@@ -9,17 +9,12 @@ package com.lottery.miner
  */
 internal object VersionRolling {
     const val REQUESTED_MASK: Long = 0x1fffe000L
-    const val REQUESTED_MIN_BIT_COUNT: Int = 1
 
     fun parseMask(value: String?): Long? {
         if (value == null || !value.matches(Regex("[0-9a-fA-F]{8}"))) return null
         val parsed = value.toLong(16)
         return parsed.takeIf { (it and REQUESTED_MASK.inv()) == 0L }
     }
-
-    fun meetsRequestedMinimumBitCount(mask: Long): Boolean =
-        (mask and REQUESTED_MASK.inv()) == 0L &&
-            java.lang.Long.bitCount(mask) >= REQUESTED_MIN_BIT_COUNT
 
     fun variantCount(mask: Long): Long {
         require((mask and REQUESTED_MASK.inv()) == 0L) { "version mask exceeds the advertised miner mask" }
