@@ -13,7 +13,10 @@ internal object VersionRolling {
     fun parseMask(value: String?): Long? {
         if (value == null || !value.matches(Regex("[0-9a-fA-F]{8}"))) return null
         val parsed = value.toLong(16)
-        return parsed.takeIf { (it and REQUESTED_MASK.inv()) == 0L }
+        return parsed.takeIf {
+            (it and REQUESTED_MASK.inv()) == 0L &&
+                java.lang.Long.bitCount(it) >= 1
+        }
     }
 
     fun variantCount(mask: Long): Long {
