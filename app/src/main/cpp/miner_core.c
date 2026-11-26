@@ -43,6 +43,7 @@ static compress_fn_t g_fn = compress_scalar;
 static int g_hw = 0;
 static int g_ok = 0;
 static int g_arm_pair_scan = 0;
+static int g_arm_quad_scan = 0;
 
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
@@ -305,6 +306,83 @@ static uint32_t scan_impl_arm_pair(
     return stored;
 }
 
+/* Four independent nonce candidates per iteration, with single-stream tail handling. */
+static uint32_t scan_impl_arm_quad(
+    const uint8_t header[80], uint32_t start, uint32_t count,
+    const uint8_t target[32], uint32_t *found, uint32_t max_found,
+    double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count
+) {
+    uint32_t first_block[16], mid[8];
+    for (int i = 0; i < 16; ++i) first_block[i] = be32(header + 4 * i);
+    memcpy(mid, IV, 32);
+    compress_arm(mid, first_block);
+
+    uint32_t blocks[4][16] = {{0}};
+    uint32_t second_blocks[4][16] = {{0}};
+    for (int lane = 0; lane < 4; ++lane) {
+        for (int word = 0; word < 3; ++word) {
+            blocks[lane][word] = be32(header + 64 + 4 * word);
+        }
+        blocks[lane][4] = 0x80000000u;
+        blocks[lane][15] = 640u;
+        second_blocks[lane][8] = 0x80000000u;
+        second_blocks[lane][15] = 256u;
+    }
+
+    uint32_t target_words[8], best_words[8];
+    for (int i = 0; i < 8; ++i) target_words[i] = be32(target + 4 * i);
+
+    double bd = 0.0;
+    uint32_t bn = 0, stored = 0, total_found = 0;
+    int have_best = 0;
+    uint32_t i = 0;
+
+    for (; i + 3u < count; i += 4u) {
+        uint32_t states[4][8], digests[4][8];
+        for (int lane = 0; lane < 4; ++lane) {
+            const uint32_t nonce = start + i + (uint32_t)lane;
+            blocks[lane][3] = __builtin_bswap32(nonce);
+            memcpy(states[lane], mid, 32);
+        }
+        compress_arm_quad(states, blocks);
+
+        for (int lane = 0; lane < 4; ++lane) {
+            memcpy(second_blocks[lane], states[lane], 32);
+            memcpy(digests[lane], IV, 32);
+        }
+        compress_arm_quad(digests, second_blocks);
+
+        for (int lane = 0; lane < 4; ++lane) {
+            record_arm_pair_digest(
+                digests[lane], start + i + (uint32_t)lane, target_words,
+                found, max_found, &stored, &total_found, best_words,
+                &have_best, &bd, &bn
+            );
+        }
+    }
+
+    /* Preserve exact behavior for ranges whose length is not a multiple of four. */
+    for (; i < count; ++i) {
+        const uint32_t nonce = start + i;
+        uint32_t state[8], digest[8];
+        blocks[0][3] = __builtin_bswap32(nonce);
+        memcpy(state, mid, 32);
+        compress_arm(state, blocks[0]);
+        memcpy(second_blocks[0], state, 32);
+        memcpy(digest, IV, 32);
+        compress_arm(digest, second_blocks[0]);
+        record_arm_pair_digest(
+            digest, nonce, target_words, found, max_found,
+            &stored, &total_found, best_words, &have_best, &bd, &bn
+        );
+    }
+
+    *best_diff = bd;
+    *best_nonce = bn;
+    if (overflow_count != NULL) *overflow_count = total_found - stored;
+    return stored;
+}
+
 /*
  * Run the complete 80-byte double-SHA256 header flow for two independent
  * headers through the paired compressor. Startup compares both outputs with
@@ -408,6 +486,90 @@ static int selftest_arm_pair_scan(void) {
         }
     }
     return 1;
+}
+
+/*
+ * Runtime equivalence gate for the four-stream scanner. Compare the stored
+ * hits, overflow count, best nonce and displayed best difficulty with the
+ * validated single-stream ARM implementation across tails and uint32 wrap.
+ */
+static int selftest_arm_quad_scan(void) {
+    uint8_t header[80], target[32];
+    for (size_t i = 0; i < sizeof(header); ++i) header[i] = (uint8_t)(i * 37u + 19u);
+    const uint32_t counts[] = {1u, 2u, 3u, 4u, 5u, 129u};
+    const uint32_t starts[] = {0u, 0xfffffffdu, 0xfffffff8u};
+    const uint8_t target_modes[] = {0xffu, 0x7fu, 0x00u};
+
+    for (size_t mode = 0; mode < 3; ++mode) {
+        memset(target, target_modes[mode], sizeof(target));
+        for (size_t n = 0; n < sizeof(counts) / sizeof(counts[0]); ++n) {
+            for (size_t s = 0; s < sizeof(starts) / sizeof(starts[0]); ++s) {
+                uint32_t single_hits[16] = {0}, quad_hits[16] = {0};
+                double single_diff = 0.0, quad_diff = 0.0;
+                uint32_t single_nonce = 0, quad_nonce = 0;
+                uint32_t single_overflow = 0, quad_overflow = 0;
+                const uint32_t single_stored = scan_impl(
+                    compress_arm, header, starts[s], counts[n], target,
+                    single_hits, 16u, &single_diff, &single_nonce, &single_overflow
+                );
+                const uint32_t quad_stored = scan_impl_arm_quad(
+                    header, starts[s], counts[n], target,
+                    quad_hits, 16u, &quad_diff, &quad_nonce, &quad_overflow
+                );
+                if (single_stored != quad_stored ||
+                    single_overflow != quad_overflow ||
+                    single_nonce != quad_nonce ||
+                    memcmp(&single_diff, &quad_diff, sizeof(single_diff)) != 0 ||
+                    memcmp(single_hits, quad_hits, single_stored * sizeof(uint32_t)) != 0) {
+                    return 0;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+static uint64_t arm_quad_benchmark_scan(
+    const uint8_t header[80], const uint8_t target[32], uint32_t count
+) {
+    struct timespec begin, end;
+    uint32_t found[8] = {0}, best_nonce = 0, overflow = 0;
+    double best_diff = 0.0;
+    if (clock_gettime(CLOCK_MONOTONIC, &begin) != 0) return 0;
+    const uint32_t stored = scan_impl_arm_quad(
+        header, 0x13572468u, count, target, found, 8u,
+        &best_diff, &best_nonce, &overflow
+    );
+    if (clock_gettime(CLOCK_MONOTONIC, &end) != 0) return 0;
+    g_arm_benchmark_sink ^= stored ^ best_nonce ^ overflow;
+    const int64_t elapsed =
+        ((int64_t)end.tv_sec - (int64_t)begin.tv_sec) * 1000000000LL +
+        ((int64_t)end.tv_nsec - (int64_t)begin.tv_nsec);
+    return elapsed > 0 ? (uint64_t)elapsed : 0;
+}
+
+/* Compare quad with whichever validated scanner (single or paired) is currently fastest. */
+static int benchmark_arm_quad_scan(int baseline_paired) {
+    uint8_t header[80], target[32] = {0};
+    for (size_t i = 0; i < sizeof(header); ++i) header[i] = (uint8_t)(i * 41u + 23u);
+
+    if (arm_benchmark_scan(baseline_paired, header, target, 1u << 16) == 0 ||
+        arm_quad_benchmark_scan(header, target, 1u << 16) == 0) return 0;
+
+    uint64_t baseline[ARM_PAIR_BENCH_ROUNDS], quad[ARM_PAIR_BENCH_ROUNDS];
+    for (uint32_t round = 0; round < ARM_PAIR_BENCH_ROUNDS; ++round) {
+        if ((round & 1u) == 0) {
+            baseline[round] = arm_benchmark_scan(baseline_paired, header, target, ARM_PAIR_BENCH_HASHES);
+            quad[round] = arm_quad_benchmark_scan(header, target, ARM_PAIR_BENCH_HASHES);
+        } else {
+            quad[round] = arm_quad_benchmark_scan(header, target, ARM_PAIR_BENCH_HASHES);
+            baseline[round] = arm_benchmark_scan(baseline_paired, header, target, ARM_PAIR_BENCH_HASHES);
+        }
+        if (baseline[round] == 0 || quad[round] == 0) return 0;
+    }
+    const uint64_t baseline_median = median_u64(baseline);
+    const uint64_t quad_median = median_u64(quad);
+    return baseline_median > 0 && quad_median * 1000ULL < baseline_median * 985ULL;
 }
 
 /*
@@ -584,6 +746,7 @@ void miner_core_init(void) {
     g_hw = 0;
     g_ok = selftest(compress_scalar);
     g_arm_pair_scan = 0;
+    g_arm_quad_scan = 0;
 #ifdef HAVE_ARM_SHA2
     if (arm_sha2_supported() && selftest(compress_arm)) {
         g_fn = compress_arm;
@@ -591,13 +754,15 @@ void miner_core_init(void) {
         /* Only select the paired hot loop when its full scan output matches
          * the validated single-state ARM scanner on multiple target patterns. */
         g_arm_pair_scan = selftest_arm_pair_scan() && benchmark_arm_pair_scan();
+        g_arm_quad_scan = selftest_arm_quad_scan() && benchmark_arm_quad_scan(g_arm_pair_scan);
     }
 #endif
 }
 
 int miner_core_uses_hw(void) { return g_hw; }
 int miner_core_selftest_ok(void) { return g_ok; }
-int miner_core_uses_arm_pair_scan(void) { return g_arm_pair_scan; }
+int miner_core_uses_arm_pair_scan(void) { return g_arm_pair_scan && !g_arm_quad_scan; }
+int miner_core_uses_arm_quad_scan(void) { return g_arm_quad_scan; }
 
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]) { hash_with(g_fn, header, out); }
 
@@ -605,6 +770,10 @@ uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
 #ifdef HAVE_ARM_SHA2
+    if (g_arm_quad_scan) {
+        return scan_impl_arm_quad(header, start, count, target, found, max_found,
+                                  best_diff, best_nonce, overflow_count);
+    }
     if (g_arm_pair_scan) {
         return scan_impl_arm_pair(header, start, count, target, found, max_found,
                                   best_diff, best_nonce, overflow_count);
