@@ -26,6 +26,7 @@ class StratumClientTest {
         @Volatile var accepted: Boolean? = null
         @Volatile var submitted = 0
         @Volatile var versionMask = 0L
+        @Volatile var versionRollingEnabled = false
         val jobReceived = CountDownLatch(1)
         val authorizedLatch = CountDownLatch(1)
         val updatedMaskLatch = CountDownLatch(1)
@@ -48,8 +49,9 @@ class StratumClientTest {
         }
         override fun onShareUnknown(count: Int) { unknownShares += count }
         override fun onShareDropped(count: Int) { droppedShares += count }
-        override fun onVersionMask(mask: Long) {
+        override fun onVersionMask(mask: Long, enabled: Boolean) {
             versionMask = mask
+            versionRollingEnabled = enabled
             if (mask == 0x00002000L) updatedMaskLatch.countDown()
         }
         override fun onStatus(msg: String) { statuses.add(msg) }
@@ -96,6 +98,7 @@ class StratumClientTest {
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
             assertEquals(0x00002000L, listener.versionMask)
+            assertTrue(listener.versionRollingEnabled)
             assertEquals(0, listener.unknownShares)
         }
     }
@@ -118,6 +121,7 @@ class StratumClientTest {
             worker.join(3000)
 
             assertEquals(0L, listener.versionMask)
+            assertTrue(!listener.versionRollingEnabled)
             assertEquals(1, listener.submitted)
             assertEquals(1, listener.unknownShares)
             assertEquals(null, listener.accepted)
@@ -162,6 +166,7 @@ class StratumClientTest {
             assertTrue(clientFailure.get() is ProtocolException)
             assertEquals(false, listener.authorized)
             assertEquals(0L, listener.versionMask)
+            assertTrue(!listener.versionRollingEnabled)
             assertTrue(listener.statuses.any { it.contains("valid supported mask") })
         }
     }
