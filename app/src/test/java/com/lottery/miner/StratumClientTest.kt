@@ -124,6 +124,44 @@ class StratumClientTest {
         }
     }
 
+    @Test fun disconnectsWhenPoolClaimsVersionRollingWithoutAValidMask() {
+        ServerSocket(0).use { server ->
+            val serverFailure = AtomicReference<Throwable?>()
+            val peerClosed = CountDownLatch(1)
+            val worker = thread {
+                try {
+                    server.accept().use { socket ->
+                        val input = socket.getInputStream().bufferedReader()
+                        val output = socket.getOutputStream().bufferedWriter()
+                        assertEquals("mining.configure", JSONObject(input.readLine()).getString("method"))
+                        assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
+                        output.write(JSONObject().put("id", 10)
+                            .put("result", JSONObject().put("version-rolling", true)
+                                .put("version-rolling.mask", "20000000"))
+                            .put("error", JSONObject.NULL).toString() + "\n")
+                        output.flush()
+                        while (input.readLine() != null) { }
+                        peerClosed.countDown()
+                    }
+                } catch (t: Throwable) {
+                    serverFailure.set(t)
+                }
+            }
+            val listener = Listener()
+            val client = StratumClient("127.0.0.1", server.localPort, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", listener)
+            val clientThread = thread { client.connectAndRun() }
+
+            clientThread.join(3000)
+            assertTrue("malformed successful negotiation did not close the client", !clientThread.isAlive)
+            assertTrue("mock pool did not observe disconnect", peerClosed.await(3, TimeUnit.SECONDS))
+            worker.join(3000)
+            assertEquals(null, serverFailure.get())
+            assertEquals(false, listener.authorized)
+            assertEquals(0L, listener.versionMask)
+            assertTrue(listener.statuses.any { it.contains("valid supported mask") })
+        }
+    }
+
     @Test fun reportsSharesDroppedWhenPendingQueueIsFull() {
         val difficultyRequestReceived = CountDownLatch(1)
         ServerSocket(0).use { server ->
