@@ -38,13 +38,26 @@ class JobTest {
 
     @Test fun appliesOnlyTheNegotiatedVersionBitsToTheHeader() {
         val header = validJob(version = "00000001")
-            .buildHeader(byteArrayOf(), byteArrayOf(), 0x00002000L)
+            .buildHeader(byteArrayOf(), byteArrayOf(), 0x00002000L, 0x00002000L)
         assertArrayEquals(Util.hexToBytes("01200000"), header.copyOfRange(0, 4))
+    }
+
+    @Test fun versionRollingCanClearJobVersionBitsAllowedByThePoolMask() {
+        // Base version is 0x6001. The pool permits bits 13 and 14.
+        // version_bits=0x4000 must clear bit 13 rather than preserve it via OR.
+        val header = validJob(version = "00006001")
+            .buildHeader(byteArrayOf(), byteArrayOf(), 0x00004000L, 0x00006000L)
+        assertArrayEquals(Util.hexToBytes("01400000"), header.copyOfRange(0, 4))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsVersionBitsOutsideNegotiatedMask() {
+        validJob().buildHeader(byteArrayOf(), byteArrayOf(), 0x00004000L, 0x00002000L)
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsVersionBitsOutsideUnsignedThirtyTwoBitRange() {
-        validJob().buildHeader(byteArrayOf(), byteArrayOf(), 0x1_0000_0000L)
+        validJob().buildHeader(byteArrayOf(), byteArrayOf(), 0x1_0000_0000L, 0x1_0000_0000L)
     }
 
     @Test fun buildsTheBitcoinGenesisHeaderMerkleRootFromTheKnownCoinbaseVector() {
