@@ -72,7 +72,7 @@ class StratumClientTest {
             assertTrue("pool job was not received; server=${serverFailure.get()}; client=${listener.statuses}",
                 listener.jobReceived.await(3, TimeUnit.SECONDS))
             val submitThread = thread {
-                client.submit("test-job", "00000000", "495fab29", "00000001", versionBits = 2L)
+                client.submit("test-job", "00000000", "495fab29", "00000001", versionBits = 0x00004000L)
             }
             submitThread.join(3000)
             assertTrue("submit callback did not finish", !submitThread.isAlive)
@@ -89,7 +89,7 @@ class StratumClientTest {
             assertEquals(listOf("submitted", "accepted"), listener.shareEvents.toList())
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
-            assertEquals(3L, listener.versionMask)
+            assertEquals(0x00006000L, listener.versionMask)
             assertEquals(0, listener.unknownShares)
         }
     }
@@ -192,6 +192,7 @@ class StratumClientTest {
         output.flush()
         assertEquals("mining.suggest_difficulty", JSONObject(input.readLine()).getString("method"))
         sendJob(output)
+        output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
         assertEquals(if (rollingEnabled) 6 else 5, submit.getJSONArray("params").length())
@@ -206,7 +207,7 @@ class StratumClientTest {
         assertEquals("version-rolling", configure.getJSONArray("params").getJSONArray(0).getString(0))
         assertEquals("1fffe000", configure.getJSONArray("params").getJSONObject(1).getString("version-rolling.mask"))
         output.write(JSONObject().put("id", 10)
-            .put("result", JSONObject().put("version-rolling", true).put("version-rolling.mask", "00000003"))
+            .put("result", JSONObject().put("version-rolling", true).put("version-rolling.mask", "00006000"))
             .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
         assertEquals("mining.subscribe", JSONObject(input.readLine()).getString("method"))
@@ -227,7 +228,7 @@ class StratumClientTest {
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
         assertEquals(6, submit.getJSONArray("params").length())
-        assertEquals("00000002", submit.getJSONArray("params").getString(5))
+        assertEquals("00004000", submit.getJSONArray("params").getString(5))
         output.write(JSONObject().put("id", submit.getInt("id")).put("result", true)
             .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
