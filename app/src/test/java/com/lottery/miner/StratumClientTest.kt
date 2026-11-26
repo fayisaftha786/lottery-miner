@@ -79,6 +79,14 @@ class StratumClientTest {
                 listener.jobReceived.await(3, TimeUnit.SECONDS))
             assertTrue("pool version-mask update was not applied",
                 listener.updatedMaskLatch.await(3, TimeUnit.SECONDS))
+            // A worker finishing old-mask work after a pool update must not
+            // pair the old header with the new sixth submit parameter.
+            client.submit(
+                "test-job", "00000000", "495fab29", "00000002",
+                versionBits = 0x00002000L,
+                versionMask = 0x00006000L
+            )
+            assertEquals(1, listener.droppedShares)
             val submitThread = thread {
                 client.submit(
                     "test-job", "00000000", "495fab29", "00000001",
@@ -97,6 +105,7 @@ class StratumClientTest {
             assertEquals(2.0, listener.difficulty, 0.0)
             assertEquals("test-job", listener.job?.id)
             assertEquals(1, listener.submitted)
+            assertEquals(1, listener.droppedShares)
             assertEquals(true, listener.accepted)
             assertEquals(listOf("submitted", "accepted"), listener.shareEvents.toList())
             assertEquals(2, listener.extranonceUpdates)
