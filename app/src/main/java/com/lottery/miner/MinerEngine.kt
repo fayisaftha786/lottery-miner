@@ -193,7 +193,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 // scans and restart the current job under the new negotiated mask.
                 jobGeneration.incrementAndGet()
                 MinerState.log(
-                    if (mask == 0L) "BIP310 version rolling disabled; fixed header version"
+                    if (!enabled) "BIP310 version rolling unavailable; fixed header version"
                     else "BIP310 version rolling active; ${java.lang.Long.bitCount(mask)} version bits negotiated"
                 )
             }
