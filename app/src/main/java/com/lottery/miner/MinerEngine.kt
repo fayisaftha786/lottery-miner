@@ -343,6 +343,14 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun connectionLoop() {
         val reconnectBackoff = ReconnectBackoff()
         while (running) {
+            // A BIP310 mask belongs to one Stratum connection only. Never carry
+            // the previous pool's negotiated bits into the next session before
+            // that session explicitly enables version rolling.
+            synchronized(workLock) {
+                versionMask = 0L
+                versionVariantCursor.set(0L)
+                jobGeneration.incrementAndGet()
+            }
             val c = StratumClient(cfg.host, cfg.port, cfg.address, this)
             client = c
             val attemptStartedAt = System.nanoTime()
@@ -383,15 +391,6 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.status = "Pool ബന്ധം നഷ്ടപ്പെട്ടു; ${retryDelay / 1000}s കഴിഞ്ഞ് വീണ്ടും കണക്ട് ചെയ്യും"
             sleepMs(retryDelay)
         }
-    }
-
-    private fun encodeEn2(counter: Long, size: Int): ByteArray {
-        val out = ByteArray(size)
-        for (i in 0 until size) {
-            val shift = 8 * (size - 1 - i)
-            out[i] = if (shift >= 64) 0.toByte() else ((counter ushr shift) and 0xffL).toByte()
-        }
-        return out
     }
 
     private fun workerLoop(idx: Int) {
