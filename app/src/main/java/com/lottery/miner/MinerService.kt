@@ -33,12 +33,12 @@ class MinerService : Service() {
 
     private var engine: MinerEngine? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var engineStartComplete = false
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
-            if (engine != null && !MinerState.running) {
-                stopMining()
-                stopSelf()
+            if (engine != null && engineStartComplete && !MinerState.running) {
+                stopMining { stopSelf() }
                 return
             }
             updateWakeLock()
@@ -53,10 +53,7 @@ class MinerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startMining(intent)
-            ACTION_STOP -> {
-                stopMining()
-                stopSelf()
-            }
+            ACTION_STOP -> stopMining { stopSelf() }
         }
         return START_NOT_STICKY
     }
@@ -85,8 +82,28 @@ class MinerService : Service() {
         )
         val e = MinerEngine(applicationContext, cfg)
         engine = e
-        e.start()
+        engineStartComplete = false
         handler.postDelayed(ticker, 5000)
+
+        // Native self-tests and the device-specific ARM paired-scan benchmark can
+        // take noticeable time. Never run them on the service main thread.
+        Thread({
+            try {
+                e.start()
+            } catch (failure: Throwable) {
+                MinerState.status = "Miner startup failed: ${failure.message ?: failure.javaClass.simpleName}"
+                MinerState.pauseReason = "Miner startup failed"
+                MinerState.running = false
+                MinerState.log(MinerState.status)
+            } finally {
+                handler.post {
+                    if (engine === e) {
+                        engineStartComplete = true
+                        if (!MinerState.running) stopMining { stopSelf() }
+                    }
+                }
+            }
+        }, "miner-engine-start").start()
     }
 
     private fun updateWakeLock() {
@@ -100,10 +117,32 @@ class MinerService : Service() {
             wakeLock = null
         }
     }
-    private fun stopMining() {
+    private fun stopMining(onStopped: (() -> Unit)? = null) {
         handler.removeCallbacks(ticker)
-        engine?.stop()
+        val stoppingEngine = engine
         engine = null
+        engineStartComplete = false
+
+        // MinerEngine.stop() can wait for native scans/workers to exit. Keep that
+        // join off the main thread so Stop and service teardown remain responsive.
+        if (stoppingEngine == null) {
+            releaseMiningResources()
+            onStopped?.invoke()
+            return
+        }
+        Thread({
+            try {
+                stoppingEngine.stop()
+            } finally {
+                handler.post {
+                    releaseMiningResources()
+                    onStopped?.invoke()
+                }
+            }
+        }, "miner-engine-stop").start()
+    }
+
+    private fun releaseMiningResources() {
         try { wakeLock?.release() } catch (_: Exception) { }
         wakeLock = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
