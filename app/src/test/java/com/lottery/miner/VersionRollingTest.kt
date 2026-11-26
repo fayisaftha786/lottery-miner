@@ -11,9 +11,17 @@ class VersionRollingTest {
         assertEquals(0x00002000L, VersionRolling.parseMask("00002000"))
         assertNull(VersionRolling.parseMask(null))
         assertNull(VersionRolling.parseMask("20000000"))
-        assertNull(VersionRolling.parseMask("00000000"))
+        assertEquals(0L, VersionRolling.parseMask("00000000"))
         assertNull(VersionRolling.parseMask("1fffe00"))
         assertNull(VersionRolling.parseMask("zzzzzzzz"))
+    }
+
+    @Test fun initialNegotiationRequiresAtLeastOneVersionBitButMidSessionMayUseZeroMask() {
+        assertTrue(VersionRolling.meetsRequestedMinimumBitCount(0x00002000L))
+        assertTrue(!VersionRolling.meetsRequestedMinimumBitCount(0L))
+        assertTrue(!VersionRolling.meetsRequestedMinimumBitCount(0x20000000L))
+        assertEquals(0L, VersionRolling.parseMask("00000000"))
+        assertEquals(1L, VersionRolling.variantCount(0L))
     }
 
     @Test fun fixedVersionHasExactlyOneVariant() {
