@@ -35,6 +35,11 @@ class MinerService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var engineStartComplete = false
     @Volatile private var engineStartThread: Thread? = null
+    // Service callbacks run on the main thread. Serialize Stop -> Start so a new
+    // engine cannot overlap the previous engine's asynchronous shutdown.
+    private var stopInProgress = false
+    private var pendingStartIntent: Intent? = null
+    private var serviceDestroyed = false
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
@@ -60,6 +65,13 @@ class MinerService : Service() {
     }
 
     private fun startMining(i: Intent) {
+        if (serviceDestroyed) return
+        if (stopInProgress) {
+            // Keep only the newest requested configuration; start it after the old
+            // engine has joined and released its resources.
+            pendingStartIntent = Intent(i)
+            return
+        }
         if (Build.VERSION.SDK_INT >= 26) {
             val ch = NotificationChannel(CHANNEL, "Mining", NotificationManager.IMPORTANCE_LOW)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
@@ -122,6 +134,7 @@ class MinerService : Service() {
         }
     }
     private fun stopMining(onStopped: (() -> Unit)? = null) {
+        if (stopInProgress) return
         handler.removeCallbacks(ticker)
         val stoppingEngine = engine
         val startupThread = engineStartThread
@@ -136,6 +149,7 @@ class MinerService : Service() {
             onStopped?.invoke()
             return
         }
+        stopInProgress = true
         Thread({
             try {
                 // Preserve lifecycle order: a stop request arriving immediately
@@ -147,7 +161,16 @@ class MinerService : Service() {
             } finally {
                 handler.post {
                     releaseMiningResources()
-                    onStopped?.invoke()
+                    stopInProgress = false
+                    val restart = pendingStartIntent
+                    pendingStartIntent = null
+                    if (!serviceDestroyed && restart != null) {
+                        // A Start received during shutdown supersedes the pending
+                        // stopSelf callback and starts only after cleanup completes.
+                        startMining(restart)
+                    } else {
+                        onStopped?.invoke()
+                    }
                 }
             }
         }, "miner-engine-stop").start()
@@ -184,6 +207,8 @@ class MinerService : Service() {
     }
 
     override fun onDestroy() {
+        serviceDestroyed = true
+        pendingStartIntent = null
         stopMining()
         super.onDestroy()
     }
