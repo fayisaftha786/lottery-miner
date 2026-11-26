@@ -11,6 +11,7 @@ void miner_core_init(void);
 int miner_core_uses_hw(void);
 int miner_core_selftest_ok(void);
 int miner_core_uses_arm_pair_scan(void);
+int miner_core_uses_arm_quad_scan(void);
 
 /* Double SHA-256 of an 80 byte block header. out = digest bytes in internal order (little-endian number). */
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]);
@@ -32,6 +33,7 @@ extern const uint32_t SHA256_K[64];
 void compress_arm(uint32_t state[8], const uint32_t w[16]);
 void compress_arm_pair(uint32_t state_a[8], const uint32_t w_a[16],
                        uint32_t state_b[8], const uint32_t w_b[16]);
+void compress_arm_quad(uint32_t state[4][8], const uint32_t w[4][16]);
 int arm_sha2_supported(void);
 #endif
 
