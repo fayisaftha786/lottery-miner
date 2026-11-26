@@ -294,9 +294,15 @@ class StratumClient(
                 val enabled = error == null && result?.opt("version-rolling") == true
                 val maskValue = result?.opt("version-rolling.mask") as? String
                 val parsedMask = if (enabled) VersionRolling.parseMask(maskValue) else null
+                if (enabled && parsedMask == null) {
+                    // The server has activated the extension and will require a
+                    // sixth submit parameter. Continuing in fixed-version mode
+                    // would silently generate invalid submits, so reconnect safely.
+                    throw ProtocolException("Pool activated BIP310 version rolling without a valid supported mask")
+                }
                 val state = VersionRollingState(
-                    enabled = enabled && parsedMask != null,
-                    mask = if (enabled && parsedMask != null) parsedMask else 0L
+                    enabled = enabled,
+                    mask = parsedMask ?: 0L
                 )
                 // Publish the extension state atomically before notifying the engine.
                 versionRollingState = state
