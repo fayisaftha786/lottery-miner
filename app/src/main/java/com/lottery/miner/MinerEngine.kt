@@ -428,7 +428,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             // 2^32 nonces for 65,536 versions before moving to new coinbase work.
             val variantOrdinal = Math.floorMod(versionVariantCursor.getAndIncrement(), variantCount)
             val versionBits = VersionRolling.variantAt(scanVersionMask, variantOrdinal)
-            val header = job.buildHeader(en1Snapshot, en2, versionBits)
+            val header = job.buildHeader(en1Snapshot, en2, versionBits, scanVersionMask)
             // Scan against the numerically larger (looser) target so every network
             // candidate and every pool share reaches Kotlin for exact classification.
             val networkTarget = Util.toBytes32(Util.nbitsToTarget(job.nbitsHex))
