@@ -188,3 +188,17 @@ The pool controls the effective version mask. The implementation fails closed on
 Version rolling and extranonce expansion do **not** make any individual SHA-256d hash more likely to satisfy the Bitcoin network target. They expose additional valid header variants; all hashes still use ordinary Bitcoin SHA-256d proof-of-work. This branch does not implement a SHA-256 shortcut, does not promise a block, and does not create cloud hashrate.
 
 The following roadmap items remain separate and are **not** represented as implemented here: parallel multi-job scheduling for `clean_jobs=false`, pool-constrained nTime rolling, 4-way/8-way ARM SHA2 kernels, and physical-device sustained/live-pool validation. The existing paired 2-way ARM SHA2 scanner remains guarded by its prior runtime equivalence tests and on-device performance gate.
+
+
+## PHOENIX experimental four-stream ARM SHA2 scan
+
+The PHOENIX branch adds an experimental four-stream SHA-256 compression/scanning path for ARMv8 Crypto Extension devices. It interleaves four independent nonce candidates per compression stage. This is a pipeline/throughput experiment, **not** a cryptographic shortcut and does not increase the probability that any individual SHA-256d hash meets the Bitcoin network target.
+
+Selection is fail-closed:
+- The four-stream scanner is compared bit-for-bit with the validated single-stream ARM scanner over 1, 2, 3, 4, 5 and 129 nonce ranges, including uint32 wrap boundaries and all-hit / partial-hit / no-hit target patterns.
+- Stored hit ordering, overflow counts, best nonce and best displayed difficulty must match.
+- A warmed, alternating, five-sample median benchmark compares the quad scanner against the already-selected single/paired path on the actual device.
+- Quad mode is selected only when it is at least 1.5% faster. Otherwise the previous validated path remains active.
+- The app reports the actually selected path; it does not label an unselected experiment as active.
+
+Four independent streams can increase register pressure on some ARM cores and may be slower. The device gate is therefore mandatory. Host CI can compile and test the scalar reference, but only a physical ARM phone can run the ARM equivalence and timing gates. No universal speedup or block-finding guarantee is claimed.
