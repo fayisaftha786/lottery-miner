@@ -12,6 +12,7 @@ class CandidateHistoryTest {
         extranonce2 = "01020304",
         ntime = "65a0b1c2",
         nonce = "01000000",
+        versionBits = "00000001",
         header = "ab".repeat(80),
         hash = hash,
         networkTarget = "00".repeat(32),
@@ -26,6 +27,7 @@ class CandidateHistoryTest {
         assertEquals("01020304", item.getString("extranonce2"))
         assertEquals("65a0b1c2", item.getString("ntime"))
         assertEquals("01000000", item.getString("nonce"))
+        assertEquals("00000001", item.getString("version_bits"))
         assertEquals("ab".repeat(80), item.getString("header"))
         assertEquals("hash-a", item.getString("hash"))
         assertEquals(100L, item.getLong("detected_at_ms"))
