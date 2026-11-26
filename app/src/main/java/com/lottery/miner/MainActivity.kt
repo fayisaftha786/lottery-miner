@@ -481,6 +481,12 @@ class MainActivity : AppCompatActivity() {
             appendLine("Wallet (masked): $maskedAddress")
             appendLine("Pool: ${etHost.text.toString().trim()}:${etPort.text}")
             appendLine("Running: ${s.running}; authorized: ${s.connected}; status: ${s.status}")
+            appendLine(
+                "BIP310 version rolling: " +
+                    if (s.versionRollingNegotiated) "enabled; mask=${String.format(Locale.US, "%08x", s.versionRollingMask)}"
+                    else "not negotiated; fixed-version mode"
+            )
+            appendLine("Stratum extranonce2 width: ${if (s.extranonce2Bytes in 1..16) "${s.extranonce2Bytes} bytes" else "unavailable"}")
             appendLine("Connection attempts: ${s.connectionAttempts.get()}")
             appendLine("Last connection attempt: ${time(s.lastConnectAttemptAt)}")
             appendLine("Last authorization: ${time(s.authorizedAt)}")
@@ -756,6 +762,13 @@ class MainActivity : AppCompatActivity() {
         sb.append("SUSTAINED AVG (up to 30m): ").append(Util.fmtRate(s.localHashrate30m))
             .append(" · window ").append(sustainedWindowLabel).append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
+        sb.append("BIP310 version rolling: ")
+            .append(
+                if (s.versionRollingNegotiated) "ON · mask " + String.format(Locale.US, "%08x", s.versionRollingMask)
+                else "OFF · fixed-version"
+            ).append('\n')
+        sb.append("Stratum extranonce2: ")
+            .append(if (s.extranonce2Bytes in 1..16) "${s.extranonce2Bytes} bytes" else "N/A").append('\n')
         sb.append("ഫോൺ CPU workers: ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         val submitted = s.submittedShares.get()
