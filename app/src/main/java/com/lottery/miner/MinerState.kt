@@ -9,6 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger
 object MinerState {
     @Volatile var running = false
     @Volatile var connected = false
+    @Volatile var versionRollingNegotiated = false
+    @Volatile var versionRollingMask = 0L
+    @Volatile var extranonce2Bytes = 0
     @Volatile var status = "നിർത്തി"
     /** EMA of real native scan throughput, updated by the policy loop every ~2 seconds. */
     @Volatile var hashrate = 0.0
@@ -82,6 +85,9 @@ object MinerState {
     @Synchronized
     fun reset() {
         connected = false
+        versionRollingNegotiated = false
+        versionRollingMask = 0L
+        extranonce2Bytes = 0
         hashrate = 0.0
         localHashrate5m = 0.0
         localHashrateWindowSeconds = 0.0
