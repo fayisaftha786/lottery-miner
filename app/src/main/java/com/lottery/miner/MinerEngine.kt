@@ -36,6 +36,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private var hasExtranonceAllocation = false
     private val difficultyTargets = PoolDifficultyTargets()
     @Volatile private var shareTarget: ByteArray = difficultyTargets.activeTarget()
+    @Volatile private var versionMask = 0L
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
     private val jobGeneration = AtomicLong(0)
@@ -175,6 +176,21 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             MinerState.log("പൂൾ difficulty = $diff ലഭിച്ചു; അടുത്ത job മുതൽ പ്രാബല്യത്തിൽ വരും")
         }
     }
+    override fun onVersionMask(mask: Long) {
+        synchronized(workLock) {
+            if (versionMask != mask) {
+                versionMask = mask
+                // The pool mask is effective immediately. Invalidate in-flight
+                // scans and restart the current job under the new negotiated mask.
+                jobGeneration.incrementAndGet()
+                MinerState.log(
+                    if (mask == 0L) "BIP310 version rolling disabled; fixed header version"
+                    else "BIP310 version rolling active; ${java.lang.Long.bitCount(mask)} version bits negotiated"
+                )
+            }
+        }
+    }
+
     override fun onJob(job: Job) {
         synchronized(workLock) {
             MinerState.lastJobAt = System.currentTimeMillis()
@@ -258,6 +274,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         extranonce2: String,
         ntime: String,
         nonce: String,
+        versionBits: String,
         header: String,
         hash: String,
         networkTarget: String,
@@ -270,6 +287,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 extranonce2 = extranonce2,
                 ntime = ntime,
                 nonce = nonce,
+                versionBits = versionBits,
                 header = header,
                 hash = hash,
                 networkTarget = networkTarget,
@@ -285,6 +303,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             .putString("extranonce2", extranonce2)
             .putString("ntime", ntime)
             .putString("nonce", nonce)
+            .putString("version_bits", versionBits)
             .putString("header", header)
             .putString("hash", hash)
             .putString("network_target", networkTarget)
@@ -374,7 +393,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
         val best = DoubleArray(3)
-        // Each CPU worker tunes its own contiguous nonce batch using measured native call duration.
+        // Each CPU worker tunes its native batch size from measured scan latency.
         val scanChunks = AdaptiveScanChunkController()
         while (running) {
             if (idx >= activeThreads) { sleepMs(500); continue }
@@ -384,8 +403,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val generation = jobGeneration.get()
             val en1Snapshot = en1.copyOf()
             // Allocate a unique extranonce2 from one synchronized, full-width cursor.
-            // This removes the old signed-Long/8-byte ceiling and avoids stride gaps
-            // when thermal policy changes the active worker count.
+            // The allocation is independent of active worker count, so thermal
+            // reductions do not create gaps or duplicate worker ranges.
             val en2 = extranonce2Cursor.allocate()
             if (en2 == null) {
                 MinerState.status = "Extranonce2 allocation exhausted; pool reconnect requested"
@@ -394,24 +413,32 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 continue
             }
             // A job/allocation may have changed between the snapshot and cursor read.
-            // Discard that one reservation rather than hashing mismatched work.
             if (!running || current !== job || jobGeneration.get() != generation) continue
 
-            val header = job.buildHeader(en1Snapshot, en2)
-            // Scan against the numerically larger (looser) target so every network
-            // candidate and every pool share reaches Kotlin for exact classification.
+            val scanVersionMask = versionMask
+            val versionVariantCount = VersionRolling.variantCount(scanVersionMask)
             val networkTarget = Util.toBytes32(Util.nbitsToTarget(job.nbitsHex))
             val target = Util.candidateScanTarget(shareTarget.copyOf(), networkTarget)
 
-            var start = 0L
+            // Each negotiated version_bits submask is a distinct, valid header
+            // variant. Every variant gets its own complete uint32 nonce scan.
+            var versionOrdinal = 0L
             while (running && current === job && jobGeneration.get() == generation &&
-                idx < activeThreads && start < SPACE
+                idx < activeThreads && versionOrdinal < versionVariantCount
             ) {
-                val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
-                val scanStartedAt = System.nanoTime()
-                scanRange(job, generation, target, header, en2, start, count, found, best)
-                scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
-                start += count
+                val versionBits = VersionRolling.variantAt(scanVersionMask, versionOrdinal)
+                val header = job.buildHeader(en1Snapshot, en2, versionBits)
+                var start = 0L
+                while (running && current === job && jobGeneration.get() == generation &&
+                    idx < activeThreads && start < SPACE
+                ) {
+                    val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
+                    val scanStartedAt = System.nanoTime()
+                    scanRange(job, generation, target, header, en2, versionBits, start, count, found, best)
+                    scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
+                    start += count
+                }
+                versionOrdinal++
             }
         }
     }
@@ -423,7 +450,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
      */
     private fun scanRange(
         j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
-        start: Long, count: Int, found: IntArray, best: DoubleArray
+        versionBits: Long, start: Long, count: Int, found: IntArray, best: DoubleArray
     ) {
         if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
         val nf = Native.scan(header, start.toInt(), count, target, found, best)
@@ -449,14 +476,14 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
             MinerState.log("Native result buffer full; splitting range to submit every hit")
             val firstCount = count / 2
-            scanRange(j, generation, target, header, en2, start, firstCount, found, best)
-            scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
+            scanRange(j, generation, target, header, en2, versionBits, start, firstCount, found, best)
+            scanRange(j, generation, target, header, en2, versionBits, start + firstCount, count - firstCount, found, best)
             return
         }
-        for (k in 0 until nf) handleShare(j, generation, header, found[k], en2)
+        for (k in 0 until nf) handleShare(j, generation, header, found[k], en2, versionBits)
     }
 
-    private fun handleShare(j: Job, generation: Long, header: ByteArray, nonce: Int, en2: ByteArray) {
+    private fun handleShare(j: Job, generation: Long, header: ByteArray, nonce: Int, en2: ByteArray, versionBits: Long) {
         if (!running || current !== j || jobGeneration.get() != generation) return
         val h = header.copyOf()
         h[76] = nonce.toByte()
@@ -481,6 +508,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 val detectedAt = System.currentTimeMillis()
                 val candidateRecord = recordCandidateDetection(
                     journal, j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
+                    String.format(java.util.Locale.US, "%08x", versionBits),
                     Util.bytesToHex(h), candidateHash,
                     networkTarget.toString(16).padStart(64, '0'), detectedAt
                 )
@@ -506,12 +534,13 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                         activeClient.submit(
                             j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex,
                             isShare = shareHit,
-                            candidateId = candidateHash
+                            candidateId = candidateHash,
+                            versionBits = versionBits
                         )
                     }
                 }
             } else {
-                client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex)
+                client?.submit(j.id, Util.bytesToHex(en2), j.ntimeHex, nonceHex, versionBits = versionBits)
             }
             // Network-target candidates are submitted even when they miss the pool
             // share target. Candidate-only submissions are tracked separately in
