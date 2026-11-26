@@ -11,6 +11,7 @@ class VersionRollingTest {
         assertEquals(0x00002000L, VersionRolling.parseMask("00002000"))
         assertNull(VersionRolling.parseMask(null))
         assertNull(VersionRolling.parseMask("20000000"))
+        assertNull(VersionRolling.parseMask("00000000"))
         assertNull(VersionRolling.parseMask("1fffe00"))
         assertNull(VersionRolling.parseMask("zzzzzzzz"))
     }
