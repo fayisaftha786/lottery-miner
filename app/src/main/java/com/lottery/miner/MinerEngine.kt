@@ -284,6 +284,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         ntime: String,
         nonce: String,
         versionBits: String,
+        versionMask: String,
         header: String,
         hash: String,
         networkTarget: String,
@@ -297,6 +298,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 ntime = ntime,
                 nonce = nonce,
                 versionBits = versionBits,
+                versionMask = versionMask,
                 header = header,
                 hash = hash,
                 networkTarget = networkTarget,
@@ -313,6 +315,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             .putString("ntime", ntime)
             .putString("nonce", nonce)
             .putString("version_bits", versionBits)
+            .putString("version_mask", versionMask)
             .putString("header", header)
             .putString("hash", hash)
             .putString("network_target", networkTarget)
