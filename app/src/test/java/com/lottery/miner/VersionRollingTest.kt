@@ -21,13 +21,13 @@ class VersionRollingTest {
     }
 
     @Test fun enumeratesEverySubmaskExactlyOnce() {
-        val mask = 0x00000025L
+        val mask = 0x0000a000L
         val values = (0L until VersionRolling.variantCount(mask))
             .map { VersionRolling.variantAt(mask, it) }
             .toSet()
 
-        assertEquals(8, values.size)
-        assertTrue(values.containsAll(setOf(0x00L,0x01L,0x04L,0x05L,0x20L,0x21L,0x24L,0x25L)))
+        assertEquals(4, values.size)
+        assertTrue(values.containsAll(setOf(0x0000L, 0x2000L, 0x8000L, 0xa000L)))
     }
 
     @Test fun fullAdvertisedMaskProducesTheExpectedNumberOfVariants() {
