@@ -17,6 +17,9 @@ class Job(
         require(prevHashHex.matches(Regex("[0-9a-fA-F]{64}"))) { "prevhash must be 32-byte hex" }
         require(versionHex.matches(Regex("[0-9a-fA-F]{8}"))) { "version must be 4-byte hex" }
         require(nbitsHex.matches(Regex("[0-9a-fA-F]{8}"))) { "nbits must be 4-byte hex" }
+        // Reject malformed compact targets while parsing the Stratum job, not later in a worker thread.
+        // This turns invalid pool work into a protocol failure and preserves worker health.
+        Util.nbitsToTarget(nbitsHex)
         require(ntimeHex.matches(Regex("[0-9a-fA-F]{8}"))) { "ntime must be 4-byte hex" }
         require(coinb1.size <= 100000 && coinb2.size <= 100000) { "coinbase fragment too large" }
         require(merkle.size <= 32 && merkle.all { it.size == 32 }) { "invalid merkle branches" }
