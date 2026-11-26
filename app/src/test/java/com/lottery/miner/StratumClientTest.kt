@@ -52,9 +52,13 @@ class StratumClientTest {
         override fun onVersionMask(mask: Long, enabled: Boolean) {
             versionMask = mask
             versionRollingEnabled = enabled
-            if (mask == 0x00002000L) updatedMaskLatch.countDown()
         }
-        override fun onStatus(msg: String) { statuses.add(msg) }
+        override fun onStatus(msg: String) {
+            statuses.add(msg)
+            // This status is emitted after StratumClient publishes its immutable
+            // negotiated state, so the stale-header test cannot race that write.
+            if (msg.contains("BIP310 version mask updated: 00002000")) updatedMaskLatch.countDown()
+        }
     }
 
     @Test fun negotiatesVersionRollingAndSubmitsTheExactVersionBits() {
