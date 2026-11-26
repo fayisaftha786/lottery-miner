@@ -41,7 +41,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val jobGeneration = AtomicLong(0)
     private val workLock = Any()
     private val candidateJournalLock = Any()
-    private val extranonceEpoch = AtomicLong(0)
+    private val extranonce2Cursor = Extranonce2Cursor(4)
     private val reconnectingForExhaustion = AtomicBoolean(false)
     private val adaptiveWorkerController = AdaptiveWorkerController()
     private val threads = ArrayList<Thread>()
@@ -148,8 +148,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 if (MinerState.connected) MinerState.status = "Pool extranonce മാറി; പുതിയ job കാത്തിരിക്കുന്നു"
                 en1 = extranonce1.copyOf()
                 en2Size = extranonce2Size
+                extranonce2Cursor.reset(extranonce2Size)
                 hasExtranonceAllocation = true
-                extranonceEpoch.incrementAndGet()
             }
             reconnectingForExhaustion.set(false)
             val allocationStatus = if (allocationChanged) "പുതിയത്" else "തുടരുന്നു"
@@ -374,45 +374,42 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
         val best = DoubleArray(3)
-        // Each CPU worker tunes its own contiguous scan batch using measured native call duration.
+        // Each CPU worker tunes its own contiguous nonce batch using measured native call duration.
         val scanChunks = AdaptiveScanChunkController()
-        var counter = idx.toLong()
-        var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
-            val epoch = extranonceEpoch.get()
-            if (epoch != seenExtranonceEpoch) {
-                counter = idx.toLong()
-                seenExtranonceEpoch = epoch
-            }
             if (idx >= activeThreads) { sleepMs(500); continue }
-            val j = current
-            if (j == null) { sleepMs(300); continue }
+            val job = current
+            if (job == null) { sleepMs(300); continue }
 
-            val size = en2Size
-            val maxCounter = if (size < 8) (1L shl (size * 8)) - 1L else Long.MAX_VALUE
-            if (counter < 0L || counter > maxCounter) {
-                MinerState.status = "Extranonce2 പരിധി തീർന്നു; pool reconnect ചെയ്യുന്നു"
+            val generation = jobGeneration.get()
+            val en1Snapshot = en1.copyOf()
+            // Allocate a unique extranonce2 from one synchronized, full-width cursor.
+            // This removes the old signed-Long/8-byte ceiling and avoids stride gaps
+            // when thermal policy changes the active worker count.
+            val en2 = extranonce2Cursor.allocate()
+            if (en2 == null) {
+                MinerState.status = "Extranonce2 allocation exhausted; pool reconnect requested"
                 if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
                 sleepMs(500)
                 continue
             }
-            val generation = jobGeneration.get()
-            val en1Snapshot = en1.copyOf()
-            val en2 = encodeEn2(counter, size)
-            counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
-            val header = j.buildHeader(en1Snapshot, en2)
-            // Scan against the numerically larger (looser) of the pool share target
-            // and Bitcoin network target. This guarantees that every network-target
-            // candidate reaches Kotlin for exact classification, even if it is not
-            // a pool-difficulty share.
-            val networkTarget = Util.toBytes32(Util.nbitsToTarget(j.nbitsHex))
+            // A job/allocation may have changed between the snapshot and cursor read.
+            // Discard that one reservation rather than hashing mismatched work.
+            if (!running || current !== job || jobGeneration.get() != generation) continue
+
+            val header = job.buildHeader(en1Snapshot, en2)
+            // Scan against the numerically larger (looser) target so every network
+            // candidate and every pool share reaches Kotlin for exact classification.
+            val networkTarget = Util.toBytes32(Util.nbitsToTarget(job.nbitsHex))
             val target = Util.candidateScanTarget(shareTarget.copyOf(), networkTarget)
 
             var start = 0L
-            while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
+            while (running && current === job && jobGeneration.get() == generation &&
+                idx < activeThreads && start < SPACE
+            ) {
                 val count = minOf(scanChunks.currentChunkSize().toLong(), SPACE - start).toInt()
                 val scanStartedAt = System.nanoTime()
-                scanRange(j, generation, target, header, en2, start, count, found, best)
+                scanRange(job, generation, target, header, en2, start, count, found, best)
                 scanChunks.observeElapsedNanos(System.nanoTime() - scanStartedAt)
                 start += count
             }
