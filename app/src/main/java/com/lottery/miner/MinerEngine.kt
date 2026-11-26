@@ -194,7 +194,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 jobGeneration.incrementAndGet()
                 MinerState.log(
                     if (!enabled) "BIP310 version rolling unavailable; fixed header version"
-                    else "BIP310 version rolling active; ${java.lang.Long.bitCount(mask)} version bits negotiated"
+                    else "BIP310 version rolling active; mask=${String.format(java.util.Locale.US, "%08x", mask)}"
                 )
             }
         }
