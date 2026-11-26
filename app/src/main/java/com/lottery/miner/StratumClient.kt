@@ -261,8 +261,10 @@ class StratumClient(
                             throw ProtocolException("Invalid mining.set_version_mask parameters")
                         val mask = VersionRolling.parseMask(params.getString(0))
                             ?: throw ProtocolException("Pool sent an invalid/out-of-range version mask")
-                        versionRollingState = state.copy(mask = mask)
+                        // Invalidate the engine's current header before publishing
+                        // the new submit mask, so no old header can be paired with it.
                         listener.onVersionMask(mask, enabled = true)
+                        versionRollingState = state.copy(mask = mask)
                         listener.onStatus("BIP310 version mask updated: ${String.format(Locale.US, "%08x", mask)}")
                     }
                 }
@@ -304,9 +306,10 @@ class StratumClient(
                     enabled = enabled,
                     mask = parsedMask ?: 0L
                 )
-                // Publish the extension state atomically before notifying the engine.
-                versionRollingState = state
+                // Invalidate fixed-version/in-flight work before publishing the
+                // negotiated submit format to worker threads.
                 listener.onVersionMask(state.mask, state.enabled)
+                versionRollingState = state
                 listener.onStatus(
                     if (state.enabled) {
                         "BIP310 version rolling enabled; mask=${String.format(Locale.US, "%08x", state.mask)}"
