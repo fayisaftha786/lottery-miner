@@ -57,7 +57,7 @@ class StratumClientTest {
             statuses.add(msg)
             // This status is emitted after StratumClient publishes its immutable
             // negotiated state, so the stale-header test cannot race that write.
-            if (msg.contains("BIP310 version mask updated: 00002000")) updatedMaskLatch.countDown()
+            if (msg.contains("BIP310 version mask updated: 00000000")) updatedMaskLatch.countDown()
         }
     }
 
@@ -94,8 +94,8 @@ class StratumClientTest {
             val submitThread = thread {
                 client.submit(
                     "test-job", "00000000", "495fab29", "00000001",
-                    versionBits = 0x00002000L,
-                    versionMask = 0x00002000L
+                    versionBits = 0L,
+                    versionMask = 0L
                 )
             }
             submitThread.join(3000)
@@ -114,7 +114,7 @@ class StratumClientTest {
             assertEquals(listOf("submitted", "accepted"), listener.shareEvents.toList())
             assertEquals(2, listener.extranonceUpdates)
             assertEquals("cafe", Util.bytesToHex(listener.extranonce1))
-            assertEquals(0x00002000L, listener.versionMask)
+            assertEquals(0L, listener.versionMask)
             assertTrue(listener.versionRollingEnabled)
             assertEquals(0, listener.unknownShares)
         }
@@ -295,12 +295,12 @@ class StratumClientTest {
             .put("params", JSONArray().put(2.0)).toString() + "\n")
         sendJob(output)
         output.write(JSONObject().put("method", "mining.set_version_mask")
-            .put("params", JSONArray().put("00002000")).toString() + "\n")
+            .put("params", JSONArray().put("00000000")).toString() + "\n")
         output.flush()
         val submit = JSONObject(input.readLine())
         assertEquals("mining.submit", submit.getString("method"))
         assertEquals(6, submit.getJSONArray("params").length())
-        assertEquals("00002000", submit.getJSONArray("params").getString(5))
+        assertEquals("00000000", submit.getJSONArray("params").getString(5))
         output.write(JSONObject().put("id", submit.getInt("id")).put("result", true)
             .put("error", JSONObject.NULL).toString() + "\n")
         output.flush()
