@@ -44,6 +44,7 @@ static int g_hw = 0;
 static int g_ok = 0;
 static int g_arm_pair_scan = 0;
 static int g_arm_quad_scan = 0;
+static double g_arm_quad_gain_percent = -1.0;
 
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
@@ -557,7 +558,8 @@ static uint64_t arm_quad_benchmark_scan(
 }
 
 /* Compare quad with whichever validated scanner (single or paired) is currently fastest. */
-static int benchmark_arm_quad_scan(int baseline_paired) {
+static int benchmark_arm_quad_scan(int baseline_paired, double *gain_percent) {
+    if (gain_percent != NULL) *gain_percent = -1.0;
     uint8_t header[80], target[32] = {0};
     for (size_t i = 0; i < sizeof(header); ++i) header[i] = (uint8_t)(i * 41u + 23u);
 
@@ -577,7 +579,12 @@ static int benchmark_arm_quad_scan(int baseline_paired) {
     }
     const uint64_t baseline_median = median_u64(baseline);
     const uint64_t quad_median = median_u64(quad);
-    return baseline_median > 0 && quad_median * 1000ULL < baseline_median * 985ULL;
+    if (baseline_median == 0 || quad_median == 0) return 0;
+
+    /* Equal hash counts: throughput ratio is inverse elapsed-time ratio. */
+    const double gain = ((double)baseline_median / (double)quad_median - 1.0) * 100.0;
+    if (gain_percent != NULL) *gain_percent = gain;
+    return gain >= 1.5;
 }
 
 /*
@@ -750,6 +757,7 @@ void miner_core_init(void) {
     g_ok = selftest(compress_scalar);
     g_arm_pair_scan = 0;
     g_arm_quad_scan = 0;
+    g_arm_quad_gain_percent = -1.0;
 #ifdef HAVE_ARM_SHA2
     if (arm_sha2_supported() && selftest(compress_arm)) {
         g_fn = compress_arm;
@@ -757,7 +765,9 @@ void miner_core_init(void) {
         /* Only select the paired hot loop when its full scan output matches
          * the validated single-state ARM scanner on multiple target patterns. */
         g_arm_pair_scan = selftest_arm_pair_scan() && benchmark_arm_pair_scan();
-        g_arm_quad_scan = selftest_arm_quad_scan() && benchmark_arm_quad_scan(g_arm_pair_scan);
+        if (selftest_arm_quad_scan()) {
+            g_arm_quad_scan = benchmark_arm_quad_scan(g_arm_pair_scan, &g_arm_quad_gain_percent);
+        }
     }
 #endif
 }
@@ -766,6 +776,7 @@ int miner_core_uses_hw(void) { return g_hw; }
 int miner_core_selftest_ok(void) { return g_ok; }
 int miner_core_uses_arm_pair_scan(void) { return g_arm_pair_scan && !g_arm_quad_scan; }
 int miner_core_uses_arm_quad_scan(void) { return g_arm_quad_scan; }
+double miner_core_arm_quad_gain_percent(void) { return g_arm_quad_gain_percent; }
 
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]) { hash_with(g_fn, header, out); }
 
