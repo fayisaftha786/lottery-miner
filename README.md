@@ -16,7 +16,7 @@ A phone-only APK cannot independently provide a current, consensus-valid Bitcoin
 ## Requirements
 
 - A fully synchronized Bitcoin Core mainnet node on a Linux host / server.
-- Node.js 20 or later on that same host.
+- Node.js 22 or later on that same host.
 - A public HTTPS endpoint or private VPN HTTPS endpoint to reach the gateway from Android.
 - Android 8+ (API 26+) device. Native ARM SHA-256 is used only after independent self-tests pass; otherwise the validated software path is selected.
 
@@ -103,7 +103,7 @@ At phone hashrates, finding a mainnet block is extraordinarily unlikely. Code ch
 
 ## Build and verification
 
-Requirements: JDK 17, Android SDK 36, NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.10.1, Gradle 8.11.1, Node.js 22 for gateway tests.
+Requirements: JDK 17, Android SDK 36, NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.10.1, Gradle 8.11.1, Node.js 22 for gateway runtime and tests.
 
 ~~~bash
 cd direct-gateway
