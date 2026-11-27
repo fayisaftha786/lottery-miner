@@ -146,7 +146,6 @@ class AdaptiveWorkerController(
         if (currentWorkerCount >= safetyWorkerLimit) {
             if (bestWorkerCount == 0 || currentWorkerCount > bestWorkerCount) {
                 bestWorkerCount = currentWorkerCount
-                bestMeasuredRate = currentHashrate
             }
             statusMessage = "Using $currentWorkerCount workers (configured/safety limit)"
             return currentWorkerCount
