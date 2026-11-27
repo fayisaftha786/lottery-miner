@@ -66,11 +66,11 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
         val hw = Native.initCore()
         MinerState.hwSha = hw == 1
-        MinerState.armQuadGainPercent = if (hw == 1) runCatching { Native.armQuadGainPercent() }.getOrDefault(-1.0) else -1.0
+        MinerState.armQuadGainPercent = if (hw == 1) runCatching { Native.armQuadGainPercent() }.getOrDefault(-1000.0) else -1000.0
         MinerState.armQuadScan = if (hw == 1) runCatching { Native.usesArmQuadScan() }.getOrDefault(false) else false
         MinerState.armPairScan = if (hw == 1 && !MinerState.armQuadScan) runCatching { Native.usesArmPairScan() }.getOrDefault(false) else false
         if (MinerState.armQuadScan) MinerState.log("Four-stream ARM SHA2 nonce scan enabled after device equivalence and benchmark gates")
-        if (MinerState.armQuadGainPercent >= 0.0) MinerState.log("PHOENIX quad measured gain: ${String.format(java.util.Locale.US, "%+.2f%%", MinerState.armQuadGainPercent)} vs selected baseline")
+        if (MinerState.armQuadGainPercent > -1000.0) MinerState.log("PHOENIX quad measured gain: ${String.format(java.util.Locale.US, "%+.2f%%", MinerState.armQuadGainPercent)} vs selected baseline")
         else if (MinerState.armPairScan) MinerState.log("Paired ARM SHA2 nonce scan enabled after runtime equivalence tests")
         when (hw) {
             1 -> MinerState.log("ARM hardware SHA-256 ഓൺ")
