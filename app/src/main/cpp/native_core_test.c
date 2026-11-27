@@ -18,7 +18,7 @@ int main(void) {
 #ifndef HAVE_ARM_SHA2
     assert(miner_core_uses_arm_pair_scan() == 0);
     assert(miner_core_uses_arm_quad_scan() == 0);
-    assert(miner_core_arm_quad_gain_percent() < 0.0);
+    assert(miner_core_arm_quad_gain_percent() <= -1000.0);
 #endif
 
     uint8_t header[80] = {0};
