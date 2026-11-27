@@ -1,100 +1,124 @@
-# Lottery Miner — Real Stratum v1 Android CPU miner
+# PHOENIX SOLO — Direct Bitcoin Core Android Miner
 
-Lottery Miner performs local CPU SHA-256d hashing and submits valid shares to a configured Stratum v1 pool. It is a solo-mining lottery experiment, not a profitable replacement for dedicated ASIC hardware. A pool-accepted share is not itself a Bitcoin block or a payout, and this app does not promise rewards.
+PHOENIX SOLO performs Bitcoin mainnet SHA-256d proof-of-work on the Android phone CPU. It does **not** use a mining pool or Stratum. The phone hashes the actual network target using block headers built from a synchronized Bitcoin Core getblocktemplate; a dedicated Phoenix gateway constructs the full coinbase/block and submits a candidate through submitblock.
 
-## Real-data rules
-- Hashrate and total hashes come from actual native nonce-scan calls.
-- Pool difficulty and jobs come from validated Stratum messages.
-- Accepted and rejected counters change only after the matching pool response.
-- If a connection closes with pending submissions, those shares are marked unknown, never accepted.
-- Missing battery/temperature readings are shown as unavailable; missing battery telemetry pauses mining, and missing temperature telemetry limits operation to one worker.
-- A locally detected network-target candidate is not a confirmed block. Confirmation requires independent authoritative Bitcoin network evidence.
-- No simulated mining mode, fabricated hashrate, fabricated shares, or fabricated earnings are included.
+A phone-only APK cannot independently provide a current, consensus-valid Bitcoin block template without access to a Bitcoin full node. Therefore the Android app connects to a small gateway that runs on the same trusted host as Bitcoin Core. The node's RPC credentials remain on that host and are never entered into the phone.
 
-## Pool setup
-The configured default is `stratum.ckpool.org:3333`, the CKPool-recommended automatic endpoint. The app migrates the previous default `solo.ckpool.org` to this endpoint on launch while preserving custom hostnames. Pool endpoints and availability may change; verify current details with the pool operator.
-On a fresh install, the payout field is pre-filled with the user's confirmed Trust Wallet Bitcoin address; a previously saved non-empty address is preserved and can be edited in the app.
+## Architecture
 
-Use your Bitcoin mainnet payout address as the Stratum username. An optional worker suffix may be used if supported by the pool. Password is `x`. Never enter a seed phrase or private key.
+1. Bitcoin Core mainnet must be fully synchronized and expose RPC only on loopback.
+2. direct-gateway/ calls getblockchaininfo and getblocktemplate and prepares a full coinbase transaction with BIP34 height and the node-provided SegWit witness commitment.
+3. The gateway returns an 80-byte block header and the exact 256-bit network target to Android over an authenticated HTTPS API.
+4. Android scans nonce ranges in the native SHA-256d engine. Its target is the **Bitcoin network target**, not a pool share target.
+5. When a nonce meets the network target, Android sends the candidate nonce to the gateway. The gateway independently rechecks the hash, builds the complete block (header + coinbase + all template transactions), runs Bitcoin Core proposal validation, and then calls submitblock.
+6. A node acceptance is reported separately from network confirmation. No payout is inferred from a local candidate or a successful RPC response.
 
-**Network security:** this Android client currently implements Stratum V1 over plain TCP; it does not encrypt the pool connection. On an untrusted network, an on-path party may observe or manipulate mining traffic, including work and share messages. Prefer a trusted network; do not treat this connection as a secure channel. CKPool also publishes a Stratum V2 endpoint on port `3336`, but this app does not implement Stratum V2 and must use the V1 endpoint above.
+## Requirements
 
-The app's **CKPool statistics** button opens the graphical user page for the configured payout address at `https://stats.ckpool.org/users/<address>`. Statistics may not appear immediately at low hashrates because CKPool applies a minimum share difficulty. A missing statistics page is not proof of a payout or of a lost balance.
+- A fully synchronized Bitcoin Core mainnet node on a Linux host / server.
+- Node.js 20 or later on that same host.
+- A public HTTPS endpoint or private VPN HTTPS endpoint to reach the gateway from Android.
+- Android 8+ (API 26+) device. Native ARM SHA-256 is used only after independent self-tests pass; otherwise the validated software path is selected.
 
-## Payout and block verification
-This is CKPool solo mining: ordinary accepted shares are feedback and do not create proportional BTC earnings. A payout requires a valid block found by the miner, accepted by CKPool, and subsequently confirmed on the Bitcoin network. A local block candidate is not a confirmed block. Verify any claimed payout independently using the block and transaction details in a trusted Bitcoin block explorer. CKPool charges a 2% fee on a found block reward plus transaction fees.
+## Configure Bitcoin Core securely
+
+Keep RPC on loopback. Do not expose port 8332 to the internet. Example bitcoin.conf entries (choose unique credentials and retain the other required settings for your installation):
+
+~~~ini
+server=1
+rpcbind=127.0.0.1
+rpcallowip=127.0.0.1
+rpcuser=phoenix_rpc
+rpcpassword=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
+~~~
+
+Start Bitcoin Core and wait until getblockchaininfo reports initialblockdownload=false and blocks == headers. The gateway refuses to issue work while the node is still syncing.
+
+## Configure the Direct Node Gateway
+
+On the same host as Bitcoin Core:
+
+~~~bash
+cd direct-gateway
+npm install
+cp .env.example .env
+~~~
+
+Set these environment values in .env:
+
+- BITCOIN_RPC_URL=http://127.0.0.1:8332/
+- BITCOIN_RPC_USER and BITCOIN_RPC_PASSWORD: the local Bitcoin Core RPC credentials.
+- PHOENIX_API_TOKEN: create a separate 32-byte minimum random API token, for example openssl rand -hex 32.
+- PHOENIX_BIND_HOST=127.0.0.1 and PHOENIX_PORT=8787.
+
+Load the environment and run the service:
+
+~~~bash
+set -a
+. ./.env
+set +a
+node server.mjs
+~~~
+
+The gateway binds to loopback by default. Publish it through a trusted HTTPS reverse proxy or a private VPN HTTPS ingress. Example Caddy site (replace the hostname with one you control and point its DNS record to the host):
+
+~~~text
+phoenix.example.net {
+    reverse_proxy 127.0.0.1:8787
+}
+~~~
+
+Never expose Bitcoin Core RPC directly. Never put its RPC username/password into Android. The phone only receives the gateway API token, which the app encrypts with an Android Keystore AES-GCM key.
+
+Gateway tests:
+
+~~~bash
+npm test
+~~~
+
+The gateway validates target/bits consistency, transaction hex and txids, payout script, BIP34 height encoding, SegWit witness commitment, header construction, nonce target, proposal response, and submitblock response. It keeps a bounded in-memory cache of recent work identifiers so candidate submissions can be reconstructed safely.
+
+## Configure the Android app
+
+Install the PHOENIX SOLO APK. Enter:
+
+- Your Bitcoin mainnet payout address.
+- The HTTPS gateway URL, for example https://phoenix.example.net.
+- The same PHOENIX_API_TOKEN configured on the gateway.
+- The worker count and device safety thresholds.
+
+The app rejects non-HTTPS gateway URLs and does not accept a URL containing embedded credentials. The API token is stored encrypted by Android Keystore. No Bitcoin Core RPC credentials or wallet seed/private keys belong in the app. Never share a seed phrase or private key.
+
+The app polls for fresh templates, abandons stale work when the block template changes, and allocates non-overlapping nonce ranges. After the complete 32-bit nonce range is exhausted, it requests a new unique coinbase extranonce and starts a new header variant. Device battery, temperature availability, Android thermal state and the measured worker controller can pause/reduce CPU workers.
+
+## What the status means
+
+- **Hashrate / total hashes:** measured native SHA-256d scan work on this phone.
+- **Network difficulty:** derived from the current template compact target.
+- **Network-target candidate:** the native scanner found a header hash at or below the network target.
+- **Node accepted:** Bitcoin Core accepted the submitted block at the RPC stage. This is not yet proof that the block became part of the best chain or that a wallet balance changed.
+- **Payout:** only after the block is accepted by the Bitcoin network and the coinbase transaction matures under consensus rules. The app does not fabricate rewards or expected earnings.
+
+At phone hashrates, finding a mainnet block is extraordinarily unlikely. Code changes cannot lower Bitcoin's proof-of-work target, guarantee a block, or turn hashrate into a predictable payout.
 
 ## Build and verification
-Requires JDK 17, Android SDK 36 (Android 16), NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.10.1, and Gradle 8.11.1.
 
-```bash
+Requirements: JDK 17, Android SDK 36, NDK 26.1.10909125, CMake 3.22.1, Android Gradle Plugin 8.10.1, Gradle 8.11.1, Node.js 22 for gateway tests.
+
+~~~bash
+cd direct-gateway
+npm install
+npm test
+cd ..
 cmake -S app/src/main/cpp -B build/native-tests -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/native-tests --parallel
 ctest --test-dir build/native-tests --output-on-failure
 gradle testDebugUnitTest lintDebug --no-daemon
 gradle externalNativeBuildRelease --no-daemon
 gradle assembleRelease --no-daemon
-```
+gradle assembleDebug --no-daemon
+~~~
 
-GitHub Actions runs host native tests, JVM tests, lint, Android native compilation, and APK assembly. If protected signing secrets are not configured, the APK artifact is unsigned and must not be installed or distributed as a production build. A tagged production release is refused unless the configured keystore signs and verifies the APK.
+GitHub Actions runs gateway tests, host native tests, JVM tests, lint, native Android compilation, release/debug APK assembly, native ELF/APK alignment checks and APK verification. If release signing secrets are not configured, the release APK is unsigned; use the verified signed debug APK only for testing, and configure a protected release keystore for a distributable production APK.
 
-Configure these repository Actions secrets to enable signed releases:
-- `ANDROID_KEYSTORE_BASE64`: base64-encoded release keystore
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-
-Never commit the keystore or passwords.
-
-## Android 16 compatibility
-
-The app compiles and targets Android 16 (API 36). Its scrolling root applies system-bar and display-cutout insets for edge-to-edge layouts, keeping the mining controls and diagnostic panels accessible on modern devices. The foreground service remains explicitly user-started and uses the declared `specialUse` service type.
-
-## Android distribution and foreground service
-The app uses an explicitly user-started special-use foreground service for sustained local computation. This does not imply Google Play approval. Google Play policy does not allow apps that mine cryptocurrency on the device; it permits apps that remotely manage mining. Do not submit this on-device miner to Google Play as a mining app. See the [Google Play blockchain-based content policy](https://support.google.com/googleplay/android-developer/answer/13607354).
-
-## Safety and limitations
-- Battery temperature is a battery sensor reading, not CPU temperature. It may be unavailable or differ from actual processor temperature.
-- Unknown battery telemetry pauses mining. Unknown battery temperature limits operation to one worker. Android thermal status can further reduce or pause workers.
-- Thermal and battery safeguards reduce risk but cannot guarantee device safety. Stop mining if the device becomes hot, unstable, or uncomfortable to hold.
-- Phone CPU mining has an astronomically low chance of finding a Bitcoin block compared with modern ASIC miners. Accepted pool shares do not guarantee a payout in solo mode.
-- Automated tests cannot verify live pool availability, pool-side share acceptance, device thermal stability, or an actual block confirmation. These require real-device testing and independent pool/network evidence.
-
-
-## Scope: Android phone mining only
-
-This app performs SHA-256d mining on the Android device and submits work to the configured Stratum pool. It does not connect to cloud-compute providers, provision remote instances, or run remote workers. The OCEAN panel is read-only monitoring of workers already associated with a wallet; it does not supply or create mining power.
-
-## Adaptive Mining Lab
-
-The app includes a local SHA-256d benchmark and a conservative profitability calculation model. The benchmark runs only while mining is stopped, scans a synthetic header against a zero target, and never opens a pool connection or submits shares.
-
-The algorithm registry currently marks SHA-256d as installed. RandomX, VerusHash, GhostRider, and AstroBWT are research candidates only; they are not executable miners in this app yet. They must not be selected or advertised as available until a native implementation is integrated, licensed correctly, cross-checked against an independent reference implementation, and benchmarked on real ARM64 hardware.
-
-Profitability estimates require device benchmark rate, network hashrate, daily network reward, market price, measured power, local electricity tariff, pool fee, and a fresh timestamp. Snapshots older than 15 minutes are rejected for net-profit selection. Hashrates from different algorithms are never compared directly. Solo-mining reward probability must not be presented as proportional pool income.
-
-Automatic algorithm switching remains disabled until live market/network/pool data adapters and at least two validated mining implementations are available. The engine must choose by expected net return per day only after subtracting pool fees and electricity cost; if no candidate has a fresh positive estimate, mining should remain stopped or stay on the user's explicit manual selection.
-
-## Adaptive Mining Lab and profitability estimates
-
-The in-app SHA-256d benchmark runs for at most five seconds, at reduced thread priority, only while phone mining is stopped. It scans a deterministic synthetic header against a zero target and does not connect to a pool or submit shares. The most recent measured rate is saved locally for the estimator.
-
-The Bitcoin estimator refreshes read-only public data on user request:
-- Bitcoin network difficulty and current block subsidy: Blockchain.com simple network API.
-- BTC/INR ticker price: Blockchain.com ticker.
-
-Network hashrate is estimated from difficulty as `difficulty × 2^32 / 600 seconds`. Expected daily subsidy uses 144 blocks/day and the current subsidy returned by the API; transaction fees are excluded. The model shows expected value, CKPool fee, and electricity cost separately. The power input must be the *mining-only incremental wall power* measured with an external meter; the electricity tariff must match the user's bill. Android battery telemetry is not treated as a wall-power meter.
-
-For CKPool solo mining the displayed net value is only a long-run mathematical expectation. It is not a daily payout forecast: a payout requires a valid network block, and the wait time at phone hashrates can be extraordinarily long. Accepted shares are feedback, not proportional BTC earnings. The estimator refuses to use snapshots older than 15 minutes and does not reuse failed market data as if it were live.
-
-Only SHA-256d has a native miner implementation in this application. VerusHash, RandomX, Scrypt, and other algorithm entries are research targets, not selectable or executable miners. Automatic multi-algorithm switching is disabled until a separately audited native engine, compatible pool protocol, license notices, per-device benchmarks, and network/economic data adapters are integrated and validated.
-
-## Adaptive mining controller (v1)
-
-The existing Bitcoin SHA-256d native engine is preserved. The adaptive controller now measures worker-count changes instead of assuming that more threads are faster. It starts with one worker, waits 45 seconds between trials, tests one additional worker for a 30-second measurement window, and keeps the increase only when the real rolling native hashrate improves by at least 3%. If a trial does not improve the measured rate enough, it returns to the best measured worker count and stops further increases for the current safety/thermal state. Battery, temperature, Android thermal status, and pool-job readiness remain higher-priority limits and take effect immediately. These thresholds are conservative tuning heuristics, not claims of a guaranteed optimum or higher hashes per watt.
-
-Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain disabled research entries until their native implementations, pool protocols, independent known-answer tests, licensing review, and device benchmarks are complete. The app must never switch to an algorithm that is only listed in the registry.
-
-Profitability estimates currently support Bitcoin solo expected value only. The estimator rejects the proportional-pool mode unless pool-specific hashrate and payout data are available; network-wide Bitcoin data must not be misrepresented as a pool payout estimate. Android battery temperature and percentage are not treated as measured wall power. A real net-profit decision requires an external meter's incremental mining watts, the user's actual electricity tariff, a fresh market/network snapshot, and the applicable pool fee.
-
-Automatic multi-algorithm selection and automatic profitability-based switching remain disabled until at least two independent native engines and their matching pool/economic adapters have passed device-level verification.
+No automated CI build can prove that a particular Bitcoin Core node is synchronized, your gateway is reachable from your phone, the Android device sustains its maximum hashrate, or a real mainnet block will be found. Those are runtime checks; the app fails closed and reports connection or node errors rather than inventing mining work or payouts.
