@@ -193,7 +193,7 @@ internal class CkPoolStratumClient(
         try {
             writer!!.apply {
                 write(JSONObject().put("id", id).put("method", method).put("params", params).toString())
-                write("\\n")
+                write("\n")
                 flush()
             }
         } catch (e: Exception) {
