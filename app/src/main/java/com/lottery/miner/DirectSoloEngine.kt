@@ -110,6 +110,7 @@ internal class DirectSoloEngine(private val context: Context, private val config
 
     private fun gatewayLoop() {
         var lastJobId = ""
+        var longPollId: String? = null
         while (running) {
             try {
                 if (nonceSpaceExhausted.compareAndSet(true, false)) {
@@ -119,7 +120,8 @@ internal class DirectSoloEngine(private val context: Context, private val config
                     lastJobId = ""
                     MinerState.log("Nonce space exhausted; new unique coinbase extranonce requested")
                 }
-                val work = client.fetchWork(config.payoutAddress, extraNonceHex())
+                val work = client.fetchWork(config.payoutAddress, extraNonceHex(), longPollId)
+                longPollId = work.longPollId
                 if (!running) break
                 if (work.jobId != lastJobId) {
                     workRef.set(work)
@@ -140,6 +142,7 @@ internal class DirectSoloEngine(private val context: Context, private val config
                 break
             } catch (e: Exception) {
                 workRef.set(null)
+                longPollId = null
                 MinerState.connected = false
                 activeWorkers = 0
                 MinerState.activeThreads = 0
