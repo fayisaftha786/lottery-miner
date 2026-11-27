@@ -11,6 +11,12 @@ object Native {
     /** True only when the paired ARM SHA2 scan passed its startup equivalence tests. */
     external fun usesArmPairScan(): Boolean
 
+    /** True only when the experimental four-stream scanner passed equivalence and device benchmark gates. */
+    external fun usesArmQuadScan(): Boolean
+
+    /** Per-device measured throughput gain; -1000 means the benchmark was unavailable. */
+    external fun armQuadGainPercent(): Double
+
     /**
      * Scans nonces [start, start+count). Returns hashes at or below the supplied scan target (nonces in [found]); Kotlin classifies each hit as a pool share and/or network block candidate.
      * best[0] = best share difficulty, best[1] = its nonce, best[2] = extra hits beyond found buffer.

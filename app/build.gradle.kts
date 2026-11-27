@@ -19,8 +19,8 @@ android {
         applicationId = "com.lottery.miner"
         minSdk = 24
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.7.1"
+        versionCode = 10
+        versionName = "1.7.2"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }

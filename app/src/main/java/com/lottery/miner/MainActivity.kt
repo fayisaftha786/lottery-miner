@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var profitabilityFetchInFlight = false
     private var lastBenchmarkHps = 0.0
     private var lastBenchmarkUsedArmPair = false
+    private var lastBenchmarkUsedArmQuad = false
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
@@ -113,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
         lastBenchmarkHps = p.getString("lastBenchmarkHps", "0.0")?.toDoubleOrNull() ?: 0.0
         lastBenchmarkUsedArmPair = p.getBoolean("lastBenchmarkUsedArmPair", false)
+        lastBenchmarkUsedArmQuad = p.getBoolean("lastBenchmarkUsedArmQuad", false)
         etMiningPower.setText(p.getString("miningPowerWatts", ""))
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
         etPoolFee.setText(p.getString("poolFeePercent", "2.0"))
@@ -184,6 +186,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val previousSavedBenchmarkHps = lastBenchmarkHps
                 val previousSavedUsedArmPair = lastBenchmarkUsedArmPair
+                val previousSavedUsedArmQuad = lastBenchmarkUsedArmQuad
                 val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val batteryTempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
                 val batteryTempC = batteryTempTenths / 10.0
@@ -286,14 +289,17 @@ class MainActivity : AppCompatActivity() {
                     // Store the conservative near-peak median, not one lucky maximum sample.
                     lastBenchmarkHps = recommended.medianHashesPerSecond
                     lastBenchmarkUsedArmPair = Native.usesArmPairScan()
+                    lastBenchmarkUsedArmQuad = Native.usesArmQuadScan()
                     getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
                         .putString("lastBenchmarkHps", recommended.medianHashesPerSecond.toString())
                         .putInt("recommendedThreads", recommended.workers)
-                        .putBoolean("lastBenchmarkUsedArmPair", Native.usesArmPairScan()).apply()
+                        .putBoolean("lastBenchmarkUsedArmPair", Native.usesArmPairScan())
+                        .putBoolean("lastBenchmarkUsedArmQuad", Native.usesArmQuadScan()).apply()
                     tvBenchmark.text = buildString {
                         appendLine("ADAPTIVE MINING LAB · REPEATED DEVICE SCALING")
                         appendLine("Algorithm: Bitcoin SHA-256d · Hardware SHA-256: ${if (result.hardwareSha) "ON" else "OFF"}")
                         appendLine("Native scan path: ${when {
+                            result.hardwareSha && Native.usesArmQuadScan() -> "four-stream ARM SHA2 (equivalence + device benchmark passed)"
                             result.hardwareSha && Native.usesArmPairScan() -> "paired ARM SHA2 (runtime equivalence passed)"
                             result.hardwareSha -> "single-state ARM SHA2"
                             else -> "scalar software SHA-256"
@@ -301,7 +307,11 @@ class MainActivity : AppCompatActivity() {
                         if (previousSavedBenchmarkHps.isFinite() && previousSavedBenchmarkHps > 0.0) {
                             val changePct = (recommended.medianHashesPerSecond / previousSavedBenchmarkHps - 1.0) * 100.0
                             appendLine("Compared with previous saved benchmark: ${String.format(Locale.US, "%+.1f%%", changePct)}")
-                            appendLine("Previous scan path: ${if (previousSavedUsedArmPair) "paired ARM SHA2" else "not recorded as paired ARM SHA2"}")
+                            appendLine("Previous scan path: ${when {
+                                previousSavedUsedArmQuad -> "four-stream ARM SHA2"
+                                previousSavedUsedArmPair -> "paired ARM SHA2"
+                                else -> "single-state or not recorded"
+                            }}")
                             appendLine("Comparison uses the previously saved phone result; conditions may differ.")
                         } else {
                             appendLine("No previous saved benchmark available for device A/B comparison.")
@@ -501,6 +511,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Pool website totals are address-wide/cumulative and are not this session's counters.")
             appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
             appendLine("Native SHA-256 implementation: ${if (s.hwSha) "ARMv8 SHA2 hardware" else "scalar software"}")
+            appendLine("Four-stream ARM nonce scan: ${if (s.armQuadScan) "enabled (equivalence + device benchmark passed)" else "not selected"}")
+            appendLine("PHOENIX quad measured gain vs selected baseline: ${if (s.armQuadGainPercent > -1000.0) String.format(Locale.US, "%+.2f%%", s.armQuadGainPercent) else "unavailable (non-ARM or benchmark incomplete)"}")
             appendLine("Paired ARM nonce scan: ${if (s.armPairScan) "enabled (runtime equivalence tests passed)" else "not selected"}")
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Thermal headroom forecast (10s): ${if (s.thermalHeadroomForecast.isFinite()) String.format(Locale.US, "%.3f", s.thermalHeadroomForecast) else "unavailable"}")
@@ -746,6 +758,7 @@ class MainActivity : AppCompatActivity() {
         appendBlockCandidateSummary(sb)
         sb.append("PHONE MINING · LOCAL CURRENT (2s EMA): ").append(Util.fmtRate(s.hashrate))
             .append(when {
+                s.armQuadScan -> "  [ARM SHA2 QUAD ✓]"
                 s.armPairScan -> "  [ARM SHA2 PAIRED ✓]"
                 s.hwSha -> "  [ARM SHA2 ✓]"
                 else -> "  [SCALAR SHA-256]"
@@ -764,6 +777,11 @@ class MainActivity : AppCompatActivity() {
         }
         sb.append("SUSTAINED AVG (up to 30m): ").append(Util.fmtRate(s.localHashrate30m))
             .append(" · window ").append(sustainedWindowLabel).append('\n')
+        sb.append("PHOENIX QUAD: ").append(when {
+            s.armQuadScan -> "SELECTED · measured gain " + String.format(Locale.US, "%+.2f%%", s.armQuadGainPercent)
+            s.armQuadGainPercent > -1000.0 -> "NOT SELECTED · measured gain " + String.format(Locale.US, "%+.2f%%", s.armQuadGainPercent) + " · needs +1.50%; validated fallback active"
+            else -> "NOT AVAILABLE · ARM SHA2 benchmark unavailable"
+        }).append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("BIP310 version rolling: ")
             .append(

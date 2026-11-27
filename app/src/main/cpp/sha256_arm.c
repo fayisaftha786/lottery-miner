@@ -93,3 +93,55 @@ void compress_arm_pair(
     vst1q_u32(&state_b[4], vaddq_u32(b1, save_b1));
 }
 
+
+
+/*
+ * Experimental four-stream ARM SHA2 compression.
+ *
+ * Four independent SHA-256 states are interleaved so the core can issue work
+ * from another stream while one stream waits on the SHA2 execution pipeline.
+ * This may lose on some cores due to register pressure; it is never selected
+ * without bit-exact self-tests and a per-device median benchmark.
+ */
+void compress_arm_quad(
+    uint32_t state[4][8], const uint32_t w[4][16]
+) {
+    uint32x4_t s0[4], s1[4], save0[4], save1[4], m[4][4];
+    for (int lane = 0; lane < 4; ++lane) {
+        s0[lane] = vld1q_u32(&state[lane][0]);
+        s1[lane] = vld1q_u32(&state[lane][4]);
+        save0[lane] = s0[lane];
+        save1[lane] = s1[lane];
+        for (int slot = 0; slot < 4; ++slot) {
+            m[lane][slot] = vld1q_u32(&w[lane][4 * slot]);
+        }
+    }
+
+#pragma clang loop unroll(full)
+    for (int i = 0; i < 16; ++i) {
+        const int slot = i & 3;
+#pragma clang loop unroll(full)
+        for (int lane = 0; lane < 4; ++lane) {
+            const uint32x4_t cur = m[lane][slot];
+            const uint32x4_t wk = vaddq_u32(cur, vld1q_u32(&SHA256_K[4 * i]));
+            const uint32x4_t prev0 = s0[lane];
+            s0[lane] = vsha256hq_u32(s0[lane], s1[lane], wk);
+            s1[lane] = vsha256h2q_u32(s1[lane], prev0, wk);
+        }
+        if (i < 12) {
+#pragma clang loop unroll(full)
+            for (int lane = 0; lane < 4; ++lane) {
+                const uint32x4_t cur = m[lane][slot];
+                m[lane][slot] = vsha256su1q_u32(
+                    vsha256su0q_u32(cur, m[lane][(i + 1) & 3]),
+                    m[lane][(i + 2) & 3], m[lane][(i + 3) & 3]
+                );
+            }
+        }
+    }
+
+    for (int lane = 0; lane < 4; ++lane) {
+        vst1q_u32(&state[lane][0], vaddq_u32(s0[lane], save0[lane]));
+        vst1q_u32(&state[lane][4], vaddq_u32(s1[lane], save1[lane]));
+    }
+}
