@@ -188,9 +188,13 @@ function makeWork(template, payoutAddress, extranonceHex, chainName) {
   header.writeUInt32LE(Number(BigInt("0x" + template.bits)), 72);
   header.writeUInt32LE(0, 76);
 
-  // Every distinct 80-byte header has its own cache key, including nTime.
+  // A stable template identity ignores only nTime. The exact cached header is
+  // retained while this process is alive; Android compares header bytes as well
+  // so a gateway restart safely replaces the old timestamp/header.
+  const identityHeader = Buffer.from(header);
+  identityHeader.fill(0, 68, 72);
   const canonical = Buffer.concat([
-    header,
+    identityHeader,
     Buffer.from(payoutAddress, "utf8"),
     Buffer.from(extranonceHex, "hex"),
     ...template.transactions.map(item => Buffer.from(item.data, "hex"))
@@ -239,7 +243,7 @@ async function rpcCall(method, params = []) {
     method: "POST",
     headers: { Authorization: "Basic " + auth, "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: "phoenix", method, params }),
-    signal: AbortSignal.timeout(60_000)
+    signal: AbortSignal.timeout(180_000)
   });
   if (!response.ok) throw new Error("Bitcoin Core RPC HTTP " + response.status);
   const data = await response.json();
