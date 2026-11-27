@@ -50,7 +50,9 @@ internal class DirectSoloEngine(private val context: Context, private val config
     @Synchronized
     fun start() {
         if (running) return
-        require(Util.isValidBitcoinAddress(config.payoutAddress)) { "Invalid Bitcoin mainnet payout address" }
+        require(Util.isValidBitcoinAddress(config.payoutAddress) && !config.payoutAddress.contains('.')) {
+            "A plain Bitcoin mainnet payout address is required"
+        }
         require(config.threads in 1..Runtime.getRuntime().availableProcessors()) { "Invalid worker count" }
         running = true
         MinerState.reset()
@@ -83,6 +85,7 @@ internal class DirectSoloEngine(private val context: Context, private val config
     fun stop() {
         running = false
         workRef.set(null)
+        client.cancelPendingRequests()
         threads.forEach { it.interrupt() }
         val deadline = SystemClock.elapsedRealtime() + 3_000L
         for (thread in threads) {
@@ -165,6 +168,7 @@ internal class DirectSoloEngine(private val context: Context, private val config
             val count = minOf(CHUNK.toLong(), U32_SPACE - start).toInt()
             if (workRef.get() !== work) continue
 
+            best.fill(0.0)
             val matches = Native.scan(work.header, start.toInt(), count, work.target, found, best)
             if (matches < 0 || matches > found.size || best[2] > 0.0) {
                 failClosed("Native scanner returned an invalid or overflowing network-target result")
