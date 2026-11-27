@@ -42,6 +42,60 @@ static compress_fn_t g_fn = compress_scalar;
 static int g_hw = 0;
 static int g_ok = 0;
 
+/*
+ * Each mining worker calls miner_scan() from its own Java thread. The first
+ * 64 bytes of an 80-byte Bitcoin header do not change while only the nonce is
+ * scanned, so retain their SHA-256 midstate per native thread. A new merkle
+ * root/version/prevhash automatically invalidates the cache via memcmp.
+ *
+ * The cache is thread-local: no locks, no cross-worker sharing, and no stale
+ * state can leak between workers. The compression function is part of the key
+ * so re-initializing the core with a different implementation is safe.
+ */
+typedef struct {
+    uint8_t prefix[64];
+    uint32_t midstate[8];
+    compress_fn_t fn;
+    int valid;
+    uint64_t hits;
+    uint64_t misses;
+} midstate_cache_t;
+
+static _Thread_local midstate_cache_t g_midstate_cache;
+
+static void get_cached_midstate(compress_fn_t fn, const uint8_t header[80],
+                                uint32_t midstate[8]) {
+    if (g_midstate_cache.valid &&
+        g_midstate_cache.fn == fn &&
+        memcmp(g_midstate_cache.prefix, header, sizeof(g_midstate_cache.prefix)) == 0) {
+        memcpy(midstate, g_midstate_cache.midstate, sizeof(g_midstate_cache.midstate));
+        g_midstate_cache.hits++;
+        return;
+    }
+
+    uint32_t first_block[16];
+    for (int i = 0; i < 16; i++) first_block[i] = be32(header + 4 * i);
+    memcpy(midstate, IV, sizeof(g_midstate_cache.midstate));
+    fn(midstate, first_block);
+
+    memcpy(g_midstate_cache.prefix, header, sizeof(g_midstate_cache.prefix));
+    memcpy(g_midstate_cache.midstate, midstate, sizeof(g_midstate_cache.midstate));
+    g_midstate_cache.fn = fn;
+    g_midstate_cache.valid = 1;
+    g_midstate_cache.misses++;
+}
+
+#ifdef MINER_CORE_TESTING
+void miner_core_test_cache_reset(void) {
+    memset(&g_midstate_cache, 0, sizeof(g_midstate_cache));
+}
+
+void miner_core_test_cache_stats(uint64_t *hits, uint64_t *misses) {
+    if (hits != NULL) *hits = g_midstate_cache.hits;
+    if (misses != NULL) *misses = g_midstate_cache.misses;
+}
+#endif
+
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
@@ -92,10 +146,8 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
                           const uint8_t target[32], uint32_t *found, uint32_t max_found,
                           double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
     const double DIFF1 = 65535.0 * 0x1p208;
-    uint32_t w1[16], w2[16], w3[16], mid[8];
-    for (int i = 0; i < 16; i++) w1[i] = be32(header + 4 * i);
-    memcpy(mid, IV, 32);
-    fn(mid, w1); /* midstate: first 64 header bytes never change while scanning nonces */
+    uint32_t w2[16], w3[16], mid[8];
+    get_cached_midstate(fn, header, mid);
 
     w2[0] = be32(header + 64);
     w2[1] = be32(header + 68);
