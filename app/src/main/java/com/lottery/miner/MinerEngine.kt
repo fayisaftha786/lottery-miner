@@ -109,6 +109,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.connected = false
         MinerState.hashrate = 0.0
         MinerState.activeThreads = 0
+        MinerState.workerTuningStatus = "Mining stopped"
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
 
