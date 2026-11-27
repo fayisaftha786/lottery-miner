@@ -9,24 +9,28 @@ const sha256d = (data) => crypto.createHash("sha256").update(
   crypto.createHash("sha256").update(data).digest()
 ).digest();
 
-function template() {
+function template(bits = "1d00ffff") {
+  const target = bits === "207fffff"
+    ? "7fffff" + "00".repeat(29)
+    : "00000000ffff0000000000000000000000000000000000000000000000000000";
+  const witnessCommitment = sha256d(Buffer.alloc(64)).toString("hex");
   return {
     version: 0x20000000,
     previousblockhash: "00".repeat(32),
     transactions: [],
     coinbaseaux: { flags: "062f503253482f" },
     coinbasevalue: 3_125_000_000,
-    target: "7fffff" + "00".repeat(29),
-    bits: "207fffff",
+    target,
+    bits,
     curtime: 1_700_000_000,
     height: 900_001,
     rules: ["csv", "segwit"],
-    default_witness_commitment: "6a24aa21a9ed" + "00".repeat(32)
+    default_witness_commitment: "6a24aa21a9ed" + witnessCommitment
   };
 }
 
-async function withServer(rpc, fn) {
-  const server = createGatewayServer({ token: TOKEN, rpc });
+async function withServer(rpc, fn, allowRegtest = false) {
+  const server = createGatewayServer({ token: TOKEN, rpc, allowRegtest });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const url = "http://127.0.0.1:" + server.address().port;
   try { await fn(url); } finally { await new Promise(resolve => server.close(resolve)); }
@@ -64,7 +68,7 @@ test("gateway returns a real template-derived 80-byte Bitcoin header and network
 test("gateway rejects a nonce that does not meet the Bitcoin network target", async () => {
   const rpc = async (method, params) => {
     if (method === "getblockchaininfo") return { initialblockdownload: false, blocks: 1, headers: 1, chain: "regtest" };
-    if (method === "getblocktemplate") return template();
+    if (method === "getblocktemplate") return template("207fffff");
     throw new Error("submit must not be called for an invalid candidate");
   };
   await withServer(rpc, async url => {
@@ -87,7 +91,7 @@ test("gateway rejects a nonce that does not meet the Bitcoin network target", as
     });
     assert.equal(response.status, 400);
     assert.match((await response.json()).error, /does not meet/);
-  });
+  }, true);
 });
 
 test("gateway proposal-checks before submitting a network-target candidate", async () => {
@@ -122,7 +126,7 @@ test("gateway proposal-checks before submitting a network-target candidate", asy
     const result = await response.json();
     assert.equal(result.accepted, true);
     assert.deepEqual(calls.slice(-2), ["getblocktemplate", "submitblock"]);
-  });
+  }, true);
 });
 
 test("gateway will not issue work while the Bitcoin Core node is syncing", async () => {
