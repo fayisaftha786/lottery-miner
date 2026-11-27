@@ -25,6 +25,12 @@ uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count);
 
+#ifdef MINER_CORE_TESTING
+/* Host-test-only hooks for verifying the per-thread midstate cache. */
+void miner_core_test_cache_reset(void);
+void miner_core_test_cache_stats(uint64_t *hits, uint64_t *misses);
+#endif
+
 extern const uint32_t SHA256_K[64];
 
 #ifdef HAVE_ARM_SHA2
