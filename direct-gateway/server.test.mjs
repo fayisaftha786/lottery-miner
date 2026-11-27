@@ -60,7 +60,7 @@ test("gateway returns a real template-derived 80-byte Bitcoin header and network
     assert.equal(work.target, template().target);
     assert.equal(work.height, 900_001);
     assert.equal(work.transactionCount, 1);
-    assert.equal(work.bits, "207fffff");
+    assert.equal(work.bits, "1d00ffff");
     assert.match(work.jobId, /^[0-9a-f]{64}$/);
   });
 });
@@ -99,7 +99,7 @@ test("gateway proposal-checks before submitting a network-target candidate", asy
   const rpc = async (method, params) => {
     calls.push(method);
     if (method === "getblockchaininfo") return { initialblockdownload: false, blocks: 1, headers: 1, chain: "regtest" };
-    if (method === "getblocktemplate" && params[0]?.mode !== "proposal") return template();
+    if (method === "getblocktemplate" && params[0]?.mode !== "proposal") return template("207fffff");
     if (method === "getblocktemplate" && params[0]?.mode === "proposal") return null;
     if (method === "submitblock") return null;
     throw new Error("Unexpected RPC method " + method);
@@ -140,5 +140,20 @@ test("gateway will not issue work while the Bitcoin Core node is syncing", async
       body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "3333333333333333" })
     });
     assert.equal(response.status, 503);
+  });
+});
+
+test("gateway refuses non-mainnet nodes by default", async () => {
+  const rpc = async method => {
+    if (method === "getblockchaininfo") return { initialblockdownload: false, blocks: 1, headers: 1, chain: "regtest" };
+    throw new Error("template must not be requested for a non-mainnet node");
+  };
+  await withServer(rpc, async url => {
+    const response = await fetch(url + "/v1/work", {
+      method: "POST", headers: { Authorization: "Bearer " + TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "4444444444444444" })
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /restricted to Bitcoin mainnet/);
   });
 });
