@@ -149,13 +149,14 @@ function verifyTemplate(template, chainName) {
   return target;
 }
 
-function buildCoinbase(template, payoutAddress) {
+function buildCoinbase(template, payoutAddress, extranonceHex) {
   const payoutScript = address.toOutputScript(payoutAddress, networks.bitcoin);
   const heightPush = pushData(scriptNumber(template.height));
   const flagsHex = template.coinbaseaux?.flags || "";
   if (flagsHex.length % 2 || !hex.test(flagsHex)) throw new Error("Invalid coinbase auxiliary flags");
   const flags = Buffer.from(flagsHex, "hex");
-  const scriptSig = Buffer.concat([heightPush, flags]);
+  const extranoncePush = pushData(Buffer.from(extranonceHex, "hex"));
+  const scriptSig = Buffer.concat([heightPush, flags, extranoncePush]);
   if (scriptSig.length < 2 || scriptSig.length > 100) {
     throw new Error("Coinbase scriptSig length violates consensus limits");
   }
@@ -173,14 +174,7 @@ function buildCoinbase(template, payoutAddress) {
 function makeWork(template, payoutAddress, extranonceHex, chainName) {
   const target = verifyTemplate(template, chainName);
   if (!/^[0-9a-f]{16}$/i.test(extranonceHex)) throw new Error("Extranonce must be exactly 8 bytes");
-  const coinbase = buildCoinbase(template, payoutAddress);
-  // Insert the unique extranonce into the end of the coinbase scriptSig, before outputs.
-  const tx = Transaction.fromHex(coinbase.toHex());
-  const input = tx.ins[0];
-  const heightAndFlags = input.script.subarray(0, input.script.length);
-  const scriptSig = Buffer.concat([heightAndFlags, pushData(Buffer.from(extranonceHex, "hex"))]);
-  if (scriptSig.length > 100) throw new Error("Coinbase scriptSig length violates consensus limits");
-  tx.setInputScript(0, scriptSig);
+  const tx = buildCoinbase(template, payoutAddress, extranonceHex);
 
   const root = merkleRoot([
     tx.getHash(false),
