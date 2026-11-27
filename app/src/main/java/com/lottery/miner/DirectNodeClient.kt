@@ -128,7 +128,7 @@ internal class DirectNodeClient(
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 10_000
-            readTimeout = if (path == "/v1/work") 200_000 else 30_000
+            readTimeout = if (path == "/v1/work") 0 else 30_000
             useCaches = false
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Authorization", "Bearer $apiToken")
