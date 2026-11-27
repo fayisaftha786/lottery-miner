@@ -54,8 +54,8 @@ test("gateway returns a real template-derived 80-byte Bitcoin header and network
       method: "POST", headers: { Authorization: "Bearer " + TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "0102030405060708" })
     });
-    assert.equal(response.status, 200);
     const work = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(work));
     assert.equal(work.header.length, 160);
     assert.equal(work.target, template().target);
     assert.equal(work.height, 900_001);
@@ -77,6 +77,7 @@ test("gateway rejects a nonce that does not meet the Bitcoin network target", as
       body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "1111111111111111" })
     });
     const work = await workResponse.json();
+    assert.equal(workResponse.status, 200, JSON.stringify(work));
     const header = Buffer.from(work.header, "hex");
     let invalidNonce = null;
     for (let n = 0; n < 100; n++) {
@@ -110,6 +111,7 @@ test("gateway proposal-checks before submitting a network-target candidate", asy
       body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "2222222222222222" })
     });
     const work = await workResponse.json();
+    assert.equal(workResponse.status, 200, JSON.stringify(work));
     const header = Buffer.from(work.header, "hex");
     let validNonce = null;
     for (let n = 0; n < 100; n++) {
