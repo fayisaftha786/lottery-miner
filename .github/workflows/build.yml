@@ -25,6 +25,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Verify Phoenix Direct Node Gateway
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: direct-gateway/package.json
+
+      - name: Install gateway dependencies and run consensus-path tests
+        working-directory: direct-gateway
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+
       - name: Install Android SDK parts
         run: |
           SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -1)
