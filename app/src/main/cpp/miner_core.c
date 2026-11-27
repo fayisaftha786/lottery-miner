@@ -44,7 +44,7 @@ static int g_hw = 0;
 static int g_ok = 0;
 static int g_arm_pair_scan = 0;
 static int g_arm_quad_scan = 0;
-static double g_arm_quad_gain_percent = -1.0;
+static double g_arm_quad_gain_percent = -1000.0;
 
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
@@ -559,7 +559,7 @@ static uint64_t arm_quad_benchmark_scan(
 
 /* Compare quad with whichever validated scanner (single or paired) is currently fastest. */
 static int benchmark_arm_quad_scan(int baseline_paired, double *gain_percent) {
-    if (gain_percent != NULL) *gain_percent = -1.0;
+    if (gain_percent != NULL) *gain_percent = -1000.0;
     uint8_t header[80], target[32] = {0};
     for (size_t i = 0; i < sizeof(header); ++i) header[i] = (uint8_t)(i * 41u + 23u);
 
@@ -757,7 +757,7 @@ void miner_core_init(void) {
     g_ok = selftest(compress_scalar);
     g_arm_pair_scan = 0;
     g_arm_quad_scan = 0;
-    g_arm_quad_gain_percent = -1.0;
+    g_arm_quad_gain_percent = -1000.0;
 #ifdef HAVE_ARM_SHA2
     if (arm_sha2_supported() && selftest(compress_arm)) {
         g_fn = compress_arm;
