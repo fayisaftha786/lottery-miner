@@ -13,7 +13,7 @@ class AdaptiveWorkerControllerTest {
 
     private fun buildOneWorkerBaseline(c: AdaptiveWorkerController) {
         assertEquals(1, c.selectWorkerCount(8, 0, 1_000L, 0.0))
-        for (t in listOf(3_000L, 5_000L, 7_000L, 9_000L, 11_000L)) {
+        for (t in listOf(2_999L, 4_999L, 6_999L, 8_999L, 10_999L)) {
             assertEquals(1, c.selectWorkerCount(8, 1, t, 100.0))
         }
     }
@@ -66,7 +66,7 @@ class AdaptiveWorkerControllerTest {
         assertEquals(1, c.selectWorkerCount(2, 0, 1_000L, 0.0))
         assertEquals(1, c.selectWorkerCount(1, 1, 2_000L, 100.0))
         assertEquals(1, c.selectWorkerCount(2, 1, 3_000L, 100.0))
-        for (t in listOf(5_000L, 7_000L, 9_000L, 11_000L, 13_000L)) {
+        for (t in listOf(4_999L, 6_999L, 8_999L, 10_999L, 12_999L)) {
             assertEquals(1, c.selectWorkerCount(2, 1, t, 100.0))
         }
         assertEquals(2, c.selectWorkerCount(2, 1, 13_001L, 100.0))
