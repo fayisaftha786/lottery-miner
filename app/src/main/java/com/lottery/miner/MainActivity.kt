@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
         val cores = Runtime.getRuntime().availableProcessors()
         val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        etAddress.setText(p.getString("address", ""))
+        etAddress.setText(p.getString("address", null)?.takeIf { it.isNotBlank() } ?: MinerDefaults.DEFAULT_PAYOUT_ADDRESS)
         val savedHost = p.getString("host", null)
         val configuredHost = if (savedHost.isNullOrBlank() ||
             savedHost.equals(LEGACY_DEFAULT_POOL_HOST, ignoreCase = true)
@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
         etHost.setText(configuredHost)
         etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
         if (configuredHost != savedHost) p.edit().putString("host", configuredHost).apply()
-        etThreads.setText(p.getInt("threads", maxOf(1, cores / 2)).toString())
+        etThreads.setText(p.getInt("threads", maxOf(1, cores)).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
@@ -359,6 +359,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
             appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
+            appendLine("Worker tuning: ${s.workerTuningStatus}")
             appendLine("Battery: ${if (s.batteryAvailable) "${s.battery}%" else "unavailable"}; charging: ${s.plugged}")
             appendLine("Battery temperature: ${if (s.tempAvailable) "${s.tempC} C" else "unavailable"}")
             appendLine("Thermal state: ${s.pauseReason.ifBlank { "none" }}")
@@ -577,6 +578,7 @@ class MainActivity : AppCompatActivity() {
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
+        sb.append("Worker tune: ").append(s.workerTuningStatus).append('\n')
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")

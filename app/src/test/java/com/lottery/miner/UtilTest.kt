@@ -6,6 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UtilTest {
+    @Test fun configuredTrustWalletPayoutAddressIsValidBitcoinMainnetAddress() {
+        assertTrue(Util.isValidBitcoinAddress(MinerDefaults.DEFAULT_PAYOUT_ADDRESS))
+        assertEquals("bc1qe4xhqarfw9tqaxaad3cx6ayl0r93ehyqf5uses", MinerDefaults.DEFAULT_PAYOUT_ADDRESS)
+    }
+
     @Test fun difficultyOneProducesPositiveTarget() {
         val target = Util.difficultyToTarget(1.0)
         assertTrue(target.any { it.toInt() != 0 })

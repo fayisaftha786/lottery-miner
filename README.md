@@ -13,6 +13,7 @@ Lottery Miner performs local CPU SHA-256d hashing and submits valid shares to a 
 
 ## Pool setup
 The configured default is `stratum.ckpool.org:3333`, the CKPool-recommended automatic endpoint. The app migrates the previous default `solo.ckpool.org` to this endpoint on launch while preserving custom hostnames. Pool endpoints and availability may change; verify current details with the pool operator.
+On a fresh install, the payout field is pre-filled with the user's confirmed Trust Wallet Bitcoin address; a previously saved non-empty address is preserved and can be edited in the app.
 
 Use your Bitcoin mainnet payout address as the Stratum username. An optional worker suffix may be used if supported by the pool. Password is `x`. Never enter a seed phrase or private key.
 
@@ -90,7 +91,7 @@ Only SHA-256d has a native miner implementation in this application. VerusHash, 
 
 ## Adaptive mining controller (v1)
 
-The existing Bitcoin SHA-256d native engine is preserved. The adaptive controller now ramps worker concurrency conservatively: it starts with one worker, adds at most one worker every 45 seconds, and applies battery/temperature/Android thermal safety reductions immediately. If telemetry is unavailable, the existing fail-safe policy remains authoritative. This is a sustained-load controller, not a claim of higher hashes per watt.
+The existing Bitcoin SHA-256d native engine is preserved. The adaptive controller now measures worker-count changes instead of assuming that more threads are faster. It starts with one worker, waits 45 seconds between trials, tests one additional worker for a 30-second measurement window, and keeps the increase only when the real rolling native hashrate improves by at least 3%. If a trial does not improve the measured rate enough, it returns to the best measured worker count and stops further increases for the current safety/thermal state. Battery, temperature, Android thermal status, and pool-job readiness remain higher-priority limits and take effect immediately. These thresholds are conservative tuning heuristics, not claims of a guaranteed optimum or higher hashes per watt.
 
 Only SHA-256d is executable. VerusHash, RandomX, Scrypt, and GhostRider remain disabled research entries until their native implementations, pool protocols, independent known-answer tests, licensing review, and device benchmarks are complete. The app must never switch to an algorithm that is only listed in the registry.
 

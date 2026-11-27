@@ -44,6 +44,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
     private val adaptiveWorkerController = AdaptiveWorkerController()
+    private var lastWorkerTuningLog = ""
     private val threads = ArrayList<Thread>()
 
     @Synchronized fun start() {
@@ -108,6 +109,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         MinerState.connected = false
         MinerState.hashrate = 0.0
         MinerState.activeThreads = 0
+        MinerState.workerTuningStatus = "Mining stopped"
         if (MinerState.status != "പിശക്: self-test") MinerState.status = "നിർത്തി"
     }
 
@@ -447,15 +449,22 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val hasReadyWork = MinerState.connected && current != null
             val safetyWorkerLimit = if (hasReadyWork) target else 0
 
-            // Thermal/battery reductions apply immediately. Worker increases are
-            // limited to one every 45 seconds while an authorized job is active.
+            // Thermal/battery reductions apply immediately. A worker increase is
+            // then measured for a full window before any further increase is tried.
             target = adaptiveWorkerController.selectWorkerCount(
                 safetyWorkerLimit = safetyWorkerLimit,
                 currentWorkerCount = activeThreads,
-                nowMillis = SystemClock.elapsedRealtime()
+                nowMillis = SystemClock.elapsedRealtime(),
+                currentHashrate = MinerState.hashrate
             )
+            val tuningStatus = adaptiveWorkerController.statusMessage
+            MinerState.workerTuningStatus = tuningStatus
+            if (tuningStatus != lastWorkerTuningLog) {
+                MinerState.log("Worker tuning: $tuningStatus")
+                lastWorkerTuningLog = tuningStatus
+            }
             if (target > 0 && target < safetyWorkerLimit && reason.isBlank()) {
-                reason = "Adaptive worker ramp: $target/$safetyWorkerLimit"
+                reason = "Adaptive worker tuning: $target/$safetyWorkerLimit"
             }
 
             activeThreads = target

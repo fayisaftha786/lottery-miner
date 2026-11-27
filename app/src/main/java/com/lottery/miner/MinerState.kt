@@ -37,6 +37,7 @@ object MinerState {
     @Volatile var plugged = false
     @Volatile var activeThreads = 0
     @Volatile var totalThreads = 0
+    @Volatile var workerTuningStatus = "Waiting for an authorized mining job"
     @Volatile var hwSha = false
     @Volatile var blockCandidateDetected = false
     @Volatile var pauseReason = ""
@@ -65,6 +66,7 @@ object MinerState {
         battery = 0
         plugged = false
         activeThreads = 0
+        workerTuningStatus = "Waiting for an authorized mining job"
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
