@@ -159,3 +159,37 @@ test("gateway refuses non-mainnet nodes by default", async () => {
     assert.match((await response.json()).error, /restricted to Bitcoin mainnet/);
   });
 });
+
+test("gateway accepts the BIP145 mandatory !segwit rule prefix", async () => {
+  const rpc = async (method, params) => {
+    if (method === "getblockchaininfo") return { initialblockdownload: false, blocks: 900_000, headers: 900_000, chain: "main" };
+    if (method === "getblocktemplate") return { ...template(), rules: ["csv", "!segwit", "taproot"] };
+    throw new Error("Unexpected RPC method " + method);
+  };
+  await withServer(rpc, async url => {
+    const response = await fetch(url + "/v1/work", {
+      method: "POST", headers: { Authorization: "Bearer " + TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "5555555555555555" })
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(payload));
+    assert.equal(payload.network, "main");
+    assert.equal(payload.header.length, 160);
+  });
+});
+
+test("gateway refuses an unknown mandatory consensus rule", async () => {
+  const rpc = async (method, params) => {
+    if (method === "getblockchaininfo") return { initialblockdownload: false, blocks: 900_000, headers: 900_000, chain: "main" };
+    if (method === "getblocktemplate") return { ...template(), rules: ["segwit", "!unknown_future_rule"] };
+    throw new Error("Unexpected RPC method " + method);
+  };
+  await withServer(rpc, async url => {
+    const response = await fetch(url + "/v1/work", {
+      method: "POST", headers: { Authorization: "Bearer " + TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ payoutAddress: ADDRESS, extranonce: "6666666666666666" })
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /Unsupported mandatory Bitcoin consensus rule/);
+  });
+});
