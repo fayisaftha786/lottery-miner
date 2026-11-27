@@ -12,6 +12,7 @@ int miner_core_uses_hw(void);
 int miner_core_selftest_ok(void);
 int miner_core_uses_arm_pair_scan(void);
 int miner_core_uses_arm_quad_scan(void);
+double miner_core_arm_quad_gain_percent(void);
 
 /* Double SHA-256 of an 80 byte block header. out = digest bytes in internal order (little-endian number). */
 void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]);
