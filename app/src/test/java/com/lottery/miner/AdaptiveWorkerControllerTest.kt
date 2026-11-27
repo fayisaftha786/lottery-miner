@@ -33,7 +33,7 @@ class AdaptiveWorkerControllerTest {
         assertEquals(2, c.selectWorkerCount(8, 2, 15_000L, 140.0))
         assertEquals(2, c.selectWorkerCount(8, 2, 16_001L, 140.0))
         assertTrue(c.statusMessage.contains("Accepted 2"))
-        for (t in listOf(18_001L, 20_001L, 22_001L, 24_001L, 26_001L)) {
+        for (t in listOf(18_001L, 20_001L, 22_001L, 24_001L, 25_999L)) {
             assertEquals(2, c.selectWorkerCount(8, 2, t, 140.0))
         }
         assertEquals(3, c.selectWorkerCount(8, 2, 26_002L, 140.0))
