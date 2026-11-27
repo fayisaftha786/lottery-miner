@@ -129,8 +129,18 @@ function verifyTemplate(template, chainName) {
   if (template.target && BigInt("0x" + template.target) !== target) {
     throw new Error("Bitcoin Core target does not match compact bits");
   }
-  if (!Array.isArray(template.rules) || !template.rules.includes("segwit")) {
+  if (!Array.isArray(template.rules) || !template.rules.every(rule => typeof rule === "string")) {
+    throw new Error("Bitcoin Core template returned an invalid consensus-rules list");
+  }
+  const normalizedRules = template.rules.map(rule => rule.startsWith("!") ? rule.slice(1) : rule);
+  if (!normalizedRules.includes("segwit")) {
     throw new Error("Bitcoin Core template did not enable SegWit rules");
+  }
+  const supportedMandatoryRules = new Set(["csv", "segwit", "taproot"]);
+  for (const rule of template.rules) {
+    if (rule.startsWith("!") && !supportedMandatoryRules.has(rule.slice(1))) {
+      throw new Error("Unsupported mandatory Bitcoin consensus rule: " + rule);
+    }
   }
 
   validateTransactions(template.transactions);
