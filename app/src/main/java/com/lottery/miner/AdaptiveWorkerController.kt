@@ -19,7 +19,6 @@ class AdaptiveWorkerController(
     private var candidateWorkerCount = 0
     private var candidateBaselineRate = 0.0
     private var bestWorkerCount = 0
-    private var bestMeasuredRate = 0.0
     private var lastSafetyLimit: Int? = null
     private var safetyPaused = false
     private var tuningLocked = false
@@ -77,7 +76,6 @@ class AdaptiveWorkerController(
                 // Cooling/telemetry recovery permits a fresh trial above the old cap.
                 tuningLocked = false
                 bestWorkerCount = currentWorkerCount.coerceAtLeast(1)
-                bestMeasuredRate = currentHashrate
             } else if (bestWorkerCount > safetyWorkerLimit) {
                 bestWorkerCount = safetyWorkerLimit
                 tuningLocked = false
@@ -101,7 +99,6 @@ class AdaptiveWorkerController(
             candidateWorkerCount = 0
             tuningLocked = false
             bestWorkerCount = 1.coerceAtMost(safetyWorkerLimit)
-            bestMeasuredRate = 0.0
             lastRampAtMillis = nowMillis
             statusMessage = "Starting conservative baseline: 1 worker"
             return bestWorkerCount
@@ -121,7 +118,6 @@ class AdaptiveWorkerController(
                 val requiredRate = candidateBaselineRate * (1.0 + minimumImprovementFraction)
                 if (candidateBaselineRate > 0.0 && currentHashrate >= requiredRate) {
                     bestWorkerCount = candidateWorkerCount
-                    bestMeasuredRate = currentHashrate
                     candidateStartedAtMillis = null
                     candidateWorkerCount = 0
                     lastRampAtMillis = nowMillis
@@ -180,7 +176,6 @@ class AdaptiveWorkerController(
         candidateWorkerCount = 0
         candidateBaselineRate = 0.0
         bestWorkerCount = 0
-        bestMeasuredRate = 0.0
         tuningLocked = false
     }
 
