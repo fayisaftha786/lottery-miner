@@ -359,6 +359,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
             appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
+            appendLine("Worker tuning: ${s.workerTuningStatus}")
             appendLine("Battery: ${if (s.batteryAvailable) "${s.battery}%" else "unavailable"}; charging: ${s.plugged}")
             appendLine("Battery temperature: ${if (s.tempAvailable) "${s.tempC} C" else "unavailable"}")
             appendLine("Thermal state: ${s.pauseReason.ifBlank { "none" }}")
