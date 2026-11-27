@@ -233,17 +233,22 @@ function isHashWithinTarget(header, targetHex) {
   return BigInt("0x" + reverse(digest).toString("hex")) <= BigInt("0x" + targetHex);
 }
 
-async function rpcCall(method, params = []) {
+async function rpcCall(method, params = [], clientSignal) {
   const url = process.env.BITCOIN_RPC_URL;
   const user = process.env.BITCOIN_RPC_USER;
   const password = process.env.BITCOIN_RPC_PASSWORD;
   if (!url || !user || !password) throw new Error("Bitcoin Core RPC environment is not configured");
   const auth = Buffer.from(user + ":" + password).toString("base64");
+  const isLongPoll = typeof params[0]?.longpollid === "string";
+  const timeoutSignal = isLongPoll ? null : AbortSignal.timeout(60_000);
+  const signal = clientSignal && timeoutSignal
+    ? AbortSignal.any([clientSignal, timeoutSignal])
+    : (clientSignal || timeoutSignal);
   const response = await fetch(url, {
     method: "POST",
     headers: { Authorization: "Basic " + auth, "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: "phoenix", method, params }),
-    signal: AbortSignal.timeout(180_000)
+    ...(signal ? { signal } : {})
   });
   if (!response.ok) throw new Error("Bitcoin Core RPC HTTP " + response.status);
   const data = await response.json();
@@ -258,7 +263,7 @@ function pruneJobs(now = Date.now()) {
   while (jobs.size > MAX_JOBS) jobs.delete(jobs.keys().next().value);
 }
 
-async function getWorkWithRpc(body, rpc, allowRegtest) {
+async function getWorkWithRpc(body, rpc, allowRegtest, signal) {
   const payoutAddress = body?.payoutAddress;
   const extranonce = body?.extranonce;
   if (typeof payoutAddress !== "string" || payoutAddress.length > 90 || payoutAddress.includes(".")) {
@@ -266,7 +271,7 @@ async function getWorkWithRpc(body, rpc, allowRegtest) {
   }
   if (!/^[0-9a-f]{16}$/i.test(extranonce || "")) throw new Error("Invalid extranonce");
 
-  const chain = await rpc("getblockchaininfo");
+  const chain = await rpc("getblockchaininfo", [], signal);
   if (chain.chain !== "main" && !(allowRegtest && chain.chain === "regtest")) {
     throw new Error("Phoenix Direct Solo is restricted to Bitcoin mainnet");
   }
@@ -285,7 +290,7 @@ async function getWorkWithRpc(body, rpc, allowRegtest) {
     }
     templateRequest.longpollid = body.longpollId;
   }
-  const template = await rpc("getblocktemplate", [templateRequest]);
+  const template = await rpc("getblocktemplate", [templateRequest], signal);
   const job = makeWork(template, payoutAddress, extranonce, chain.chain);
   pruneJobs();
   const existing = jobs.get(job.jobId);
@@ -309,7 +314,7 @@ async function getWorkWithRpc(body, rpc, allowRegtest) {
   };
 }
 
-async function submitWithRpc(body, rpc) {
+async function submitWithRpc(body, rpc, signal) {
   const jobId = body?.jobId;
   const nonce = body?.nonce;
   if (typeof jobId !== "string" || !/^[0-9a-f]{64}$/i.test(jobId)) throw new Error("Invalid job id");
@@ -327,7 +332,7 @@ async function submitWithRpc(body, rpc) {
   }
 
   const blockHex = block.toString("hex");
-  const proposal = await rpc("getblocktemplate", [{ mode: "proposal", data: blockHex }]);
+  const proposal = await rpc("getblocktemplate", [{ mode: "proposal", data: blockHex }], signal);
   if (proposal !== null) {
     return {
       accepted: false,
@@ -337,7 +342,7 @@ async function submitWithRpc(body, rpc) {
     };
   }
 
-  const result = await rpc("submitblock", [blockHex]);
+  const result = await rpc("submitblock", [blockHex], signal);
   const accepted = result === null;
   return {
     accepted,
@@ -403,11 +408,15 @@ export function createGatewayServer({
       return send(401, { error: "Unauthorized" });
     }
 
+    const requestController = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) requestController.abort();
+    });
     try {
       const body = await readJson(req);
       const result = req.url === "/v1/work"
-        ? await getWorkWithRpc(body, rpc, allowRegtest)
-        : await submitWithRpc(body, rpc);
+        ? await getWorkWithRpc(body, rpc, allowRegtest, requestController.signal)
+        : await submitWithRpc(body, rpc, requestController.signal);
       return send(200, result);
     } catch (error) {
       return send(error.statusCode || 400, { error: error.message || "Request failed" });
@@ -416,7 +425,7 @@ export function createGatewayServer({
 
   return http.createServer((req, res) => {
     handler(req, res).catch(() => {
-      if (!res.headersSent) res.writeHead(500).end();
+      if (!res.destroyed && !res.headersSent) res.writeHead(500).end();
     });
   });
 }
