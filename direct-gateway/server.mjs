@@ -164,9 +164,9 @@ function buildCoinbase(template, payoutAddress, extranonceHex) {
   const tx = new Transaction();
   tx.version = 2;
   tx.addInput(Buffer.alloc(32), 0xffffffff, 0xffffffff, scriptSig);
-  tx.addOutput(payoutScript, BigInt(template.coinbasevalue));
+  tx.addOutput(payoutScript, template.coinbasevalue);
   const commitment = Buffer.from(template.default_witness_commitment, "hex");
-  tx.addOutput(commitment, 0n);
+  tx.addOutput(commitment, 0);
   tx.setWitness(0, [Buffer.alloc(32)]);
   return tx;
 }
