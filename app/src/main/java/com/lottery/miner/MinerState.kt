@@ -63,6 +63,8 @@ object MinerState {
     @Volatile var hwSha = false
     @Volatile var armPairScan = false
     @Volatile var armQuadScan = false
+    /** Per-device measured quad throughput gain vs the selected baseline; -1 means unavailable. */
+    @Volatile var armQuadGainPercent = -1.0
     @Volatile var blockCandidateDetected = false
     @Volatile var pauseReason = ""
 
@@ -100,6 +102,7 @@ object MinerState {
         activeThreads = 0
         armPairScan = false
         armQuadScan = false
+        armQuadGainPercent = -1.0
         totalHashes = 0L
         accepted.set(0)
         rejected.set(0)
