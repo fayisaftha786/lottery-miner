@@ -115,8 +115,7 @@ class AdaptiveWorkerController(
                 candidateWorkerCount = 0
                 lastRampAtMillis = nowMillis
             } else if (nowMillis - candidateAt < measurementWindowMillis) {
-                statusMessage = "Measuring $candidateWorkerCount workers; " +
-                    "${(measurementWindowMillis - (nowMillis - candidateAt) + 999L) / 1000L}s remaining"
+                statusMessage = "Measuring $candidateWorkerCount workers against the previous measured rate"
                 return currentWorkerCount
             } else {
                 val requiredRate = candidateBaselineRate * (1.0 + minimumImprovementFraction)
@@ -128,6 +127,7 @@ class AdaptiveWorkerController(
                     lastRampAtMillis = nowMillis
                     statusMessage = "Accepted $bestWorkerCount workers: measured rate improved by at least " +
                         "${(minimumImprovementFraction * 100.0).toInt()}%"
+                    return currentWorkerCount
                 } else {
                     val rejectedWorkers = candidateWorkerCount
                     candidateStartedAtMillis = null
