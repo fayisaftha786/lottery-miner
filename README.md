@@ -187,7 +187,7 @@ The pool controls the effective version mask. The implementation fails closed on
 
 Version rolling and extranonce expansion do **not** make any individual SHA-256d hash more likely to satisfy the Bitcoin network target. They expose additional valid header variants; all hashes still use ordinary Bitcoin SHA-256d proof-of-work. This branch does not implement a SHA-256 shortcut, does not promise a block, and does not create cloud hashrate.
 
-The following roadmap items remain separate and are **not** represented as implemented here: parallel multi-job scheduling for `clean_jobs=false`, pool-constrained nTime rolling, 4-way/8-way ARM SHA2 kernels, and physical-device sustained/live-pool validation. The existing paired 2-way ARM SHA2 scanner remains guarded by its prior runtime equivalence tests and on-device performance gate.
+The following roadmap items remain separate and are **not** represented as implemented here: parallel multi-job scheduling for `clean_jobs=false`, pool-constrained nTime rolling, 8-way ARM SHA2 kernels, and physical-device sustained/live-pool validation. The paired 2-way scanner remains the validated baseline; the PHOENIX 4-way experimental scanner is described below and is selected only after device equivalence tests and a measured throughput gain of at least 1.5%.
 
 
 ## PHOENIX experimental four-stream ARM SHA2 scan
