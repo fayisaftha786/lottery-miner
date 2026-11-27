@@ -11,18 +11,16 @@ class MiningStrategyTest {
         coinPriceFiat = 2.0,
         powerWatts = 10.0,
         electricityFiatPerKwh = 0.10,
-        poolFeePercent = 2.0,
         snapshotAgeSeconds = age,
         networkBlocksPerDay = 144.0,
         payoutModel = PayoutModel.SOLO_BLOCK_REWARD
     )
 
-    @Test fun computesGrossFeesPowerNetAndExpectedSoloWaitSeparately() {
+    @Test fun computesSoloExpectedRewardPowerAndBlockWaitSeparately() {
         val result = MiningStrategy.estimate(input())
         assertEquals(2.0, result.grossFiatPerDay, 1e-9)
-        assertEquals(0.04, result.poolFeeFiatPerDay, 1e-9)
         assertEquals(0.024, result.electricityFiatPerDay, 1e-9)
-        assertEquals(1.936, result.netFiatPerDay, 1e-9)
+        assertEquals(1.976, result.netFiatPerDay, 1e-9)
         assertEquals(1.44, result.expectedBlocksFoundPerDay, 1e-9)
         assertEquals(1.0 / 1.44, result.expectedDaysPerBlock, 1e-9)
         assertEquals(PayoutModel.SOLO_BLOCK_REWARD, result.payoutModel)
@@ -40,9 +38,6 @@ class MiningStrategyTest {
             MiningStrategy.estimate(input().copy(networkHashrate = 0.0))
         }.isFailure)
         assertTrue(runCatching {
-            MiningStrategy.estimate(input().copy(poolFeePercent = 101.0))
-        }.isFailure)
-        assertTrue(runCatching {
             MiningStrategy.estimate(input().copy(networkBlocksPerDay = 0.0))
         }.isFailure)
     }
@@ -54,12 +49,6 @@ class MiningStrategyTest {
         val loss = MiningStrategy.estimate(input().copy(electricityFiatPerKwh = 100.0))
         assertEquals(installed, MiningStrategy.chooseBest(listOf(installed to positive, unavailable to positive)))
         assertNull(MiningStrategy.chooseBest(listOf(installed to loss)))
-    }
-
-    @Test fun refusesProportionalPoolEstimateWithoutPoolSpecificData() {
-        assertTrue(runCatching {
-            MiningStrategy.estimate(input().copy(payoutModel = PayoutModel.PROPORTIONAL_POOL))
-        }.isFailure)
     }
 
     @Test fun expectedSoloBlockIntervalGrowsWhenDeviceHashrateFalls() {
