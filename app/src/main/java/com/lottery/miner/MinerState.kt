@@ -40,6 +40,14 @@ object MinerState {
     @Volatile var workerTuningStatus = "Waiting for an authorized mining job"
     @Volatile var hwSha = false
     @Volatile var blockCandidateDetected = false
+    @Volatile var directMode = false
+    @Volatile var directHeight = 0
+    @Volatile var directTransactionCount = 0
+    @Volatile var directJobId = ""
+    @Volatile var directLastResponse = ""
+    val directCandidates = AtomicInteger(0)
+    val directAccepted = AtomicInteger(0)
+    val directRejected = AtomicInteger(0)
     @Volatile var pauseReason = ""
 
     private val logs = ArrayDeque<String>()
@@ -90,6 +98,14 @@ object MinerState {
         androidThermalStatus = "N/A"
         batteryAvailable = false
         blockCandidateDetected = false
+        directMode = false
+        directHeight = 0
+        directTransactionCount = 0
+        directJobId = ""
+        directLastResponse = ""
+        directCandidates.set(0)
+        directAccepted.set(0)
+        directRejected.set(0)
         pauseReason = ""
         logs.clear()
         status = "തുടങ്ങുന്നു…"
