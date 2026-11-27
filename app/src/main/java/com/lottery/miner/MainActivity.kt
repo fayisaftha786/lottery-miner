@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -48,7 +47,6 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var profitabilityFetchInFlight = false
     private var lastBenchmarkHps = 0.0
     private lateinit var tvStats: TextView
-    private lateinit var tvExternalStats: TextView
     private lateinit var tvLog: TextView
 
     private val refresher = object : Runnable {
@@ -78,7 +76,6 @@ class MainActivity : AppCompatActivity() {
         btnRefreshProfitability = findViewById(R.id.btnRefreshProfitability)
         tvProfitability = findViewById(R.id.tvProfitability)
         tvStats = findViewById(R.id.tvStats)
-        tvExternalStats = findViewById(R.id.tvExternalStats)
         tvLog = findViewById(R.id.tvLog)
 
         val cores = Runtime.getRuntime().availableProcessors()
@@ -313,8 +310,6 @@ class MainActivity : AppCompatActivity() {
             appendLine("Last connection attempt: ${time(s.lastConnectAttemptAt)}")
             appendLine("Last authorization: ${time(s.authorizedAt)}")
             appendLine("Last job: ${time(s.lastJobAt)}")
-            appendLine("Last share submitted: ${time(s.lastShareSubmittedAt)}")
-            appendLine("Last share response: ${time(s.lastShareResponseAt)}")
             appendLine("Network difficulty: " + s.netDiff)
             appendLine("Network-target candidates / node accepted / rejected: " + s.directCandidates.get() + " / " + s.directAccepted.get() + " / " + s.directRejected.get())
             appendLine("Block height / template transaction count: " + s.directHeight + " / " + s.directTransactionCount)
@@ -356,7 +351,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val addr = etAddress.text.toString().trim()
-        if (!Util.isValidBitcoinAddress(addr)) {
+        if (!Util.isValidBitcoinAddress(addr) || addr.contains('.')) {
             Toast.makeText(this, "ശരിയായ Bitcoin mainnet വിലാസം നൽകുക; worker വേണമെങ്കിൽ address.worker നൽകാം.", Toast.LENGTH_LONG).show()
             return
         }
@@ -427,7 +422,7 @@ class MainActivity : AppCompatActivity() {
         sb.append("Block height: ").append(if (s.directHeight > 0) s.directHeight else "N/A")
             .append("  Template txs: ").append(s.directTransactionCount).append('\n')
         sb.append("Node response: ").append(s.directLastResponse.ifBlank { "none" }).append('\n')
-sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
+        sb.append("Best local hash diff: ").append(if (s.totalHashes > 0 && s.bestDiff > 0.0) String.format(Locale.US, "%.4g", s.bestDiff) else "N/A").append('\n')
         sb.append("Network diff: ").append(if (s.netDiff > 0.0) String.format(Locale.US, "%.4e", s.netDiff) else "N/A").append('\n')
         sb.append("ബാറ്ററി താപനില: ").append(if (s.tempAvailable) String.format(Locale.US, "%.1f°C", s.tempC) else "N/A")
             .append("   ബാറ്ററി ").append(if (s.batteryAvailable) "${s.battery}%" else "N/A")
