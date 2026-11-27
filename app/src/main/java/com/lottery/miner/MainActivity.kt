@@ -511,6 +511,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Pool website totals are address-wide/cumulative and are not this session's counters.")
             appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
             appendLine("Native SHA-256 implementation: ${if (s.hwSha) "ARMv8 SHA2 hardware" else "scalar software"}")
+            appendLine("Four-stream ARM nonce scan: ${if (s.armQuadScan) "enabled (equivalence + device benchmark passed)" else "not selected"}")
+            appendLine("PHOENIX quad measured gain vs selected baseline: ${if (s.armQuadGainPercent >= 0.0) String.format(Locale.US, "%+.2f%%", s.armQuadGainPercent) else "unavailable (non-ARM or benchmark incomplete)"}")
             appendLine("Paired ARM nonce scan: ${if (s.armPairScan) "enabled (runtime equivalence tests passed)" else "not selected"}")
             appendLine("Android thermal status: ${s.androidThermalStatus}")
             appendLine("Thermal headroom forecast (10s): ${if (s.thermalHeadroomForecast.isFinite()) String.format(Locale.US, "%.3f", s.thermalHeadroomForecast) else "unavailable"}")
@@ -775,6 +777,11 @@ class MainActivity : AppCompatActivity() {
         }
         sb.append("SUSTAINED AVG (up to 30m): ").append(Util.fmtRate(s.localHashrate30m))
             .append(" · window ").append(sustainedWindowLabel).append('\n')
+        sb.append("PHOENIX QUAD: ").append(when {
+            s.armQuadScan -> "SELECTED · measured gain " + String.format(Locale.US, "%+.2f%%", s.armQuadGainPercent)
+            s.armQuadGainPercent >= 0.0 -> "NOT SELECTED · measured gain " + String.format(Locale.US, "%+.2f%%", s.armQuadGainPercent) + " · needs +1.50%; validated fallback active"
+            else -> "NOT AVAILABLE · ARM SHA2 benchmark unavailable"
+        }).append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("BIP310 version rolling: ")
             .append(
