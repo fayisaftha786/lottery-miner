@@ -209,7 +209,51 @@ static int selftest(compress_fn_t fn) {
     uint32_t found[4], bn, overflow = 0;
     double bd;
     uint32_t nf = scan_impl(fn, hdr, 2083236893u - 40u, 100u, tgt, found, 4, &bd, &bn, &overflow);
-    return nf == 1 && found[0] == 2083236893u && bn == 2083236893u;
+    if (nf != 1 || found[0] != 2083236893u || bn != 2083236893u) return 0;
+
+    /*
+     * Validate the selected implementation against independent SHA-256d
+     * known-answer vectors. This executes for both scalar and ARM SHA2 paths,
+     * so a CPU feature bit alone can never enable an incorrect accelerator.
+     */
+    static const struct {
+        const char *header_hex;
+        const char *digest_hex;
+    } vectors[] = {
+        {
+            "00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567b"
+            "a0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b"
+            "40658aafd4f91e43688db2d740302010",
+            "739f31ec63e5b01cd933fcb42f27ece2663dd02009b9b1e0a2a809f02ffb93c2"
+        },
+        {
+            "355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0"
+            "d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50"
+            "759abfe4092e53789dc2e70c41312111",
+            "446f8c36675dcba95c9a4ea2d07b19ed400871034f1a30182597056ed6c2b66b"
+        },
+        {
+            "6a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e5"
+            "0a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085"
+            "aacff4193e6388add2f71c4142322212",
+            "c0408d345262a2e27f6de904a895afb464127d3f65b6426821a6a4556ec10153"
+        },
+        {
+            "9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a"
+            "3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095ba"
+            "df04294e7398bde2072c517643332313",
+            "5f77e202d08675a2ff8d72ec616e90570ba97ad9074dec54c72a1b4eac34f01f"
+        }
+    };
+
+    uint8_t expected[32];
+    for (size_t v = 0; v < sizeof(vectors) / sizeof(vectors[0]); v++) {
+        hex2bin(vectors[v].header_hex, hdr, 80);
+        hex2bin(vectors[v].digest_hex, expected, 32);
+        hash_with(fn, hdr, out);
+        if (memcmp(out, expected, sizeof(expected)) != 0) return 0;
+    }
+    return 1;
 }
 
 void miner_core_init(void) {
