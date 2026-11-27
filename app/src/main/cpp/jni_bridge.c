@@ -9,6 +9,11 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_initCore(JNIEnv *env, jobje
     return miner_core_uses_hw();
 }
 
+JNIEXPORT jdouble JNICALL Java_com_lottery_miner_Native_armQuadGainPercent(JNIEnv *env, jobject thiz) {
+    (void)env; (void)thiz;
+    return (jdouble)miner_core_arm_quad_gain_percent();
+}
+
 JNIEXPORT jboolean JNICALL Java_com_lottery_miner_Native_usesArmQuadScan(JNIEnv *env, jobject thiz) {
     (void)env; (void)thiz;
     return miner_core_uses_arm_quad_scan() ? JNI_TRUE : JNI_FALSE;
