@@ -328,9 +328,7 @@ async function submitWithRpc(body, rpc) {
     };
   }
 
-  const submitParams = [blockHex];
-  if (job.workid) submitParams.push({ workid: job.workid });
-  const result = await rpc("submitblock", submitParams);
+  const result = await rpc("submitblock", [blockHex]);
   const accepted = result === null;
   return {
     accepted,
