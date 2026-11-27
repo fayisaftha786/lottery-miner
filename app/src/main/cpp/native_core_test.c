@@ -16,6 +16,39 @@ int main(void) {
     miner_core_init();
     assert(miner_core_selftest_ok() == 1);
 
+#ifdef MINER_CORE_TESTING
+    /*
+     * Verify that the first scan computes a midstate once, later chunks with
+     * the same first 64 header bytes reuse it, and a changed first block
+     * invalidates it. Bytes 64..79 (time/bits/nonce) must not invalidate it.
+     */
+    uint8_t cache_header[80] = {0};
+    uint8_t cache_target[32];
+    memset(cache_target, 0xff, sizeof(cache_target));
+    uint32_t cache_found[8];
+    uint32_t cache_best_nonce = 0, cache_overflow = 0;
+    double cache_best_diff = 0.0;
+    uint64_t cache_hits = 0, cache_misses = 0;
+
+    miner_core_test_cache_reset();
+    assert(miner_scan(cache_header, 0, 16, cache_target, cache_found, 8,
+                      &cache_best_diff, &cache_best_nonce, &cache_overflow) == 8);
+    miner_core_test_cache_stats(&cache_hits, &cache_misses);
+    assert(cache_hits == 0 && cache_misses == 1);
+
+    cache_header[68] = 0x42; /* nTime is in the second SHA-256 block */
+    assert(miner_scan(cache_header, 16, 16, cache_target, cache_found, 8,
+                      &cache_best_diff, &cache_best_nonce, &cache_overflow) == 8);
+    miner_core_test_cache_stats(&cache_hits, &cache_misses);
+    assert(cache_hits == 1 && cache_misses == 1);
+
+    cache_header[0] = 0x01; /* version is in the first block: invalidate */
+    assert(miner_scan(cache_header, 32, 16, cache_target, cache_found, 8,
+                      &cache_best_diff, &cache_best_nonce, &cache_overflow) == 8);
+    miner_core_test_cache_stats(&cache_hits, &cache_misses);
+    assert(cache_hits == 1 && cache_misses == 2);
+#endif
+
     uint8_t header[80] = {0};
     uint8_t target[32];
     memset(target, 0xff, sizeof(target));
