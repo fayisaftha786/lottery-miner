@@ -231,6 +231,6 @@ class AdaptiveWorkerController(
         const val DEFAULT_MEASUREMENT_WINDOW_MILLIS = 30_000L
         const val DEFAULT_MINIMUM_IMPROVEMENT = 0.03
         private const val MIN_BASELINE_SAMPLES = 5
-        private const val MIN_TRIAL_SAMPLES = 5
+        private const val MIN_TRIAL_SAMPLES = 3
     }
 }
