@@ -110,6 +110,7 @@ internal class DirectSoloEngine(private val context: Context, private val config
 
     private fun gatewayLoop() {
         var lastJobId = ""
+        var lastHeader: ByteArray? = null
         var longPollId: String? = null
         while (running) {
             try {
@@ -123,10 +124,11 @@ internal class DirectSoloEngine(private val context: Context, private val config
                 val work = client.fetchWork(config.payoutAddress, extraNonceHex(), longPollId)
                 longPollId = work.longPollId
                 if (!running) break
-                if (work.jobId != lastJobId) {
+                if (work.jobId != lastJobId || lastHeader == null || !lastHeader!!.contentEquals(work.header)) {
                     workRef.set(work)
                     nonceCursor.set(0L)
                     lastJobId = work.jobId
+                    lastHeader = work.header.copyOf()
                     MinerState.directHeight = work.height
                     MinerState.directJobId = work.jobId
                     MinerState.directTransactionCount = work.transactionCount
@@ -142,6 +144,8 @@ internal class DirectSoloEngine(private val context: Context, private val config
                 break
             } catch (e: Exception) {
                 workRef.set(null)
+                lastJobId = ""
+                lastHeader = null
                 longPollId = null
                 MinerState.connected = false
                 activeWorkers = 0
