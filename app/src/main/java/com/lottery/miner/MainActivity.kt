@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
         lastBenchmarkHps = p.getString("lastBenchmarkHps", "0.0")?.toDoubleOrNull() ?: 0.0
         etMiningPower.setText(p.getString("miningPowerWatts", ""))
         etElectricityTariff.setText(p.getString("electricityTariff", ""))
-        tvBenchmark.text = "PHOENIX DIRECT SOLO\\nNative SHA-256d · Bitcoin Core getblocktemplate · full block submitblock"
+        tvBenchmark.text = "PHOENIX DIRECT SOLO\nNative SHA-256d · Bitcoin Core getblocktemplate · full block submitblock"
 
         btn.setOnClickListener { if (MinerState.running) stopMining() else startMining() }
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
@@ -305,10 +305,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("CPU cores: ${Runtime.getRuntime().availableProcessors()}")
             appendLine("Wallet (masked): $maskedAddress")
             appendLine("Direct Node Gateway: " + etHost.text.toString().trim())
-            appendLine("Running: ${s.running}; authorized: ${s.connected}; status: ${s.status}")
-            appendLine("Connection attempts: ${s.connectionAttempts.get()}")
-            appendLine("Last connection attempt: ${time(s.lastConnectAttemptAt)}")
-            appendLine("Last authorization: ${time(s.authorizedAt)}")
+            appendLine("Running: ${s.running}; direct node connected: ${s.connected}; status: ${s.status}")
             appendLine("Last job: ${time(s.lastJobAt)}")
             appendLine("Network difficulty: " + s.netDiff)
             appendLine("Network-target candidates / node accepted / rejected: " + s.directCandidates.get() + " / " + s.directAccepted.get() + " / " + s.directRejected.get())
@@ -335,15 +332,6 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(send, "Share verification report"))
     }
 
-    private fun formatExpectedShareInterval(seconds: Double): String {
-        if (!seconds.isFinite() || seconds <= 0.0) return "N/A"
-        return when {
-            seconds >= 86_400.0 -> String.format(Locale.US, "~%.0f ദിവസം", seconds / 86_400.0)
-            seconds >= 3_600.0 -> String.format(Locale.US, "~%.1f മണിക്കൂർ", seconds / 3_600.0)
-            seconds >= 60.0 -> String.format(Locale.US, "~%.0f മിനിറ്റ്", seconds / 60.0)
-            else -> String.format(Locale.US, "~%.0f സെക്കൻഡ്", seconds)
-        }
-    }
 
     private fun startMining() {
         if (benchmarkRunning || Sha256dBenchmark.isRunning()) {
@@ -358,7 +346,7 @@ class MainActivity : AppCompatActivity() {
         val cores = Runtime.getRuntime().availableProcessors()
         val gatewayUrl = etHost.text.toString().trim().trimEnd('/')
         val gatewayUri = runCatching { java.net.URI(gatewayUrl) }.getOrNull()
-        if (gatewayUri == null || !gatewayUri.scheme.equals("https", true) || gatewayUri.host.isNullOrBlank() || gatewayUri.userInfo != null || gatewayUri.query != null || gatewayUri.fragment != null || gatewayUrl.length > 512) {
+        if (gatewayUri == null || !gatewayUri.scheme.equals("https", true) || gatewayUri.host.isNullOrBlank() || gatewayUri.userInfo != null || gatewayUri.query != null || gatewayUri.fragment != null || (gatewayUri.path.isNotEmpty() && gatewayUri.path != "/") || gatewayUrl.length > 512) {
             Toast.makeText(this, "HTTPS Direct Node Gateway URL നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
@@ -409,7 +397,7 @@ class MainActivity : AppCompatActivity() {
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
-        if (s.blockCandidateDetected) sb.append("Bitcoin network-target candidate കണ്ടെത്തി — node response പരിശോധിക്കുക\\n")
+        if (s.blockCandidateDetected) sb.append("Bitcoin network-target candidate കണ്ടെത്തി — node response പരിശോധിക്കുക\n")
         sb.append("PHOENIX DIRECT MINING: ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
@@ -429,7 +417,7 @@ class MainActivity : AppCompatActivity() {
             .append(if (s.batteryAvailable && s.plugged) " ⚡" else "").append('\n')
         sb.append("Android thermal: ").append(s.androidThermalStatus).append('\n')
         if (s.pauseReason.isNotEmpty()) sb.append("താൽക്കാലികം: ").append(s.pauseReason).append('\n')
-        sb.append("Node acceptance പോലും network confirmation അല്ല; payout confirmation വേറെയാണ്.\\n")
+        sb.append("Node acceptance പോലും network confirmation അല്ല; payout confirmation വേറെയാണ്.\n")
         tvStats.text = sb.toString()
         tvLog.text = s.logText()
     }
