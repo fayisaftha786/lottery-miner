@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { address, networks, Transaction } from "bitcoinjs-lib";
 
-const MAX_JOBS = 128;
+const MAX_JOBS = 8;
 const JOB_TTL_MS = 10 * 60 * 1000;
 const jobs = new Map();
 const MAINNET_POW_LIMIT = BigInt("0x00000000ffff0000000000000000000000000000000000000000000000000000");
@@ -135,7 +135,8 @@ function verifyTemplate(template, chainName) {
 
   validateTransactions(template.transactions);
   const commitmentHex = template.default_witness_commitment;
-  if (typeof commitmentHex !== "string" || commitmentHex.length !== 76 || !hex.test(commitmentHex)) {
+  if (typeof commitmentHex !== "string" || commitmentHex.length < 76 ||
+      commitmentHex.length % 2 !== 0 || !hex.test(commitmentHex)) {
     throw new Error("Bitcoin Core did not provide a valid default SegWit witness commitment");
   }
   const commitmentScript = Buffer.from(commitmentHex, "hex");
@@ -152,11 +153,15 @@ function verifyTemplate(template, chainName) {
 function buildCoinbase(template, payoutAddress, extranonceHex) {
   const payoutScript = address.toOutputScript(payoutAddress, networks.bitcoin);
   const heightPush = pushData(scriptNumber(template.height));
-  const flagsHex = template.coinbaseaux?.flags || "";
-  if (flagsHex.length % 2 || !hex.test(flagsHex)) throw new Error("Invalid coinbase auxiliary flags");
-  const flags = Buffer.from(flagsHex, "hex");
+  const coinbaseAux = template.coinbaseaux || {};
+  const auxiliaryData = Object.values(coinbaseAux).map(value => {
+    if (typeof value !== "string" || value.length % 2 !== 0 || !hex.test(value)) {
+      throw new Error("Invalid coinbase auxiliary data");
+    }
+    return Buffer.from(value, "hex");
+  });
   const extranoncePush = pushData(Buffer.from(extranonceHex, "hex"));
-  const scriptSig = Buffer.concat([heightPush, flags, extranoncePush]);
+  const scriptSig = Buffer.concat([heightPush, ...auxiliaryData, extranoncePush]);
   if (scriptSig.length < 2 || scriptSig.length > 100) {
     throw new Error("Coinbase scriptSig length violates consensus limits");
   }
