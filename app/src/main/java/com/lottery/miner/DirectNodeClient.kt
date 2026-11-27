@@ -12,7 +12,8 @@ internal data class DirectWork(
     val target: ByteArray,
     val bits: String,
     val previousBlockHash: String,
-    val transactionCount: Int
+    val transactionCount: Int,
+    val longPollId: String?
 )
 
 internal data class DirectSubmitResult(
@@ -48,11 +49,12 @@ internal class DirectNodeClient(
         baseUrl = normalized
     }
 
-    fun fetchWork(payoutAddress: String, extranonce: String): DirectWork {
-        val response = request(
-            "/v1/work",
-            JSONObject().put("payoutAddress", payoutAddress).put("extranonce", extranonce)
-        )
+    fun fetchWork(payoutAddress: String, extranonce: String, longPollId: String?): DirectWork {
+        val requestBody = JSONObject()
+            .put("payoutAddress", payoutAddress)
+            .put("extranonce", extranonce)
+        if (!longPollId.isNullOrBlank()) requestBody.put("longpollId", longPollId)
+        val response = request("/v1/work", requestBody)
         require(response.getString("network") == "main") {
             "Gateway is not connected to Bitcoin mainnet"
         }
@@ -96,7 +98,8 @@ internal class DirectNodeClient(
             target = target,
             bits = bits,
             previousBlockHash = previousBlockHash,
-            transactionCount = transactionCount
+            transactionCount = transactionCount,
+            longPollId = response.optString("longpollid").takeIf { it.isNotBlank() && it != "null" }
         )
     }
 
@@ -125,7 +128,7 @@ internal class DirectNodeClient(
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 10_000
-            readTimeout = if (path == "/v1/work") 60_000 else 30_000
+            readTimeout = if (path == "/v1/work") 150_000 else 30_000
             useCaches = false
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Authorization", "Bearer $apiToken")
