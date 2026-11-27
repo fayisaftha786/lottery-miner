@@ -3,6 +3,7 @@ package com.lottery.miner
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Live miner state shared between the service/engine and the UI. All numbers are real measurements. */
 object MinerState {
