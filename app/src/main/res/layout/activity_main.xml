@@ -14,48 +14,65 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Lottery Miner"
-            android:textSize="22sp"
+            android:text="PHOENIX SOLO"
+            android:textSize="24sp"
             android:textStyle="bold" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="സോളോ Bitcoin mining പരീക്ഷണം. Block കണ്ടെത്താനുള്ള സാധ്യത അത്യന്തം കുറവാണ്; accepted share മാത്രം BTC payout അല്ല."
+            android:text="DIRECT BITCOIN CORE MINING · Native phone SHA-256d · Full block submission. No pool-share mode."
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Bitcoin mainnet payout address"
+            android:textStyle="bold"
             android:textSize="13sp" />
 
         <EditText
             android:id="@+id/etAddress"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="നിങ്ങളുടെ BTC വിലാസം (bc1…)"
+            android:hint="bc1…"
             android:inputType="textNoSuggestions"
             android:singleLine="true" />
 
-        <LinearLayout
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_marginTop="10dp"
+            android:text="Direct Node Gateway (HTTPS)"
+            android:textStyle="bold"
+            android:textSize="13sp" />
 
-            <EditText
-                android:id="@+id/etHost"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:hint="പൂൾ ഹോസ്റ്റ്"
-                android:inputType="textNoSuggestions"
-                android:singleLine="true" />
+        <EditText
+            android:id="@+id/etHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="https://your-gateway.example"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:autofillHints="" />
 
-            <EditText
-                android:id="@+id/etPort"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="പോർട്ട്"
-                android:inputType="number"
-                android:singleLine="true" />
-        </LinearLayout>
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Gateway API token (encrypted with Android Keystore)"
+            android:textStyle="bold"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/etApiToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="32-byte minimum secret"
+            android:inputType="textPassword|textNoSuggestions"
+            android:singleLine="true"
+            android:importantForAutofill="no" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -67,7 +84,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="ത്രെഡ്"
+                android:hint="Workers"
                 android:inputType="number"
                 android:singleLine="true" />
 
@@ -76,7 +93,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="പരമാവധി °C"
+                android:hint="Max °C"
                 android:inputType="numberDecimal"
                 android:singleLine="true" />
 
@@ -85,7 +102,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="ബാറ്ററി പരിധി %"
+                android:hint="Battery %"
                 android:inputType="number"
                 android:singleLine="true" />
         </LinearLayout>
@@ -95,27 +112,20 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:checked="true"
-            android:text="ചാർജിൽ ഇരിക്കുമ്പോൾ മാത്രം" />
+            android:text="Mine only while charging" />
 
         <Button
             android:id="@+id/btnToggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="സ്റ്റാർട്ട്" />
-
-        <Button
-            android:id="@+id/btnPoolStats"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="CKPool Live Statistics തുറക്കുക" />
+            android:text="START DIRECT SOLO" />
 
         <Button
             android:id="@+id/btnBenchmark"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Run safe SHA-256d benchmark" />
+            android:text="Run safe local SHA-256d benchmark" />
 
         <TextView
             android:id="@+id/tvBenchmark"
@@ -124,7 +134,7 @@
             android:layout_marginTop="8dp"
             android:padding="12dp"
             android:background="#18242D"
-            android:text="ADAPTIVE MINING LAB\nSHA-256d is the only installed algorithm. Benchmark runs locally while mining is stopped; no pool shares are submitted."
+            android:text="PHOENIX DIRECT SOLO\nNative SHA-256d · Bitcoin Core getblocktemplate · full block submitblock"
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
@@ -132,21 +142,21 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="BITCOIN PROFITABILITY ESTIMATOR"
+            android:text="BITCOIN SOLO EXPECTED VALUE"
             android:textStyle="bold"
             android:textSize="15sp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Live network difficulty, block subsidy and BTC/INR are fetched on request. Enter mining-only power from a USB meter and your electricity tariff."
+            android:text="Live network difficulty, subsidy and BTC/INR are informational estimates only. Measure mining-only power with an external USB meter."
             android:textSize="12sp" />
 
         <EditText
             android:id="@+id/etMiningPower"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Mining power draw (W) — measured"
+            android:hint="Measured mining power (W)"
             android:inputType="numberDecimal"
             android:singleLine="true" />
 
@@ -154,15 +164,7 @@
             android:id="@+id/etElectricityTariff"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Electricity tariff (₹ per kWh)"
-            android:inputType="numberDecimal"
-            android:singleLine="true" />
-
-        <EditText
-            android:id="@+id/etPoolFee"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Pool fee (%) — CKPool default 2"
+            android:hint="Electricity tariff (₹/kWh)"
             android:inputType="numberDecimal"
             android:singleLine="true" />
 
@@ -171,7 +173,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Refresh live BTC profitability estimate" />
+            android:text="Refresh live Bitcoin estimate" />
 
         <TextView
             android:id="@+id/tvProfitability"
@@ -180,7 +182,7 @@
             android:layout_marginTop="8dp"
             android:padding="12dp"
             android:background="#18242D"
-            android:text="PROFITABILITY: Not calculated\nRun a benchmark and enter measured power + tariff."
+            android:text="Expected value is not a payout forecast. A valid block must be accepted by Bitcoin Core and confirmed on the network."
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
 
@@ -189,18 +191,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Export real-device verification report" />
-
-        <TextView
-            android:id="@+id/tvExternalStats"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:padding="12dp"
-            android:background="#18242D"
-            android:text="OCEAN EXTERNAL WORKER MONITOR\nWallet address നൽകുക.\nMonitoring സൗജന്യമാണ്; external mining power അല്ല."
-            android:textColor="#FFFFFF"
-            android:textSize="13sp" />
+            android:text="Export Direct Solo verification report" />
 
         <TextView
             android:id="@+id/tvStats"
