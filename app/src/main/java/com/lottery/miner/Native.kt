@@ -14,7 +14,7 @@ object Native {
     /** True only when the experimental four-stream scanner passed equivalence and device benchmark gates. */
     external fun usesArmQuadScan(): Boolean
 
-    /** Per-device measured throughput gain; negative means the benchmark was unavailable. */
+    /** Per-device measured throughput gain; -1000 means the benchmark was unavailable. */
     external fun armQuadGainPercent(): Double
 
     /**
