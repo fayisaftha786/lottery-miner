@@ -188,12 +188,9 @@ function makeWork(template, payoutAddress, extranonceHex, chainName) {
   header.writeUInt32LE(Number(BigInt("0x" + template.bits)), 72);
   header.writeUInt32LE(0, 76);
 
-  // Ignore only nTime in the identity so a harmless wall-clock refresh does not
-  // restart the phone's nonce scan. The first valid time for this template is retained.
-  const identityHeader = Buffer.from(header);
-  identityHeader.fill(0, 68, 72);
+  // Every distinct 80-byte header has its own cache key, including nTime.
   const canonical = Buffer.concat([
-    identityHeader,
+    header,
     Buffer.from(payoutAddress, "utf8"),
     Buffer.from(extranonceHex, "hex"),
     ...template.transactions.map(item => Buffer.from(item.data, "hex"))
@@ -274,10 +271,17 @@ async function getWorkWithRpc(body, rpc, allowRegtest) {
     err.statusCode = 503;
     throw err;
   }
-  const template = await rpc("getblocktemplate", [{
+  const templateRequest = {
     rules: ["segwit"],
-    capabilities: ["coinbasevalue"]
-  }]);
+    capabilities: ["coinbasevalue", "longpoll"]
+  };
+  if (body.longpollId !== undefined && body.longpollId !== null) {
+    if (typeof body.longpollId !== "string" || body.longpollId.length > 1024) {
+      throw new Error("Invalid long-poll identifier");
+    }
+    templateRequest.longpollid = body.longpollId;
+  }
+  const template = await rpc("getblocktemplate", [templateRequest]);
   const job = makeWork(template, payoutAddress, extranonce, chain.chain);
   pruneJobs();
   const existing = jobs.get(job.jobId);
@@ -295,6 +299,7 @@ async function getWorkWithRpc(body, rpc, allowRegtest) {
     bits: job.bits,
     previousBlockHash: job.previousBlockHash,
     transactionCount: job.transactionCount,
+    longpollid: template.longpollid || null,
     nodeBlocks: chain.blocks,
     network: chain.chain
   };
