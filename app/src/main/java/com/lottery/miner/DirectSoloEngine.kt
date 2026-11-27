@@ -57,7 +57,6 @@ internal class DirectSoloEngine(private val context: Context, private val config
         running = true
         MinerState.reset()
         MinerState.running = true
-        MinerState.directMode = true
         MinerState.totalThreads = config.threads
         MinerState.status = "Direct Bitcoin node gateway പരിശോധിക്കുന്നു…"
 
