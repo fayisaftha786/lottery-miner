@@ -44,6 +44,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private val extranonceEpoch = AtomicLong(0)
     private val reconnectingForExhaustion = AtomicBoolean(false)
     private val adaptiveWorkerController = AdaptiveWorkerController()
+    private var lastWorkerTuningLog = ""
     private val threads = ArrayList<Thread>()
 
     @Synchronized fun start() {
@@ -452,10 +453,17 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             target = adaptiveWorkerController.selectWorkerCount(
                 safetyWorkerLimit = safetyWorkerLimit,
                 currentWorkerCount = activeThreads,
-                nowMillis = SystemClock.elapsedRealtime()
+                nowMillis = SystemClock.elapsedRealtime(),
+                currentHashrate = MinerState.hashrate
             )
+            val tuningStatus = adaptiveWorkerController.statusMessage
+            MinerState.workerTuningStatus = tuningStatus
+            if (tuningStatus != lastWorkerTuningLog) {
+                MinerState.log("Worker tuning: $tuningStatus")
+                lastWorkerTuningLog = tuningStatus
+            }
             if (target > 0 && target < safetyWorkerLimit && reason.isBlank()) {
-                reason = "Adaptive worker ramp: $target/$safetyWorkerLimit"
+                reason = "Adaptive worker tuning: $target/$safetyWorkerLimit"
             }
 
             activeThreads = target
