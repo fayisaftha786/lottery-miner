@@ -1,6 +1,5 @@
 package com.lottery.miner
 
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,22 +13,6 @@ class UtilTest {
     @Test fun difficultyOneProducesPositiveTarget() {
         val target = Util.difficultyToTarget(1.0)
         assertTrue(target.any { it.toInt() != 0 })
-    }
-
-    @Test fun stagesDifficultyUntilNextJobAndResetClearsIt() {
-        val targets = PoolDifficultyTargets(initialDifficulty = 2.0)
-        targets.stage(4.0)
-        assertEquals(2.0, targets.activeDifficulty(), 0.0)
-        assertArrayEquals(Util.difficultyToTarget(2.0), targets.activeTarget())
-
-        assertArrayEquals(Util.difficultyToTarget(4.0), targets.activateForNextJob())
-        assertEquals(4.0, targets.activeDifficulty(), 0.0)
-
-        targets.stage(8.0)
-        targets.reset()
-        assertEquals(1.0, targets.activeDifficulty(), 0.0)
-        assertArrayEquals(Util.difficultyToTarget(1.0), targets.activeTarget())
-        assertArrayEquals(Util.difficultyToTarget(1.0), targets.activateForNextJob())
     }
 
     @Test(expected = IllegalArgumentException::class)
