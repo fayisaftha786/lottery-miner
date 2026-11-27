@@ -201,7 +201,6 @@ class MainActivity : AppCompatActivity() {
         }
         val power = etMiningPower.text.toString().trim().toDoubleOrNull()
         val tariff = etElectricityTariff.text.toString().trim().toDoubleOrNull()
-        val fee = 0.0
         if (power == null || !power.isFinite() || power !in 0.1..200.0) {
             tvProfitability.text = "USB power meter ഉപയോഗിച്ച് mining മാത്രം ഉപയോഗിക്കുന്ന watts നൽകുക (0.1–200 W)."
             return
@@ -230,7 +229,6 @@ class MainActivity : AppCompatActivity() {
                         coinPriceFiat = snapshot.btcPriceInr,
                         powerWatts = power,
                         electricityFiatPerKwh = tariff,
-                        poolFeePercent = fee,
                         snapshotAgeSeconds = ageSeconds,
                         networkBlocksPerDay = BitcoinProfitSnapshot.AVERAGE_BLOCKS_PER_DAY,
                         payoutModel = PayoutModel.SOLO_BLOCK_REWARD
@@ -247,7 +245,6 @@ class MainActivity : AppCompatActivity() {
                         appendLine("Block subsidy: ${String.format(Locale.US, "%.8f", snapshot.blockSubsidyBtc)} BTC")
                         appendLine("Daily subsidy assumption: ${String.format(Locale.US, "%.4f", snapshot.dailySubsidyBtc)} BTC (144 blocks; fees excluded)")
                         appendLine("Expected gross value/day: ${formatInr(result.grossFiatPerDay)}")
-                        appendLine("Pool commission/day: ₹0.00 (direct node mining)")
                         appendLine("Estimated electricity/day: ${formatInr(result.electricityFiatPerDay)} (${String.format(Locale.US, "%.2f", power)} W × 24 h)")
                         appendLine("Expected net value/day: ${formatInr(result.netFiatPerDay)}")
                         appendLine("Mean block wait estimate: ${formatExpectedBlockDays(result.expectedDaysPerBlock)}")
@@ -340,7 +337,7 @@ class MainActivity : AppCompatActivity() {
         }
         val addr = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(addr) || addr.contains('.')) {
-            Toast.makeText(this, "ശരിയായ Bitcoin mainnet വിലാസം നൽകുക; worker വേണമെങ്കിൽ address.worker നൽകാം.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ശരിയായ Bitcoin mainnet payout address നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
         val cores = Runtime.getRuntime().availableProcessors()
