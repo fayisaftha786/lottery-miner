@@ -3,6 +3,7 @@ package com.lottery.miner
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 internal data class DirectWork(
     val jobId: String,
@@ -27,12 +28,16 @@ internal class DirectNodeClient(
     private val apiToken: String
 ) {
     private val baseUrl: String
+    private val activeConnections = ConcurrentHashMap.newKeySet<HttpURLConnection>()
 
     init {
         val normalized = gatewayUrl.trim().trimEnd('/')
         val uri = java.net.URI(normalized)
         require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) {
             "Direct Node Gateway must use HTTPS"
+        }
+        require(uri.path.isNullOrEmpty() || uri.path == "/") {
+            "Gateway URL must point to the gateway root path"
         }
         require(uri.userInfo == null && uri.query == null && uri.fragment == null) {
             "Gateway URL must not contain credentials, query, or fragment"
@@ -44,14 +49,18 @@ internal class DirectNodeClient(
     }
 
     fun fetchWork(payoutAddress: String, extranonce: String): DirectWork {
-        val json = JSONObject()
-            .put("payoutAddress", payoutAddress)
-            .put("extranonce", extranonce)
-        val response = request("/v1/work", json)
+        val response = request(
+            "/v1/work",
+            JSONObject().put("payoutAddress", payoutAddress).put("extranonce", extranonce)
+        )
+        require(response.getString("network") == "main") {
+            "Gateway is not connected to Bitcoin mainnet"
+        }
         val header = Util.hexToBytes(response.getString("header"))
         val target = Util.hexToBytes(response.getString("target"))
         require(header.size == 80) { "Gateway returned an invalid Bitcoin block header" }
         require(target.size == 32) { "Gateway returned an invalid network target" }
+
         val bits = response.getString("bits")
         require(bits.matches(Regex("[0-9a-fA-F]{8}"))) { "Gateway returned invalid compact bits" }
         val headerBits = ((header[75].toInt() and 0xff) shl 24) or
@@ -60,6 +69,18 @@ internal class DirectNodeClient(
             (header[72].toInt() and 0xff)
         require(headerBits.toUInt().toString(16).padStart(8, '0').equals(bits, ignoreCase = true)) {
             "Gateway header bits do not match the template"
+        }
+        val calculatedTarget = Util.toBytes32(Util.nbitsToTarget(bits))
+        require(calculatedTarget.contentEquals(target)) {
+            "Gateway target does not match compact bits or Bitcoin mainnet proof-of-work limit"
+        }
+
+        val previousBlockHash = response.getString("previousBlockHash")
+        require(previousBlockHash.matches(Regex("[0-9a-fA-F]{64}"))) {
+            "Gateway returned an invalid previous block hash"
+        }
+        require(Util.hexToBytes(previousBlockHash).reversedArray().contentEquals(header.copyOfRange(4, 36))) {
+            "Block header previous hash does not match the node template"
         }
         val jobId = response.getString("jobId")
         require(jobId.matches(Regex("[0-9a-fA-F]{64}"))) { "Gateway returned invalid job id" }
@@ -74,7 +95,7 @@ internal class DirectNodeClient(
             header = header,
             target = target,
             bits = bits,
-            previousBlockHash = response.getString("previousBlockHash"),
+            previousBlockHash = previousBlockHash,
             transactionCount = transactionCount
         )
     }
@@ -93,8 +114,11 @@ internal class DirectNodeClient(
         )
     }
 
-    fun healthCheck() {
-        request("/health", null, "GET")
+    fun cancelPendingRequests() {
+        activeConnections.toList().forEach { connection ->
+            runCatching { connection.disconnect() }
+        }
+        activeConnections.clear()
     }
 
     private fun request(path: String, body: JSONObject?, method: String = "POST"): JSONObject {
@@ -110,6 +134,7 @@ internal class DirectNodeClient(
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
             }
         }
+        activeConnections.add(connection)
         try {
             if (body != null) {
                 connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
@@ -125,6 +150,7 @@ internal class DirectNodeClient(
             }
             return payload
         } finally {
+            activeConnections.remove(connection)
             connection.disconnect()
         }
     }
