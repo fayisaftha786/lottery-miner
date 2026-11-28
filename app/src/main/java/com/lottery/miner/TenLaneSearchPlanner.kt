@@ -26,7 +26,7 @@ object TenLaneSearchPlanner {
             if (seq >= count) return null
             val permuted = multiplier.multiply(seq).add(offset).mod(modulus)
             val value = BigInteger.valueOf(first).add(BigInteger.valueOf(stride).multiply(permuted))
-            return value.longValueExact().takeIf { it <= maxCounter }
+            return value.toLong().takeIf { it <= maxCounter }
         }
 
         fun capacity(): Long = count.min(BigInteger.valueOf(Long.MAX_VALUE)).toLong()
