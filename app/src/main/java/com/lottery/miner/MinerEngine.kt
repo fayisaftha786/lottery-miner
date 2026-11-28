@@ -390,6 +390,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun policyLoop() {
         var lastHashes = 0L
         var lastTime = System.nanoTime()
+        var lastWorkerHashes = LongArray(cfg.threads) { workerHashCounts.get(it) }
         var hot = false
         var full = false
         while (running) {
@@ -497,7 +498,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
-            MinerState.workerHashCounts = LongArray(cfg.threads) { workerHashCounts.get(it) }
+            val workerSnapshot = LongArray(cfg.threads) { workerHashCounts.get(it) }
+            MinerState.workerHashCounts = workerSnapshot
+            MinerState.workerHashrates = DoubleArray(cfg.threads) { index ->
+                if (elapsed > 0.0) (workerSnapshot[index] - lastWorkerHashes[index]).coerceAtLeast(0L) / elapsed else 0.0
+            }
+            lastWorkerHashes = workerSnapshot
             lastHashes = total
             lastTime = now
         }
