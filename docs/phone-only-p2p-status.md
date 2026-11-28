@@ -1,20 +1,22 @@
 # Phone-only Bitcoin P2P work — implementation status
 
-This branch starts a direct Bitcoin Mainnet P2P transport foundation for Android. It uses no Gateway, pool, proxy, or external hashrate provider.
+This branch builds a direct Bitcoin Mainnet P2P path for Android. It does not use a Gateway, pool, proxy, or external hashrate provider.
 
-## Implemented in this increment
-- Mainnet message envelope encode/decode using f9beb4d9 magic.
-- 12-byte command and zero-padding validation.
-- 4 MiB payload cap, exact frame-length check, and SHA256d checksum verification.
-- Canonical Bitcoin CompactSize encode/decode with truncation and non-canonical-form checks.
-- Unit tests for valid frames, wrong magic, checksum tampering, oversized declarations, trailing bytes, and CompactSize boundaries.
+## Implemented
+- Mainnet message framing with magic, strict command padding, payload cap, exact length, and SHA256d checksum checks.
+- Canonical Bitcoin CompactSize encoder/decoder.
+- DNS seed candidate resolution and direct TCP socket connection to a Mainnet peer.
+- `version` / `verack` handshake, protocol-version check, ping/pong handling, bounded frame reads, and socket cleanup.
+- 80-byte header parser, target decoding, Mainnet proof-of-work limit check, SHA256d proof-of-work validation, and per-header chainwork calculation.
+- Mainnet retarget arithmetic helper with the consensus timespan clamp. The caller must supply the correct retarget-boundary history; this helper alone is not a full difficulty validator.
+- JVM tests for message framing, malformed frames, CompactSize boundaries, and the Bitcoin genesis header proof-of-work vector.
 
-## Not implemented yet — this is not yet a solo miner
-- TCP peer discovery, DNS seeds, peer address management.
-- version/verack handshake, streaming parser, ping/pong and peer scoring.
-- Header synchronization and full mainnet consensus validation (retarget, chainwork, MTP and deployment rules).
-- Coinbase-only block template construction, BIP34 height, merkle root and witness commitment policy.
-- Native scan integration for a locally constructed block and direct block relay.
-- Android foreground-service lifecycle, reconnect strategy and end-to-end device tests for P2P.
+## Still required before this can mine
+- Robust peer selection, multi-peer synchronization, address persistence, rate limits, misbehavior scoring, and reconnect strategy.
+- `getheaders` synchronization with checkpoint/ancestor handling and full consensus rules: 2016-block retarget boundary selection, testnet exceptions (not used for mainnet), median-time-past, future-time limit, versionbits/deployments, chain selection, and reorg handling. A valid PoW header alone does not prove the block/body is consensus-valid.
+- A trustworthy current-tip view and block validation strategy. This app is not a full validating node.
+- Coinbase-only block assembly: BIP34 height, payout script, subsidy halving, transaction serialization, merkle root, witness commitment rules, timestamp and version policy.
+- Integration with the native SHA256d scanner, extranonce/job rebuild, nonce exhaustion handling, stale-tip cancellation, and direct `block` message relay to multiple peers.
+- Android foreground-service integration, thermal/battery safeguards, and real-device network tests.
 
-No mining or block acceptance is claimed. A valid P2P frame/checksum is not proof of a valid Bitcoin block. Further stages must be implemented and tested before enabling solo mining. Phone CPU probability remains extraordinarily low against Bitcoin mainnet ASIC hashrate.
+No mining, block acceptance, or payout is claimed by this branch. The current additions are transport and validation primitives only. A phone CPU has an extraordinarily small chance of finding a Bitcoin Mainnet block compared with industrial ASIC hashrate; no code optimization can remove that probability gap.
