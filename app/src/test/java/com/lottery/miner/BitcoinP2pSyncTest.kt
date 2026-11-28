@@ -15,7 +15,7 @@ class BitcoinP2pSyncTest {
         val stop = ByteArray(32) { (255 - it).toByte() }
         val payload = BitcoinP2pSync.buildGetHeaders(listOf(locator), stop)
         assertEquals(69, payload.size)
-        assertEquals(0x70, payload[0].toInt() and 0xff)
+        assertEquals(0x80, payload[0].toInt() and 0xff)
         assertEquals(0x11, payload[1].toInt() and 0xff)
         assertEquals(1, payload[4].toInt() and 0xff)
         assertArrayEquals(locator, payload.copyOfRange(5, 37))
