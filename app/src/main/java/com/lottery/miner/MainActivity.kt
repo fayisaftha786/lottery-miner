@@ -108,7 +108,7 @@ class MainActivity : AppCompatActivity() {
         etHost.setText(configuredHost)
         etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
         if (configuredHost != savedHost) p.edit().putString("host", configuredHost).apply()
-        etThreads.setText(p.getInt("threads", maxOf(1, cores)).toString())
+        etThreads.setText(p.getInt("threads", minOf(10, maxOf(1, cores))).coerceIn(1, 10).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
@@ -632,8 +632,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val threads = etThreads.text.toString().trim().toIntOrNull()
-        if (threads == null || threads !in 1..cores) {
-            Toast.makeText(this, "Worker thread എണ്ണം 1 മുതൽ $cores വരെ നൽകുക.", Toast.LENGTH_LONG).show()
+        if (threads == null || threads !in 1..TenLaneSearchPlanner.MAX_LANES) {
+            Toast.makeText(this, "Worker lane എണ്ണം 1 മുതൽ 10 വരെ നൽകുക; thermal controller സുരക്ഷിതമായ എണ്ണം തിരഞ്ഞെടുക്കും.", Toast.LENGTH_LONG).show()
             return
         }
         val maxTemp = etTemp.text.toString().trim().toDoubleOrNull()
