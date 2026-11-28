@@ -13,6 +13,7 @@ object MinerState {
     @Volatile var hashrate = 0.0
     @Volatile var totalHashes = 0L
     @Volatile var workerHashCounts: LongArray = LongArray(0)
+    @Volatile var workerHashrates: DoubleArray = DoubleArray(0)
     val accepted = AtomicInteger(0)
     val rejected = AtomicInteger(0)
     val unknownShares = AtomicInteger(0)
@@ -70,6 +71,7 @@ object MinerState {
         workerTuningStatus = "Waiting for an authorized mining job"
         totalHashes = 0L
         workerHashCounts = LongArray(0)
+        workerHashrates = DoubleArray(0)
         accepted.set(0)
         rejected.set(0)
         unknownShares.set(0)
