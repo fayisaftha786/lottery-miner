@@ -705,7 +705,7 @@ class MainActivity : AppCompatActivity() {
                 sb.append("Worker ").append(index + 1).append(": ")
                     .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes")
                     .append(" · ").append(if (index < s.workerHashrates.size) Util.fmtRate(s.workerHashrates[index]) else "rate pending")
-                    .append(" H/s\\n")
+                    .append(" H/s").append('\n')
             }
         }
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
