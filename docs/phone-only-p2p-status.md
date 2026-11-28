@@ -14,7 +14,8 @@ This branch builds a direct Bitcoin Mainnet P2P path for Android. It does not us
 ## Additional implementation increments
 - Eight-lane non-overlapping uint32 nonce partitioner and native strided scan entry point. The native API validates non-wrapping ranges; the existing legacy Stratum engine is not yet migrated to this API.
 - Bounded P2P getheaders/headers wire helpers and block getdata inventory serialization. The peer wrapper can now request and receive one validated frame, but no complete multi-peer synchronizer is installed.
-- Coinbase-only candidate transaction/block serialization with BIP34 height push, Mainnet P2PKH/P2SH and Bech32/Bech32m payout-script decoding, and subsidy-halving calculation. Inputs such as height, previous hash, version, timestamp and nBits still must come from a fully validated chain-state source.
+- Coinbase-only candidate transaction/block serialization with BIP34 height push, Mainnet P2PKH/P2SH and Bech32/Bech32m payout-script decoding, and subsidy-halving calculation.
+- Contextual Mainnet header helpers for 2016-block retarget selection, previous-11-block Median Time Past, two-hour future-time bound, previous-hash linkage, and activated BIP34 version floor. These require a validated ancestor context supplied by a caller; no complete chain store currently supplies it. Inputs such as height, previous hash, version, timestamp and nBits still must come from a fully validated chain-state source.
 
 ## Still required before this can mine
 - Robust peer selection, multi-peer synchronization, address persistence, rate limits, misbehavior scoring, and reconnect strategy.
