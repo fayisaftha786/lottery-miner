@@ -280,12 +280,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
         val best = DoubleArray(3)
-        var counter = idx.toLong()
+        var sequence = 0L
         var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
             val epoch = extranonceEpoch.get()
             if (epoch != seenExtranonceEpoch) {
-                counter = idx.toLong()
+                sequence = 0L
                 seenExtranonceEpoch = epoch
             }
             if (idx >= activeThreads) { sleepMs(500); continue }
@@ -294,16 +294,24 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
             val size = en2Size
             val maxCounter = if (size < 8) (1L shl (size * 8)) - 1L else Long.MAX_VALUE
-            if (counter < 0L || counter > maxCounter) {
+            val lane = TenLaneSearchPlanner.lane(idx, cfg.threads, maxCounter)
+            val counter = lane.counterAt(sequence)
+            if (counter == null) {
                 MinerState.status = "Extranonce2 പരിധി തീർന്നു; pool reconnect ചെയ്യുന്നു"
                 if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
                 sleepMs(500)
                 continue
             }
+            if (sequence == Long.MAX_VALUE) {
+                MinerState.status = "Extranonce2 search sequence exhausted; reconnecting safely"
+                if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
+                sleepMs(500)
+                continue
+            }
+            sequence++
             val generation = jobGeneration.get()
             val en1Snapshot = en1.copyOf()
             val en2 = encodeEn2(counter, size)
-            counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
             val header = j.buildHeader(en1Snapshot, en2)
             val target = shareTarget.copyOf()
 
