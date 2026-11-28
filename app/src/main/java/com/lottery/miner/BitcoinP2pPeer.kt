@@ -6,10 +6,7 @@ import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.security.SecureRandom
-import java.time.Instant
 
 /**
  * Direct TCP connection to a Bitcoin Mainnet peer. All calls are blocking and
@@ -28,12 +25,9 @@ class BitcoinP2pPeer(
         const val PROTOCOL_VERSION = 70_016
         const val MIN_PROTOCOL_VERSION = 70_001
         private val DNS_SEEDS = listOf(
-            "seed.bitcoin.sipa.be",
-            "dnsseed.bluematt.me",
-            "seed.bitcoin.jonasschnelli.ch",
-            "seed.btc.petertodd.net",
-            "seed.bitcoin.sprovoost.nl",
-            "dnsseed.emzy.de"
+            "seed.bitcoin.sipa.be", "dnsseed.bluematt.me",
+            "seed.bitcoin.jonasschnelli.ch", "seed.btc.petertodd.net",
+            "seed.bitcoin.sprovoost.nl", "dnsseed.emzy.de"
         )
 
         /** Resolve public Bitcoin DNS seeds. Results are candidates, not trusted peers. */
@@ -49,16 +43,13 @@ class BitcoinP2pPeer(
                             if (found.size >= max) return found.values.toList()
                         }
                     }
-                } catch (_: Exception) {
-                    // A DNS seed can be temporarily unavailable; try the next seed.
-                }
+                } catch (_: Exception) { /* try the next seed */ }
             }
             return found.values.toList()
         }
     }
 
     data class Handshake(val peerVersion: Long, val peerAddress: String, val connectedAt: Long)
-
     private var socket: Socket? = null
     private var input: InputStream? = null
     private var output: java.io.OutputStream? = null
@@ -74,10 +65,9 @@ class BitcoinP2pPeer(
             s.connect(InetSocketAddress(address, port), connectTimeoutMs)
             s.soTimeout = handshakeTimeoutMs
             val i = s.getInputStream()
-            val o = s.getOutputStream()
             socket = s
             input = i
-            output = o
+            output = s.getOutputStream()
             send("version", buildVersionPayload(address, port))
             var gotVersion = false
             var gotVerack = false
@@ -101,16 +91,13 @@ class BitcoinP2pPeer(
                         require(msg.payload.size == 8) { "invalid ping payload" }
                         send("pong", msg.payload)
                     }
-                    // BIP 339 / BIP 155 capability negotiation messages may arrive
-                    // before verack; they are harmless at this handshake stage.
-                    "sendaddrv2", "wtxidrelay" -> require(msg.payload.isEmpty()) { "unexpected capability payload" }
-                    else -> {
-                        // Ignore other well-formed messages until handshake completes.
-                    }
+                    "sendaddrv2", "wtxidrelay" ->
+                        require(msg.payload.isEmpty()) { "unexpected capability payload" }
+                    else -> { /* ignore other well-formed messages during handshake */ }
                 }
             }
             s.soTimeout = 30_000
-            return Handshake(peerVersion, address.hostAddress ?: address.toString(), Instant.now().epochSecond)
+            return Handshake(peerVersion, address.hostAddress ?: address.toString(), System.currentTimeMillis() / 1000L)
         } catch (t: Throwable) {
             close()
             throw t
@@ -124,7 +111,6 @@ class BitcoinP2pPeer(
         out.flush()
     }
 
-    /** Read one framed message with bounded allocation and checksum verification. */
     private fun readMessage(stream: InputStream): BitcoinP2pCodec.Message {
         val header = ByteArray(24)
         readFully(stream, header)
@@ -142,26 +128,23 @@ class BitcoinP2pPeer(
         while (pos < end) {
             val count = stream.read(target, pos, end - pos)
             if (count < 0) throw EOFException("peer closed connection mid-message")
-            if (count == 0) continue
-            pos += count
+            if (count > 0) pos += count
         }
     }
 
     private fun buildVersionPayload(peer: InetAddress, port: Int): ByteArray {
         val out = ByteArrayOutputStream(128)
         writeUint32LE(out, PROTOCOL_VERSION.toLong())
-        writeUint64LE(out, 0L) // services: no NODE_NETWORK claim; this client does not serve blocks
-        writeUint64LE(out, Instant.now().epochSecond)
+        writeUint64LE(out, 0L) // no NODE_NETWORK service claim
+        writeUint64LE(out, System.currentTimeMillis() / 1000L)
         writeNetworkAddress(out, peer, port)
         writeNetworkAddress(out, InetAddress.getByAddress(ByteArray(16)), MAINNET_PORT)
-        val nonce = ByteArray(8).also { SecureRandom().nextBytes(it) }
-        out.write(nonce)
-        val agent = "/LotteryMiner:2.0-p2p/"
-        val agentBytes = agent.toByteArray(Charsets.US_ASCII)
-        out.write(BitcoinP2pCodec.encodeCompactSize(agentBytes.size.toLong()))
-        out.write(agentBytes)
-        writeUint32LE(out, 0L) // start_height: unknown until headers are synchronized
-        out.write(0) // relay=false: do not request transaction relay
+        out.write(ByteArray(8).also { SecureRandom().nextBytes(it) })
+        val agent = "/LotteryMiner:2.0-p2p/".toByteArray(Charsets.US_ASCII)
+        out.write(BitcoinP2pCodec.encodeCompactSize(agent.size.toLong()))
+        out.write(agent)
+        writeUint32LE(out, 0L) // height unknown until header sync
+        out.write(0) // relay=false
         return out.toByteArray()
     }
 
@@ -173,7 +156,7 @@ class BitcoinP2pPeer(
             System.arraycopy(raw, 0, it, 12, 4)
         }
         out.write(ip)
-        out.write((port ushr 8) and 0xff) // network byte order
+        out.write((port ushr 8) and 0xff)
         out.write(port and 0xff)
     }
 
