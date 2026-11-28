@@ -67,30 +67,45 @@ class BitcoinMainnetHeaderChain private constructor(
             "peer sent more than 2,000 headers in one batch"
         }
         require(nowSeconds >= 0L)
+        // Validate against temporary state first so an invalid header midway
+        // through a peer batch cannot leave a partially advanced active tip.
+        var stagedHeight = height
+        var stagedTip = tip
+        var stagedWork = cumulativeWork
+        var stagedTimes = recentTimestamps.toMutableList()
+        var stagedPeriodStart = difficultyPeriodStartTime
+
         headers.forEach { raw ->
-            val nextHeight = height + 1L
+            val nextHeight = stagedHeight + 1L
             val firstIntervalTimestamp = if (
                 nextHeight % BitcoinMainnetHeaderRules.DIFFICULTY_INTERVAL == 0L
-            ) difficultyPeriodStartTime else null
+            ) stagedPeriodStart else null
 
             val checked = BitcoinMainnetHeaderRules.validateNextHeader(
                 rawHeader = raw,
                 nextHeight = nextHeight,
-                previousHeader = tip,
-                previousTimestamps = recentTimestamps.toList(),
+                previousHeader = stagedTip,
+                previousTimestamps = stagedTimes.toList(),
                 nowSeconds = nowSeconds,
                 firstIntervalTimestamp = firstIntervalTimestamp
             )
 
-            height = nextHeight
-            tip = checked
-            cumulativeWork = cumulativeWork.add(checked.chainWork)
-            recentTimestamps.add(checked.timestamp)
-            if (recentTimestamps.size > 11) recentTimestamps.removeAt(0)
-            if (height % BitcoinMainnetHeaderRules.DIFFICULTY_INTERVAL == 0L) {
-                difficultyPeriodStartTime = checked.timestamp
+            stagedHeight = nextHeight
+            stagedTip = checked
+            stagedWork = stagedWork.add(checked.chainWork)
+            stagedTimes.add(checked.timestamp)
+            if (stagedTimes.size > 11) stagedTimes.removeAt(0)
+            if (stagedHeight % BitcoinMainnetHeaderRules.DIFFICULTY_INTERVAL == 0L) {
+                stagedPeriodStart = checked.timestamp
             }
         }
+
+        height = stagedHeight
+        tip = stagedTip
+        cumulativeWork = stagedWork
+        recentTimestamps.clear()
+        recentTimestamps.addAll(stagedTimes)
+        difficultyPeriodStartTime = stagedPeriodStart
         return tip()
     }
 
