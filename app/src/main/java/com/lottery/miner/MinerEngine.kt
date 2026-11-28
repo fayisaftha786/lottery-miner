@@ -11,6 +11,7 @@ import android.os.SystemClock
 import java.math.BigInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
 
 data class MinerConfig(
     val address: String,
@@ -39,6 +40,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var shareTarget: ByteArray = difficultyTargets.activeTarget()
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
+    private val workerHashCounts = AtomicLongArray(cfg.threads)
     private val jobGeneration = AtomicLong(0)
     private val workLock = Any()
     private val extranonceEpoch = AtomicLong(0)
@@ -308,7 +310,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
                 val count = minOf(CHUNK, SPACE - start).toInt()
-                scanRange(j, generation, target, header, en2, start, count, found, best)
+                scanRange(idx, j, generation, target, header, en2, start, count, found, best)
                 start += count
             }
         }
@@ -320,7 +322,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
      * Hash accounting includes the extra real work performed by retry scans.
      */
     private fun scanRange(
-        j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
+        workerIndex: Int, j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
         start: Long, count: Int, found: IntArray, best: DoubleArray
     ) {
         if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
@@ -336,6 +338,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             return
         }
         totalHashes.addAndGet(count.toLong())
+        workerHashCounts.addAndGet(workerIndex, count.toLong())
         if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
         if (best[2] > 0.0) {
             if (count == 1) {
@@ -347,8 +350,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
             MinerState.log("Native result buffer full; splitting range to submit every hit")
             val firstCount = count / 2
-            scanRange(j, generation, target, header, en2, start, firstCount, found, best)
-            scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
+            scanRange(workerIndex, j, generation, target, header, en2, start, firstCount, found, best)
+            scanRange(workerIndex, j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
             return
         }
         for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
@@ -486,6 +489,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
+            MinerState.workerHashCounts = LongArray(cfg.threads) { workerHashCounts.get(it) }
             lastHashes = total
             lastTime = now
         }
