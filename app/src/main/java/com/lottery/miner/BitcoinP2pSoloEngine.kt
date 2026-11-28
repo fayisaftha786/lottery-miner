@@ -282,10 +282,9 @@ class BitcoinP2pSoloEngine(
             val best = ranked.first().second
             val bestTip = best.tip()
             val agreement = successful.count { it.second.tip().hashDisplay == bestTip.hashDisplay }
-            require(ranked.size < 2 ||
-                ranked[0].second.tip().cumulativeChainWork > ranked[1].second.tip().cumulativeChainWork ||
-                ranked[0].second.tip().hashDisplay == ranked[1].second.tip().hashDisplay) {
-                "Independent peers report different tips with equal chainwork; refusing to mine"
+            require(agreement >= MIN_INDEPENDENT_PEERS) {
+                "At least two independent peers must agree on the selected best-work header tip; only " +
+                    agreement + "/" + successful.size + " peers agree"
             }
             P2pSoloState.peerAgreement = agreement.toString() + "/" + successful.size + " peers agree on best-work tip"
             P2pSoloState.log("Header sync complete: height " + bestTip.height +
