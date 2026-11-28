@@ -49,8 +49,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPoolFee: EditText
     private lateinit var btnRefreshProfitability: Button
     private lateinit var tvProfitability: TextView
+    private lateinit var btnRefreshBlockChance: Button
+    private lateinit var tvBlockChance: TextView
     @Volatile private var benchmarkRunning = false
     @Volatile private var profitabilityFetchInFlight = false
+    @Volatile private var blockChanceFetchInFlight = false
     private var lastBenchmarkHps = 0.0
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
@@ -89,6 +92,8 @@ class MainActivity : AppCompatActivity() {
         etPoolFee = findViewById(R.id.etPoolFee)
         btnRefreshProfitability = findViewById(R.id.btnRefreshProfitability)
         tvProfitability = findViewById(R.id.tvProfitability)
+        btnRefreshBlockChance = findViewById(R.id.btnRefreshBlockChance)
+        tvBlockChance = findViewById(R.id.tvBlockChance)
         tvStats = findViewById(R.id.tvStats)
         tvExternalStats = findViewById(R.id.tvExternalStats)
         tvLog = findViewById(R.id.tvLog)
@@ -117,6 +122,7 @@ class MainActivity : AppCompatActivity() {
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
         btnBenchmark.setOnClickListener { runSafeBenchmark() }
         btnRefreshProfitability.setOnClickListener { refreshBitcoinProfitability() }
+        btnRefreshBlockChance.setOnClickListener { refreshBlockChance() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -297,6 +303,100 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+
+    /**
+     * Independent from the INR profitability form: block odds need only a
+     * measured local rate and a fresh network difficulty reading.
+     */
+    private fun refreshBlockChance() {
+        if (blockChanceFetchInFlight) return
+        val liveRate = if (MinerState.running) {
+            MinerState.hashrate.takeIf { it.isFinite() && it > 0.0 }
+        } else {
+            null
+        }
+        if (MinerState.running && liveRate == null) {
+            tvBlockChance.text = "Mining is running but current measured hashrate is unavailable. Wait for a valid rate; stale benchmark is not substituted."
+            return
+        }
+        val rate = liveRate ?: lastBenchmarkHps
+        if (!rate.isFinite() || rate <= 0.0) {
+            tvBlockChance.text = "Start real mining or stop mining and run the safe SHA-256d benchmark first. No estimated or placeholder hashrate is used."
+            return
+        }
+
+        val rateSource = if (liveRate != null) "LIVE PHONE HASHRATE" else "LAST LOCAL BENCHMARK (not live)"
+        blockChanceFetchInFlight = true
+        btnRefreshBlockChance.isEnabled = false
+        tvBlockChance.text = "Fetching current Bitcoin network difficulty…"
+        Thread {
+            try {
+                val difficulty = BitcoinMarketData.fetchDifficulty()
+                val fetchedAt = System.currentTimeMillis()
+                val estimate = BlockChanceEngine.calculate(rate, difficulty)
+                runOnUiThread {
+                    val submitted = MinerState.submittedShares.get()
+                    val accepted = MinerState.accepted.get()
+                    val rejected = MinerState.rejected.get()
+                    val unknown = MinerState.unknownShares.get()
+                    val knownResponses = accepted + rejected
+                    val responsePercent = if (submitted > 0) {
+                        (knownResponses.toDouble() / submitted.toDouble() * 100.0).coerceIn(0.0, 100.0)
+                    } else {
+                        Double.NaN
+                    }
+                    tvBlockChance.text = buildString {
+                        appendLine("BLOCK CHANCE · POISSON PROBABILITY")
+                        appendLine("Rate source: $rateSource")
+                        appendLine("Measured SHA-256d: ${Util.fmtRate(rate)}")
+                        appendLine("Live network difficulty: ${String.format(Locale.US, "%.4e", difficulty)}")
+                        appendLine("Chance in 1 hour: ${formatProbability(estimate.chance1Hour)}")
+                        appendLine("Chance in 24 hours: ${formatProbability(estimate.chance24Hours)}")
+                        appendLine("Chance in 7 days: ${formatProbability(estimate.chance7Days)}")
+                        appendLine("Chance in 30 days: ${formatProbability(estimate.chance30Days)}")
+                        appendLine("Mean statistical wait: ${formatExpectedBlockDays(estimate.expectedMeanTimeSeconds / 86_400.0)}")
+                        appendLine("Required for 1% chance in 24h: ${formatOddsHashrate(estimate.hashrateFor1PercentIn24Hours)}")
+                        appendLine("Required for 50% chance in 24h: ${formatOddsHashrate(estimate.hashrateFor50PercentIn24Hours)}")
+                        appendLine("1%/day target is ${String.format(Locale.US, "%.2e", estimate.hashrateFor1PercentIn24Hours / rate)}× this rate.")
+                        appendLine("Pool proof: submitted $submitted · accepted $accepted · rejected $rejected · unknown response $unknown")
+                        appendLine("Known response ratio: ${if (responsePercent.isFinite()) String.format(Locale.US, "%.1f%%", responsePercent) else "N/A"} (accepted + rejected responses / submitted)")
+                        appendLine("These are probability estimates, not a countdown or a promise. Network difficulty can change.")
+                        appendLine("Accepted shares confirm pool feedback only; they do not make the next hash closer to the block target.")
+                    }
+                    blockChanceFetchInFlight = false
+                    btnRefreshBlockChance.isEnabled = true
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    tvBlockChance.text = "Live network difficulty unavailable: ${e.message ?: e.javaClass.simpleName}\nNo cached difficulty is presented as live. Try refresh later."
+                    blockChanceFetchInFlight = false
+                    btnRefreshBlockChance.isEnabled = true
+                }
+            }
+        }.start()
+    }
+
+    private fun formatProbability(probability: Double): String {
+        if (!probability.isFinite()) return "N/A"
+        val percent = probability.coerceIn(0.0, 1.0) * 100.0
+        return when {
+            percent == 0.0 -> "0%"
+            percent < 0.0001 -> String.format(Locale.US, "%.3e%%", percent)
+            else -> String.format(Locale.US, "%.6f%%", percent)
+        }
+    }
+
+    private fun formatOddsHashrate(hashrate: Double): String {
+        if (!hashrate.isFinite() || hashrate <= 0.0) return "N/A"
+        return when {
+            hashrate >= 1e21 -> String.format(Locale.US, "%.3g ZH/s", hashrate / 1e21)
+            hashrate >= 1e18 -> String.format(Locale.US, "%.3g EH/s", hashrate / 1e18)
+            hashrate >= 1e15 -> String.format(Locale.US, "%.3g PH/s", hashrate / 1e15)
+            hashrate >= 1e12 -> String.format(Locale.US, "%.3g TH/s", hashrate / 1e12)
+            else -> Util.fmtRate(hashrate)
+        }
     }
 
     private fun formatInr(value: Double): String {
