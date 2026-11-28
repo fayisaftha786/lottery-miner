@@ -699,6 +699,13 @@ class MainActivity : AppCompatActivity() {
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("Worker tune: ").append(s.workerTuningStatus).append('\n')
+        if (s.workerHashCounts.isNotEmpty()) {
+            sb.append("REAL HASHES PER WORKER (cumulative)\\n")
+            s.workerHashCounts.forEachIndexed { index, hashes ->
+                sb.append("Worker ").append(index + 1).append(": ")
+                    .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes\\n")
+            }
+        }
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
