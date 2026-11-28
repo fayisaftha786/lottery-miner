@@ -118,6 +118,9 @@ internal class DirectSoloEngine(private val context: Context, private val config
                     nonceCursor.set(0L)
                     workRef.set(null)
                     lastJobId = ""
+                    // A new extranonce must fetch the current template immediately.
+                    // Reusing the old long-poll ID could block until the next block/mempool event.
+                    longPollId = null
                     MinerState.log("Nonce space exhausted; new unique coinbase extranonce requested")
                 }
                 val work = client.fetchWork(config.payoutAddress, extraNonceHex(), longPollId)
@@ -137,7 +140,10 @@ internal class DirectSoloEngine(private val context: Context, private val config
                 }
                 MinerState.connected = true
                 MinerState.status = "Direct node connected · Bitcoin Core template active"
-                Thread.sleep(WORK_POLL_MS)
+                // With Bitcoin Core long-polling, immediately issue the next request:
+                // the node will hold it until fresh work is available. Only use timed polling
+                // when the gateway/node did not supply a long-poll identifier.
+                if (longPollId.isNullOrBlank()) Thread.sleep(WORK_POLL_MS)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 break
