@@ -27,7 +27,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-started on-device SHA-256d computation with live Stratum pool communication" />
+                android:value="User-started on-device SHA-256d Bitcoin Mainnet P2P header sync, candidate mining, and block relay" />
         </service>
     </application>
 </manifest>

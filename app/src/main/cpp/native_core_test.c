@@ -150,6 +150,30 @@ int main(void) {
     assert(found[0] == UINT32_MAX);
     assert(found[1] == 0);
 
-    puts("native SHA256d self-test, inclusive target boundary, nonce wrap, and bounded-hit accounting passed");
+
+    /* Eight interleaved lanes: 0,8,..., 1,9,... through 7,15,... */
+    for (uint32_t lane = 0; lane < 8; lane++) {
+        uint32_t lane_found[8] = {0};
+        stored = miner_scan_strided(header, lane, 8u, 4u, target, lane_found, 8,
+                                    &best_diff, &best_nonce, &overflow);
+        assert(stored == 4);
+        for (uint32_t k = 0; k < stored; k++) {
+            assert(lane_found[k] == lane + k * 8u);
+        }
+    }
+
+    /* A known genesis PoW hit is found when the strided lane owns its nonce. */
+    hex2bin(genesis_header_hex, header, sizeof(header));
+    miner_sha256d_header(header, digest_le);
+    for (size_t i = 0; i < 32; i++) exact_target[i] = digest_le[31 - i];
+    const uint32_t genesis_lane = 2083236893u % 8u;
+    const uint32_t genesis_ordinal = (2083236893u - genesis_lane) / 8u;
+    uint32_t lane_hit = 0;
+    stored = miner_scan_strided(header, 2083236893u, 8u, 1u, exact_target, &lane_hit, 1,
+                                &best_diff, &best_nonce, &overflow);
+    assert(stored == 1 && lane_hit == 2083236893u);
+    assert(genesis_lane < 8u && genesis_ordinal > 0u);
+
+    puts("native SHA256d self-test, inclusive target boundary, nonce wrap, bounded-hit accounting, and strided lanes passed");
     return 0;
 }

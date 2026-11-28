@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
         etHost.setText(configuredHost)
         etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
         if (configuredHost != savedHost) p.edit().putString("host", configuredHost).apply()
-        etThreads.setText(p.getInt("threads", maxOf(1, cores)).toString())
+        etThreads.setText(p.getInt("threads", minOf(8, maxOf(1, cores))).coerceIn(1, 8).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
@@ -117,6 +117,16 @@ class MainActivity : AppCompatActivity() {
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
         btnBenchmark.setOnClickListener { runSafeBenchmark() }
         btnRefreshProfitability.setOnClickListener { refreshBitcoinProfitability() }
+
+        // This build is configured for direct phone-to-Bitcoin-Mainnet P2P only.
+        // Hide the legacy Stratum/Pool and pool-profitability controls.
+        listOf(
+            R.id.etHost, R.id.etPort, R.id.btnPoolStats,
+            R.id.etMiningPower, R.id.etElectricityTariff, R.id.etPoolFee,
+            R.id.btnRefreshProfitability, R.id.tvProfitability, R.id.tvExternalStats,
+            R.id.tvProfitabilityHeader, R.id.tvProfitabilityHelp
+        ).forEach { id -> findViewById<View>(id)?.visibility = View.GONE }
+        btn.text = "Start direct P2P mining"
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -335,7 +345,6 @@ class MainActivity : AppCompatActivity() {
         val maskedAddress = if (address.length >= 12) address.take(5) + "…" + address.takeLast(5)
             else if (address.isNotEmpty()) "provided (masked)" else "not set"
         val df = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.US)
-        fun time(v: Long) = if (v > 0L) df.format(java.util.Date(v)) else "never"
         val version = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown" } catch (_: Exception) { "unknown" }
         val report = buildString {
             appendLine("LOTTERY MINER — REAL DEVICE VERIFICATION")
@@ -345,30 +354,27 @@ class MainActivity : AppCompatActivity() {
             appendLine("ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
             appendLine("CPU cores: ${Runtime.getRuntime().availableProcessors()}")
             appendLine("Wallet (masked): $maskedAddress")
-            appendLine("Pool: ${etHost.text.toString().trim()}:${etPort.text}")
-            appendLine("Running: ${s.running}; authorized: ${s.connected}; status: ${s.status}")
-            appendLine("Connection attempts: ${s.connectionAttempts.get()}")
-            appendLine("Last connection attempt: ${time(s.lastConnectAttemptAt)}")
-            appendLine("Last authorization: ${time(s.authorizedAt)}")
-            appendLine("Last job: ${time(s.lastJobAt)}")
-            appendLine("Last share submitted: ${time(s.lastShareSubmittedAt)}")
-            appendLine("Last share response: ${time(s.lastShareResponseAt)}")
-            appendLine("Shares submitted/accepted/rejected: ${s.submittedShares.get()}/${s.accepted.get()}/${s.rejected.get()}")
-            appendLine("Unknown/dropped shares: ${s.unknownShares.get()}/${s.droppedShares.get()}")
-            appendLine("Pool/network difficulty: ${s.poolDiff}/${s.netDiff}")
-            appendLine("Android thermal status: ${s.androidThermalStatus}")
-            appendLine("Hashrate/hashes: ${Util.fmtRate(s.hashrate)} / ${s.totalHashes}")
-            appendLine("Active workers: ${s.activeThreads}/${s.totalThreads}")
-            appendLine("Worker tuning: ${s.workerTuningStatus}")
-            appendLine("Battery: ${if (s.batteryAvailable) "${s.battery}%" else "unavailable"}; charging: ${s.plugged}")
-            appendLine("Battery temperature: ${if (s.tempAvailable) "${s.tempC} C" else "unavailable"}")
-            appendLine("Thermal state: ${s.pauseReason.ifBlank { "none" }}")
-            appendLine("Last disconnect: ${s.lastDisconnectReason.ifBlank { "none recorded" }}")
-            appendLine("Last pool event: ${s.lastPoolEvent.ifBlank { "none" }}")
+            appendLine("Mode: Direct Bitcoin Mainnet P2P; no pool/Gateway")
+            appendLine("Peers: ${P2pSoloState.peerCount}; agreement: ${P2pSoloState.peerAgreement}")
+            appendLine("Header height/hash: ${P2pSoloState.headerHeight}/${P2pSoloState.headerHash}")
+            appendLine("Hashrate/total hashes: ${Util.fmtRate(P2pSoloState.hashrate)}/${P2pSoloState.totalHashes}")
+            appendLine("Workers: ${P2pSoloState.activeWorkers}/${P2pSoloState.configuredWorkers}")
+            appendLine("Local block candidate: ${P2pSoloState.lastBlockHash}")
+            appendLine("Inv announcements/getdata blocks served: ${P2pSoloState.blocksAnnounced}/${P2pSoloState.blockRequestsServed}")
+            appendLine("Peer header observed: ${P2pSoloState.peerHeaderObserved}; zero confirmations unless separately observed")
+            appendLine("WARNING: header-only validation; not a full validating Bitcoin node.")
+            appendLine("P2P status: ${P2pSoloState.status}")
+            appendLine("Peer addresses: ${P2pSoloState.peerAddresses}")
+            appendLine("Per-lane hashes: ${P2pSoloState.workerHashes.joinToString()}")
+            appendLine("Safety pause: ${P2pSoloState.pauseReason.ifBlank { "none" }}")
+            appendLine("Battery/temperature: ${P2pSoloState.batteryPercent}/${P2pSoloState.batteryTemperatureC}")
+            appendLine("Android thermal: ${P2pSoloState.thermalStatus}")
+            appendLine("Recent direct-P2P log:")
+            appendLine(P2pSoloState.logText().ifBlank { "No P2P log entries" })
             appendLine("Recent log:")
             appendLine(s.logText().ifBlank { "No log entries" })
             appendLine("Privacy: full wallet address and credentials are excluded.")
-            appendLine("Pool-side accepted share is the strongest external proof of submission.")
+            appendLine("A peer getdata request means the peer requested the block payload; it does not prove acceptance or confirmation.")
         }
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -517,23 +523,13 @@ class MainActivity : AppCompatActivity() {
         }
         val addr = etAddress.text.toString().trim()
         if (!Util.isValidBitcoinAddress(addr)) {
-            Toast.makeText(this, "ശരിയായ Bitcoin mainnet വിലാസം നൽകുക; worker വേണമെങ്കിൽ address.worker നൽകാം.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ശരിയായ Bitcoin Mainnet payout address നൽകുക.", Toast.LENGTH_LONG).show()
             return
         }
-        val cores = Runtime.getRuntime().availableProcessors()
-        val host = etHost.text.toString().trim().ifEmpty { DEFAULT_POOL_HOST }
-        if (host.any { it.isWhitespace() } || host.contains('/') || host.length > 253) {
-            Toast.makeText(this, "ശരിയായ pool hostname നൽകുക.", Toast.LENGTH_LONG).show()
-            return
-        }
-        val port = etPort.text.toString().trim().toIntOrNull()
-        if (port == null || port !in 1..65535) {
-            Toast.makeText(this, "Pool port 1 മുതൽ 65535 വരെയായിരിക്കണം.", Toast.LENGTH_LONG).show()
-            return
-        }
+        val maxWorkers = minOf(8, maxOf(1, Runtime.getRuntime().availableProcessors()))
         val threads = etThreads.text.toString().trim().toIntOrNull()
-        if (threads == null || threads !in 1..cores) {
-            Toast.makeText(this, "Worker thread എണ്ണം 1 മുതൽ $cores വരെ നൽകുക.", Toast.LENGTH_LONG).show()
+        if (threads == null || threads !in 1..8 || threads > maxWorkers) {
+            Toast.makeText(this, "Worker lanes 1 മുതൽ $maxWorkers വരെ നൽകുക (പരമാവധി 8).", Toast.LENGTH_LONG).show()
             return
         }
         val maxTemp = etTemp.text.toString().trim().toDoubleOrNull()
@@ -548,20 +544,21 @@ class MainActivity : AppCompatActivity() {
         }
         val onlyCharging = cbCharging.isChecked
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit()
-            .putString("address", addr).putString("host", host).putInt("port", port)
-            .putInt("threads", threads).putFloat("maxTemp", maxTemp.toFloat())
-            .putInt("maxBatt", maxBatt).putBoolean("onlyCharging", onlyCharging).apply()
+            .putString("address", addr)
+            .putInt("threads", threads)
+            .putFloat("maxTemp", maxTemp.toFloat())
+            .putInt("maxBatt", maxBatt)
+            .putBoolean("onlyCharging", onlyCharging)
+            .apply()
 
-        val i = Intent(this, MinerService::class.java)
-            .setAction(MinerService.ACTION_START)
+        val intent = Intent(this, MinerService::class.java)
+            .setAction(MinerService.ACTION_START_P2P)
             .putExtra(MinerService.EXTRA_ADDRESS, addr)
-            .putExtra(MinerService.EXTRA_HOST, host)
-            .putExtra(MinerService.EXTRA_PORT, port)
             .putExtra(MinerService.EXTRA_THREADS, threads)
             .putExtra(MinerService.EXTRA_ONLY_CHARGING, onlyCharging)
             .putExtra(MinerService.EXTRA_MAX_TEMP, maxTemp)
             .putExtra(MinerService.EXTRA_MAX_BATT, maxBatt)
-        ContextCompat.startForegroundService(this, i)
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun stopMining() {
@@ -569,8 +566,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        pollExternalStatsIfNeeded()
         val s = MinerState
+        if (P2pSoloState.modeSelected) {
+            btn.text = if (s.running) "Stop direct P2P mining" else "Start direct P2P mining"
+            val p = P2pSoloState
+            val sb = StringBuilder()
+            sb.append("MODE: DIRECT BITCOIN MAINNET P2P ONLY\n")
+            sb.append("Pool / Gateway: NOT USED\n")
+            sb.append("Status: ").append(p.status).append('\n')
+            sb.append("Direct peers: ").append(p.peerCount).append('/').append(2).append(" minimum\n")
+            if (p.peerAddresses.isNotEmpty()) sb.append("Peer IPs: ").append(p.peerAddresses).append('\n')
+            sb.append("Header height: ").append(p.headerHeight).append('\n')
+            sb.append("Header-chain tip: ").append(p.headerHash.ifBlank { "not synchronized" }).append('\n')
+            sb.append("Peer agreement: ").append(p.peerAgreement).append('\n')
+            sb.append("Phone SHA256d: ").append(Util.fmtRate(p.hashrate))
+                .append(if (s.hwSha) " [ARM SHA2]" else " [software SHA256]").append('\n')
+            sb.append("Workers: ").append(p.activeWorkers).append('/').append(p.configuredWorkers).append('\n')
+            sb.append("Total real hashes: ").append(String.format(Locale.US, "%.3e", p.totalHashes.toDouble())).append('\n')
+            p.workerHashes.forEachIndexed { index, count ->
+                sb.append("W").append(index + 1).append(": ").append(String.format(Locale.US, "%.3e", count.toDouble())).append(" hashes\n")
+            }
+            sb.append("Battery: ").append(p.batteryPercent?.toString() ?: "N/A").append("%")
+                .append(" · Temp: ").append(p.batteryTemperatureC?.let { String.format(Locale.US, "%.1f°C", it) } ?: "N/A")
+                .append(" · Android thermal: ").append(p.thermalStatus).append('\n')
+            if (p.pauseReason.isNotEmpty()) sb.append("Safety: ").append(p.pauseReason).append('\n')
+            sb.append("Last local block candidate: ").append(p.lastBlockHash.ifBlank { "none" }).append('\n')
+            sb.append("P2P inv announcements: ").append(p.blocksAnnounced).append('\n')
+            sb.append("Requested block payloads served: ").append(p.blockRequestsServed).append('\n')
+            sb.append("Peer header observed: ").append(if (p.peerHeaderObserved) "yes (zero confirmations)" else "no").append('\n')
+            sb.append("IMPORTANT: header-only verification, not a full validating node. A socket write or getdata is not acceptance or payout.")
+            tvStats.text = sb.toString()
+            tvLog.text = p.logText()
+            return
+        }
+        pollExternalStatsIfNeeded()
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")

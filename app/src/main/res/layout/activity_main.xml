@@ -22,7 +22,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="സോളോ Bitcoin mining പരീക്ഷണം. Block കണ്ടെത്താനുള്ള സാധ്യത അത്യന്തം കുറവാണ്; accepted share മാത്രം BTC payout അല്ല."
+            android:text="ഫോൺ മാത്രം ഉപയോഗിച്ചുള്ള Bitcoin Mainnet Direct P2P mining പരീക്ഷണം. Pool, Gateway, Proxy എന്നിവ ഉപയോഗിക്കുന്നില്ല. Block കണ്ടെത്താനുള്ള സാധ്യത വളരെ കുറവാണ്."
             android:textSize="13sp" />
 
         <EditText
@@ -67,7 +67,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="ത്രെഡ്"
+                android:hint="Worker lanes (1–8)"
                 android:inputType="number"
                 android:singleLine="true" />
 
@@ -101,7 +101,7 @@
             android:id="@+id/btnToggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="സ്റ്റാർട്ട്" />
+            android:text="Start direct P2P mining" />
 
         <Button
             android:id="@+id/btnPoolStats"
@@ -132,6 +132,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:id="@+id/tvProfitabilityHeader"
             android:text="BITCOIN PROFITABILITY ESTIMATOR"
             android:textStyle="bold"
             android:textSize="15sp" />
@@ -139,7 +140,8 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Live network difficulty, block subsidy and BTC/INR are fetched on request. Enter mining-only power from a USB meter and your electricity tariff."
+            android:id="@+id/tvProfitabilityHelp"
+            android:text="Legacy pool profitability tools are disabled in direct-P2P mode."
             android:textSize="12sp" />
 
         <EditText
@@ -189,7 +191,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Export real-device verification report" />
+            android:text="Export direct-P2P verification report" />
 
         <TextView
             android:id="@+id/tvExternalStats"

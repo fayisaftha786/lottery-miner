@@ -20,6 +20,7 @@ class MinerService : Service() {
     companion object {
         const val ACTION_START = "com.lottery.miner.START"
         const val ACTION_STOP = "com.lottery.miner.STOP"
+        const val ACTION_START_P2P = "com.lottery.miner.START_P2P"
         const val EXTRA_ADDRESS = "address"
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
@@ -32,11 +33,12 @@ class MinerService : Service() {
     }
 
     private var engine: MinerEngine? = null
+    private var p2pEngine: BitcoinP2pSoloEngine? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
-            if (engine != null && !MinerState.running) {
+            if ((engine != null || p2pEngine != null) && !MinerState.running) {
                 stopMining()
                 stopSelf()
                 return
@@ -53,6 +55,7 @@ class MinerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startMining(intent)
+            ACTION_START_P2P -> startP2pMining(intent)
             ACTION_STOP -> {
                 stopMining()
                 stopSelf()
@@ -69,7 +72,7 @@ class MinerService : Service() {
         ServiceCompat.startForeground(
             this, NOTIF_ID, buildNotification(), if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         )
-        if (engine != null) return
+        if (engine != null || p2pEngine != null) return
 
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lotteryminer:cpu").also { it.acquire() }
@@ -89,8 +92,35 @@ class MinerService : Service() {
         handler.postDelayed(ticker, 5000)
     }
 
+    private fun startP2pMining(i: Intent) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val ch = NotificationChannel(CHANNEL, "Direct Bitcoin P2P mining", NotificationManager.IMPORTANCE_LOW)
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
+        }
+        ServiceCompat.startForeground(
+            this, NOTIF_ID, buildNotification(),
+            if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+        )
+        if (engine != null || p2pEngine != null) return
+
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lotteryminer:p2p-cpu").also { it.acquire() }
+        val e = BitcoinP2pSoloEngine(
+            context = applicationContext,
+            payoutAddress = i.getStringExtra(EXTRA_ADDRESS) ?: "",
+            configuredWorkers = i.getIntExtra(EXTRA_THREADS, 8),
+            onlyCharging = i.getBooleanExtra(EXTRA_ONLY_CHARGING, true),
+            maxTemperatureC = i.getDoubleExtra(EXTRA_MAX_TEMP, 40.0),
+            maximumBatteryPercent = i.getIntExtra(EXTRA_MAX_BATT, 100)
+        )
+        p2pEngine = e
+        e.start()
+        handler.postDelayed(ticker, 5_000)
+    }
+
     private fun updateWakeLock() {
-        if (MinerState.activeThreads > 0) {
+        val p2pNeedsCpu = p2pEngine != null && MinerState.running && P2pSoloState.pauseReason.isBlank()
+        if (MinerState.activeThreads > 0 || p2pNeedsCpu) {
             if (wakeLock?.isHeld != true) {
                 val pm = getSystemService(POWER_SERVICE) as PowerManager
                 wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lotteryminer:cpu").also { it.acquire() }
@@ -104,6 +134,8 @@ class MinerService : Service() {
         handler.removeCallbacks(ticker)
         engine?.stop()
         engine = null
+        p2pEngine?.stop()
+        p2pEngine = null
         try { wakeLock?.release() } catch (_: Exception) { }
         wakeLock = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -118,7 +150,9 @@ class MinerService : Service() {
             this, 1, Intent(this, MinerService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val text = if (MinerState.pauseReason.isNotEmpty()) {
+        val text = if (P2pSoloState.modeSelected) {
+            P2pSoloState.pauseReason.ifBlank { Util.fmtRate(P2pSoloState.hashrate) + " · " + P2pSoloState.peerCount + " P2P peers" }
+        } else if (MinerState.pauseReason.isNotEmpty()) {
             MinerState.pauseReason
         } else {
             Util.fmtRate(MinerState.hashrate) + "  ✓" + MinerState.accepted.get()
