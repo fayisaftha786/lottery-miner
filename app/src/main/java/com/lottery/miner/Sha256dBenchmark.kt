@@ -14,6 +14,8 @@ object Sha256dBenchmark {
     fun run(durationMillis: Long = 5_000L): Result {
         require(durationMillis in 1_000L..5_000L) { "Benchmark duration must be 1–5 seconds" }
         check(running.compareAndSet(false, true)) { "A benchmark is already running" }
+        val threadId = Process.myTid()
+        val originalPriority = Process.getThreadPriority(threadId)
         try {
             // Keep the benchmark below foreground mining workers in scheduler priority.
             Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
@@ -52,6 +54,8 @@ object Sha256dBenchmark {
                 hardwareSha = hw == 1
             )
         } finally {
+            // Do not leak the benchmark's reduced scheduler priority to a reused thread.
+            runCatching { Process.setThreadPriority(threadId, originalPriority) }
             running.set(false)
         }
     }
