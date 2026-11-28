@@ -104,6 +104,21 @@ class BitcoinP2pPeer(
         }
     }
 
+    /** Request headers from a chain locator; hashes are serialized in internal/wire order. */
+    fun requestHeaders(locatorHashesInternal: List<ByteArray>, stopHashInternal: ByteArray = ByteArray(32)) {
+        send("getheaders", BitcoinP2pSync.buildGetHeaders(locatorHashesInternal, stopHashInternal))
+    }
+
+    /** Announce willingness to receive headers announcements. */
+    fun requestHeadersAnnouncements() = send("sendheaders", byteArrayOf())
+
+    /** Read one bounded, checksum-validated P2P frame on the caller's worker thread. */
+    @Synchronized
+    fun receiveMessage(): BitcoinP2pCodec.Message {
+        val stream = input ?: error("peer is not connected")
+        return readMessage(stream)
+    }
+
     @Synchronized
     fun send(command: String, payload: ByteArray) {
         val out = output ?: error("peer is not connected")

@@ -43,6 +43,40 @@ JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scan(JNIEnv *env, jobject t
     return (jint)nf;
 }
 
+JNIEXPORT jint JNICALL Java_com_lottery_miner_Native_scanStrided(JNIEnv *env, jobject thiz, jbyteArray jheader,
+                                                                  jlong jstart, jlong jstride, jint count,
+                                                                  jbyteArray jtarget, jintArray jfound, jdoubleArray jbest) {
+    (void)thiz;
+    if (jheader == NULL || jtarget == NULL || jfound == NULL || jbest == NULL) return -1;
+    if ((*env)->GetArrayLength(env, jheader) != 80 ||
+        (*env)->GetArrayLength(env, jtarget) != 32 ||
+        (*env)->GetArrayLength(env, jfound) < 8 ||
+        (*env)->GetArrayLength(env, jbest) < 3) return -1;
+    if (jstart < 0 || jstart > 0xffffffffLL || jstride <= 0 || jstride > 0xffffffffLL || count <= 0) return -1;
+    uint64_t last = (uint64_t)jstart + (uint64_t)(count - 1) * (uint64_t)jstride;
+    if (last > 0xffffffffULL) return -1;
+
+    uint8_t header[80], target[32];
+    (*env)->GetByteArrayRegion(env, jheader, 0, 80, (jbyte *)header);
+    if ((*env)->ExceptionCheck(env)) return -1;
+    (*env)->GetByteArrayRegion(env, jtarget, 0, 32, (jbyte *)target);
+    if ((*env)->ExceptionCheck(env)) return -1;
+
+    uint32_t found[8];
+    double best = 0.0;
+    uint32_t best_nonce = 0, overflow = 0;
+    uint32_t nf = miner_scan_strided(header, (uint32_t)jstart, (uint32_t)jstride, (uint32_t)count,
+                                     target, found, 8, &best, &best_nonce, &overflow);
+    if (nf > 0) {
+        (*env)->SetIntArrayRegion(env, jfound, 0, (jsize)nf, (const jint *)found);
+        if ((*env)->ExceptionCheck(env)) return -1;
+    }
+    jdouble out[3] = {best, (jdouble)best_nonce, (jdouble)overflow};
+    (*env)->SetDoubleArrayRegion(env, jbest, 0, 3, out);
+    if ((*env)->ExceptionCheck(env)) return -1;
+    return (jint)nf;
+}
+
 JNIEXPORT jbyteArray JNICALL Java_com_lottery_miner_Native_sha256dHeader(JNIEnv *env, jobject thiz,
                                                                          jbyteArray jheader) {
     (void)thiz;

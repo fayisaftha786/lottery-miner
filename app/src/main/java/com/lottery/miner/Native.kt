@@ -17,6 +17,12 @@ object Native {
         found: IntArray, best: DoubleArray
     ): Int
 
+    /** Scans a non-wrapping arithmetic progression: start, start+stride, ... */
+    external fun scanStrided(
+        header: ByteArray, start: Long, stride: Long, count: Int, target: ByteArray,
+        found: IntArray, best: DoubleArray
+    ): Int
+
     /** Double SHA-256 of an 80 byte header (digest in internal byte order). */
     external fun sha256dHeader(header: ByteArray): ByteArray
 }

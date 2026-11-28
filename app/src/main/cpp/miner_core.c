@@ -88,7 +88,7 @@ static void hash_with(compress_fn_t fn, const uint8_t header[80], uint8_t out[32
     digest_bytes(d, out);
 }
 
-static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t start, uint32_t count,
+static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t start, uint32_t stride, uint32_t count,
                           const uint8_t target[32], uint32_t *found, uint32_t max_found,
                           double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
     const double DIFF1 = 65535.0 * 0x1p208;
@@ -117,7 +117,7 @@ static uint32_t scan_impl(compress_fn_t fn, const uint8_t header[80], uint32_t s
     int have_best = 0;
 
     for (uint32_t i = 0; i < count; i++) {
-        uint32_t n = start + i;
+        uint32_t n = start + (uint32_t)((uint64_t)i * (uint64_t)stride);
         uint32_t s[8], d[8];
         w2[3] = __builtin_bswap32(n); /* header nonce is little-endian */
         memcpy(s, mid, 32);
@@ -208,7 +208,7 @@ static int selftest(compress_fn_t fn) {
     hdr[76] = hdr[77] = hdr[78] = hdr[79] = 0;
     uint32_t found[4], bn, overflow = 0;
     double bd;
-    uint32_t nf = scan_impl(fn, hdr, 2083236893u - 40u, 100u, tgt, found, 4, &bd, &bn, &overflow);
+    uint32_t nf = scan_impl(fn, hdr, 2083236893u - 40u, 1u, 100u, tgt, found, 4, &bd, &bn, &overflow);
     if (nf != 1 || found[0] != 2083236893u || bn != 2083236893u) return 0;
 
     /*
@@ -276,5 +276,12 @@ void miner_sha256d_header(const uint8_t header[80], uint8_t out[32]) { hash_with
 uint32_t miner_scan(const uint8_t header[80], uint32_t start, uint32_t count,
                     const uint8_t target[32], uint32_t *found, uint32_t max_found,
                     double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
-    return scan_impl(g_fn, header, start, count, target, found, max_found, best_diff, best_nonce, overflow_count);
+    return scan_impl(g_fn, header, start, 1u, count, target, found, max_found, best_diff, best_nonce, overflow_count);
+}
+
+uint32_t miner_scan_strided(const uint8_t header[80], uint32_t start, uint32_t stride, uint32_t count,
+                            const uint8_t target[32], uint32_t *found, uint32_t max_found,
+                            double *best_diff, uint32_t *best_nonce, uint32_t *overflow_count) {
+    if (stride == 0u) return 0u;
+    return scan_impl(g_fn, header, start, stride, count, target, found, max_found, best_diff, best_nonce, overflow_count);
 }

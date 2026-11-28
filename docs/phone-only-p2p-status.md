@@ -11,6 +11,11 @@ This branch builds a direct Bitcoin Mainnet P2P path for Android. It does not us
 - Mainnet retarget arithmetic helper with the consensus timespan clamp. The caller must supply the correct retarget-boundary history; this helper alone is not a full difficulty validator.
 - JVM tests for message framing, malformed frames, CompactSize boundaries, and the Bitcoin genesis header proof-of-work vector.
 
+## Additional implementation increments
+- Eight-lane non-overlapping uint32 nonce partitioner and native strided scan entry point. The native API validates non-wrapping ranges; the existing legacy Stratum engine is not yet migrated to this API.
+- Bounded P2P getheaders/headers wire helpers and block getdata inventory serialization. The peer wrapper can now request and receive one validated frame, but no complete multi-peer synchronizer is installed.
+- Coinbase-only candidate transaction/block serialization with BIP34 height push, Mainnet P2PKH/P2SH and Bech32/Bech32m payout-script decoding, and subsidy-halving calculation. Inputs such as height, previous hash, version, timestamp and nBits still must come from a fully validated chain-state source.
+
 ## Still required before this can mine
 - Robust peer selection, multi-peer synchronization, address persistence, rate limits, misbehavior scoring, and reconnect strategy.
 - `getheaders` synchronization with checkpoint/ancestor handling and full consensus rules: 2016-block retarget boundary selection, testnet exceptions (not used for mainnet), median-time-past, future-time limit, versionbits/deployments, chain selection, and reorg handling. A valid PoW header alone does not prove the block/body is consensus-valid.
