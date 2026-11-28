@@ -119,7 +119,8 @@ class MinerService : Service() {
     }
 
     private fun updateWakeLock() {
-        if (MinerState.activeThreads > 0 || (p2pEngine != null && MinerState.running)) {
+        val p2pNeedsCpu = p2pEngine != null && MinerState.running && P2pSoloState.pauseReason.isBlank()
+        if (MinerState.activeThreads > 0 || p2pNeedsCpu) {
             if (wakeLock?.isHeld != true) {
                 val pm = getSystemService(POWER_SERVICE) as PowerManager
                 wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lotteryminer:cpu").also { it.acquire() }

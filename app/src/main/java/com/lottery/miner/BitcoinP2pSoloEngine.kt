@@ -432,6 +432,10 @@ class BitcoinP2pSoloEngine(
         P2pSoloState.thermalStatus = safety.thermalLabel
         P2pSoloState.pauseReason = if (safety.workers == 0) safety.reason else ""
         P2pSoloState.activeWorkers = safety.workers
+        if (safety.workers == 0) {
+            P2pSoloState.hashrate = 0.0
+            MinerState.hashrate = 0.0
+        }
         MinerState.batteryAvailable = safety.battery != null
         MinerState.battery = safety.battery ?: 0
         MinerState.plugged = safety.plugged
