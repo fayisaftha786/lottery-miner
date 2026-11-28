@@ -11,6 +11,7 @@ import android.os.SystemClock
 import java.math.BigInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
 
 data class MinerConfig(
     val address: String,
@@ -39,6 +40,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     @Volatile private var shareTarget: ByteArray = difficultyTargets.activeTarget()
     @Volatile private var activeThreads = 0
     private val totalHashes = AtomicLong(0)
+    private val workerHashCounts = AtomicLongArray(cfg.threads)
     private val jobGeneration = AtomicLong(0)
     private val workLock = Any()
     private val extranonceEpoch = AtomicLong(0)
@@ -278,12 +280,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
         Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
         val found = IntArray(8)
         val best = DoubleArray(3)
-        var counter = idx.toLong()
+        var sequence = 0L
         var seenExtranonceEpoch = extranonceEpoch.get()
         while (running) {
             val epoch = extranonceEpoch.get()
             if (epoch != seenExtranonceEpoch) {
-                counter = idx.toLong()
+                sequence = 0L
                 seenExtranonceEpoch = epoch
             }
             if (idx >= activeThreads) { sleepMs(500); continue }
@@ -292,23 +294,31 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
 
             val size = en2Size
             val maxCounter = if (size < 8) (1L shl (size * 8)) - 1L else Long.MAX_VALUE
-            if (counter < 0L || counter > maxCounter) {
+            val lane = TenLaneSearchPlanner.lane(idx, cfg.threads, maxCounter)
+            if (sequence < 0L) {
+                MinerState.status = "Extranonce2 search sequence exhausted; reconnecting safely"
+                if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
+                sleepMs(500)
+                continue
+            }
+            val counter = lane.counterAt(sequence)
+            if (counter == null) {
                 MinerState.status = "Extranonce2 പരിധി തീർന്നു; pool reconnect ചെയ്യുന്നു"
                 if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
                 sleepMs(500)
                 continue
             }
+            sequence = if (sequence == Long.MAX_VALUE) Long.MIN_VALUE else sequence + 1L
             val generation = jobGeneration.get()
             val en1Snapshot = en1.copyOf()
             val en2 = encodeEn2(counter, size)
-            counter = if (counter > Long.MAX_VALUE - cfg.threads) Long.MIN_VALUE else counter + cfg.threads
             val header = j.buildHeader(en1Snapshot, en2)
             val target = shareTarget.copyOf()
 
             var start = 0L
             while (running && current === j && jobGeneration.get() == generation && idx < activeThreads && start < SPACE) {
                 val count = minOf(CHUNK, SPACE - start).toInt()
-                scanRange(j, generation, target, header, en2, start, count, found, best)
+                scanRange(idx, j, generation, target, header, en2, start, count, found, best)
                 start += count
             }
         }
@@ -320,7 +330,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
      * Hash accounting includes the extra real work performed by retry scans.
      */
     private fun scanRange(
-        j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
+        workerIndex: Int, j: Job, generation: Long, target: ByteArray, header: ByteArray, en2: ByteArray,
         start: Long, count: Int, found: IntArray, best: DoubleArray
     ) {
         if (!running || current !== j || jobGeneration.get() != generation || count <= 0) return
@@ -336,6 +346,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             return
         }
         totalHashes.addAndGet(count.toLong())
+        workerHashCounts.addAndGet(workerIndex, count.toLong())
         if (best[0] > MinerState.bestDiff) MinerState.noteBest(best[0])
         if (best[2] > 0.0) {
             if (count == 1) {
@@ -347,8 +358,8 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             }
             MinerState.log("Native result buffer full; splitting range to submit every hit")
             val firstCount = count / 2
-            scanRange(j, generation, target, header, en2, start, firstCount, found, best)
-            scanRange(j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
+            scanRange(workerIndex, j, generation, target, header, en2, start, firstCount, found, best)
+            scanRange(workerIndex, j, generation, target, header, en2, start + firstCount, count - firstCount, found, best)
             return
         }
         for (k in 0 until nf) handleShare(j, generation, target, header, found[k], en2)
@@ -379,6 +390,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
     private fun policyLoop() {
         var lastHashes = 0L
         var lastTime = System.nanoTime()
+        var lastWorkerHashes = LongArray(cfg.threads) { workerHashCounts.get(it) }
         var hot = false
         var full = false
         while (running) {
@@ -486,6 +498,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val rate = if (elapsed > 0.0) (total - lastHashes) / elapsed else 0.0
             MinerState.hashrate = if (rate <= 0.0) 0.0 else if (MinerState.hashrate == 0.0) rate else 0.6 * MinerState.hashrate + 0.4 * rate
             MinerState.totalHashes = total
+            val workerSnapshot = LongArray(cfg.threads) { workerHashCounts.get(it) }
+            MinerState.workerHashCounts = workerSnapshot
+            MinerState.workerHashrates = DoubleArray(cfg.threads) { index ->
+                if (elapsed > 0.0) (workerSnapshot[index] - lastWorkerHashes[index]).coerceAtLeast(0L) / elapsed else 0.0
+            }
+            lastWorkerHashes = workerSnapshot
             lastHashes = total
             lastTime = now
         }

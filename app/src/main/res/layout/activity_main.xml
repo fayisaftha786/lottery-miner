@@ -132,6 +132,38 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:text="BLOCK CHANCE ENGINE · LIVE NETWORK DIFFICULTY"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="യഥാർത്ഥ hashrate + live network difficulty ഉപയോഗിച്ചുള്ള probability കണക്ക്. Accepted share എന്നത് block candidate അല്ല; ഇത് countdown അല്ല."
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnRefreshBlockChance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Refresh live block chance" />
+
+        <TextView
+            android:id="@+id/tvBlockChance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#18242D"
+            android:text="BLOCK CHANCE: Not calculated\nStart real mining or run a safe SHA-256d benchmark, then refresh."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:text="BITCOIN PROFITABILITY ESTIMATOR"
             android:textStyle="bold"
             android:textSize="15sp" />

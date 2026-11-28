@@ -49,8 +49,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPoolFee: EditText
     private lateinit var btnRefreshProfitability: Button
     private lateinit var tvProfitability: TextView
+    private lateinit var btnRefreshBlockChance: Button
+    private lateinit var tvBlockChance: TextView
     @Volatile private var benchmarkRunning = false
     @Volatile private var profitabilityFetchInFlight = false
+    @Volatile private var blockChanceFetchInFlight = false
     private var lastBenchmarkHps = 0.0
     private lateinit var tvStats: TextView
     private lateinit var tvExternalStats: TextView
@@ -89,6 +92,8 @@ class MainActivity : AppCompatActivity() {
         etPoolFee = findViewById(R.id.etPoolFee)
         btnRefreshProfitability = findViewById(R.id.btnRefreshProfitability)
         tvProfitability = findViewById(R.id.tvProfitability)
+        btnRefreshBlockChance = findViewById(R.id.btnRefreshBlockChance)
+        tvBlockChance = findViewById(R.id.tvBlockChance)
         tvStats = findViewById(R.id.tvStats)
         tvExternalStats = findViewById(R.id.tvExternalStats)
         tvLog = findViewById(R.id.tvLog)
@@ -103,7 +108,7 @@ class MainActivity : AppCompatActivity() {
         etHost.setText(configuredHost)
         etPort.setText(p.getInt("port", DEFAULT_POOL_PORT).toString())
         if (configuredHost != savedHost) p.edit().putString("host", configuredHost).apply()
-        etThreads.setText(p.getInt("threads", maxOf(1, cores)).toString())
+        etThreads.setText(p.getInt("threads", minOf(10, maxOf(1, cores))).coerceIn(1, 10).toString())
         etTemp.setText(p.getFloat("maxTemp", 40f).toString())
         etBatt.setText(p.getInt("maxBatt", 100).toString())
         cbCharging.isChecked = p.getBoolean("onlyCharging", true)
@@ -117,6 +122,7 @@ class MainActivity : AppCompatActivity() {
         btnExportDiagnostics.setOnClickListener { exportVerificationReport() }
         btnBenchmark.setOnClickListener { runSafeBenchmark() }
         btnRefreshProfitability.setOnClickListener { refreshBitcoinProfitability() }
+        btnRefreshBlockChance.setOnClickListener { refreshBlockChance() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -297,6 +303,100 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+
+    /**
+     * Independent from the INR profitability form: block odds need only a
+     * measured local rate and a fresh network difficulty reading.
+     */
+    private fun refreshBlockChance() {
+        if (blockChanceFetchInFlight) return
+        val liveRate = if (MinerState.running) {
+            MinerState.hashrate.takeIf { it.isFinite() && it > 0.0 }
+        } else {
+            null
+        }
+        if (MinerState.running && liveRate == null) {
+            tvBlockChance.text = "Mining is running but current measured hashrate is unavailable. Wait for a valid rate; stale benchmark is not substituted."
+            return
+        }
+        val rate = liveRate ?: lastBenchmarkHps
+        if (!rate.isFinite() || rate <= 0.0) {
+            tvBlockChance.text = "Start real mining or stop mining and run the safe SHA-256d benchmark first. No estimated or placeholder hashrate is used."
+            return
+        }
+
+        val rateSource = if (liveRate != null) "LIVE PHONE HASHRATE" else "LAST LOCAL BENCHMARK (not live)"
+        blockChanceFetchInFlight = true
+        btnRefreshBlockChance.isEnabled = false
+        tvBlockChance.text = "Fetching current Bitcoin network difficulty…"
+        Thread {
+            try {
+                val difficulty = BitcoinMarketData.fetchDifficulty()
+                val fetchedAt = System.currentTimeMillis()
+                val estimate = BlockChanceEngine.calculate(rate, difficulty)
+                runOnUiThread {
+                    val submitted = MinerState.submittedShares.get()
+                    val accepted = MinerState.accepted.get()
+                    val rejected = MinerState.rejected.get()
+                    val unknown = MinerState.unknownShares.get()
+                    val knownResponses = accepted + rejected
+                    val responsePercent = if (submitted > 0) {
+                        (knownResponses.toDouble() / submitted.toDouble() * 100.0).coerceIn(0.0, 100.0)
+                    } else {
+                        Double.NaN
+                    }
+                    tvBlockChance.text = buildString {
+                        appendLine("BLOCK CHANCE · POISSON PROBABILITY")
+                        appendLine("Rate source: $rateSource")
+                        appendLine("Measured SHA-256d: ${Util.fmtRate(rate)}")
+                        appendLine("Live network difficulty: ${String.format(Locale.US, "%.4e", difficulty)}")
+                        appendLine("Chance in 1 hour: ${formatProbability(estimate.chance1Hour)}")
+                        appendLine("Chance in 24 hours: ${formatProbability(estimate.chance24Hours)}")
+                        appendLine("Chance in 7 days: ${formatProbability(estimate.chance7Days)}")
+                        appendLine("Chance in 30 days: ${formatProbability(estimate.chance30Days)}")
+                        appendLine("Mean statistical wait: ${formatExpectedBlockDays(estimate.expectedMeanTimeSeconds / 86_400.0)}")
+                        appendLine("Required for 1% chance in 24h: ${formatOddsHashrate(estimate.hashrateFor1PercentIn24Hours)}")
+                        appendLine("Required for 50% chance in 24h: ${formatOddsHashrate(estimate.hashrateFor50PercentIn24Hours)}")
+                        appendLine("1%/day target is ${String.format(Locale.US, "%.2e", estimate.hashrateFor1PercentIn24Hours / rate)}× this rate.")
+                        appendLine("Pool proof: submitted $submitted · accepted $accepted · rejected $rejected · unknown response $unknown")
+                        appendLine("Known response ratio: ${if (responsePercent.isFinite()) String.format(Locale.US, "%.1f%%", responsePercent) else "N/A"} (accepted + rejected responses / submitted)")
+                        appendLine("These are probability estimates, not a countdown or a promise. Network difficulty can change.")
+                        appendLine("Accepted shares confirm pool feedback only; they do not make the next hash closer to the block target.")
+                    }
+                    blockChanceFetchInFlight = false
+                    btnRefreshBlockChance.isEnabled = true
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    tvBlockChance.text = "Live network difficulty unavailable: ${e.message ?: e.javaClass.simpleName}\nNo cached difficulty is presented as live. Try refresh later."
+                    blockChanceFetchInFlight = false
+                    btnRefreshBlockChance.isEnabled = true
+                }
+            }
+        }.start()
+    }
+
+    private fun formatProbability(probability: Double): String {
+        if (!probability.isFinite()) return "N/A"
+        val percent = probability.coerceIn(0.0, 1.0) * 100.0
+        return when {
+            percent == 0.0 -> "0%"
+            percent < 0.0001 -> String.format(Locale.US, "%.3e%%", percent)
+            else -> String.format(Locale.US, "%.6f%%", percent)
+        }
+    }
+
+    private fun formatOddsHashrate(hashrate: Double): String {
+        if (!hashrate.isFinite() || hashrate <= 0.0) return "N/A"
+        return when {
+            hashrate >= 1e21 -> String.format(Locale.US, "%.3g ZH/s", hashrate / 1e21)
+            hashrate >= 1e18 -> String.format(Locale.US, "%.3g EH/s", hashrate / 1e18)
+            hashrate >= 1e15 -> String.format(Locale.US, "%.3g PH/s", hashrate / 1e15)
+            hashrate >= 1e12 -> String.format(Locale.US, "%.3g TH/s", hashrate / 1e12)
+            else -> Util.fmtRate(hashrate)
+        }
     }
 
     private fun formatInr(value: Double): String {
@@ -532,8 +632,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val threads = etThreads.text.toString().trim().toIntOrNull()
-        if (threads == null || threads !in 1..cores) {
-            Toast.makeText(this, "Worker thread എണ്ണം 1 മുതൽ $cores വരെ നൽകുക.", Toast.LENGTH_LONG).show()
+        if (threads == null || threads !in 1..TenLaneSearchPlanner.MAX_LANES) {
+            Toast.makeText(this, "Worker lane എണ്ണം 1 മുതൽ 10 വരെ നൽകുക; thermal controller സുരക്ഷിതമായ എണ്ണം തിരഞ്ഞെടുക്കും.", Toast.LENGTH_LONG).show()
             return
         }
         val maxTemp = etTemp.text.toString().trim().toDoubleOrNull()
@@ -572,13 +672,42 @@ class MainActivity : AppCompatActivity() {
         pollExternalStatsIfNeeded()
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
+        val health = PoolHealthAnalyzer.analyze(
+            connected = s.connected,
+            authorizedAtMillis = s.authorizedAt,
+            lastJobAtMillis = s.lastJobAt,
+            lastShareResponseAtMillis = s.lastShareResponseAt,
+            nowMillis = System.currentTimeMillis(),
+            submitted = s.submittedShares.get(),
+            accepted = s.accepted.get(),
+            rejected = s.rejected.get(),
+            unknown = s.unknownShares.get(),
+            dropped = s.droppedShares.get(),
+            hashrateHps = s.hashrate.coerceAtLeast(0.0),
+            activeWorkers = s.activeThreads
+        )
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
+        sb.append("POOL HEALTH: ").append(health.state).append("\n")
+        sb.append("Last job age: ").append(health.jobAgeSeconds?.let { "${it}s" } ?: "N/A")
+            .append(" · Last share response: ").append(health.responseAgeSeconds?.let { "${it}s" } ?: "N/A").append("\n")
+        sb.append("Share acceptance: ").append(health.acceptancePercent?.let { String.format(Locale.US, "%.1f%%", it) } ?: "N/A")
+            .append(" · Response coverage: ").append(health.responseCoveragePercent?.let { String.format(Locale.US, "%.1f%%", it) } ?: "N/A").append("\n")
+        sb.append("Hashrate/active worker: ").append(health.hashratePerActiveWorker?.let { Util.fmtRate(it) } ?: "N/A").append("\n")
         sb.append("PHONE MINING: ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("Worker tune: ").append(s.workerTuningStatus).append('\n')
+        if (s.workerHashCounts.isNotEmpty()) {
+            sb.append("REAL HASHES PER WORKER (cumulative)\n")
+            s.workerHashCounts.forEachIndexed { index, hashes ->
+                sb.append("Worker ").append(index + 1).append(": ")
+                    .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes")
+                    .append(" · ").append(if (index < s.workerHashrates.size) Util.fmtRate(s.workerHashrates[index]) else "rate pending")
+                    .append(" H/s").append('\n')
+            }
+        }
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
         sb.append("Pool shares: ✓").append(s.accepted.get()).append("  ✗").append(s.rejected.get())
             .append("  (പൂൾ diff ").append(if (s.poolDiff > 0.0) String.format(Locale.US, "%.4g", s.poolDiff) else "N/A").append(")\n")
