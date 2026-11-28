@@ -703,7 +703,9 @@ class MainActivity : AppCompatActivity() {
             sb.append("REAL HASHES PER WORKER (cumulative)\n")
             s.workerHashCounts.forEachIndexed { index, hashes ->
                 sb.append("Worker ").append(index + 1).append(": ")
-                    .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes\n")
+                    .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes")
+                    .append(" · ").append(if (index < s.workerHashrates.size) Util.fmtRate(s.workerHashrates[index]) else "rate pending")
+                    .append(" H/s\\n")
             }
         }
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
