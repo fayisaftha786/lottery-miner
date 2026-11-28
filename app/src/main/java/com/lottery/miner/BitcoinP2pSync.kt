@@ -27,7 +27,7 @@ object BitcoinP2pSync {
      * transaction-count field. This does NOT validate linkage, expected nBits,
      * MTP, deployment state, chainwork selection, or reorgs.
      */
-    fun parseHeaders(payload: ByteArray): List<ByteArray> {
+    fun parseHeaders(payload: ByteArray, verifyProofOfWork: Boolean = true): List<ByteArray> {
         val (count, countBytes) = BitcoinP2pCodec.decodeCompactSize(payload, 0)
         require(count <= MAX_HEADERS_PER_MESSAGE.toLong()) { "too many headers in one message" }
         var offset = countBytes
@@ -35,7 +35,7 @@ object BitcoinP2pSync {
         repeat(count.toInt()) {
             require(offset <= payload.size - 80) { "truncated block header in headers message" }
             val header = payload.copyOfRange(offset, offset + 80)
-            BitcoinHeader.parseAndCheck(header)
+            if (verifyProofOfWork) BitcoinHeader.parseAndCheck(header)
             offset += 80
             val (txCount, txCountBytes) = BitcoinP2pCodec.decodeCompactSize(payload, offset)
             require(txCount == 0L) { "headers message entries must have zero transaction count" }
