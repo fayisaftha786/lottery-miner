@@ -66,7 +66,7 @@ object BitcoinCoinbaseTemplate {
     ): Candidate {
         require(height > 0L) { "coinbase block height must be above genesis" }
         require(previousHashInternal.size == 32) { "previous block hash must be 32 bytes in wire order" }
-        require(version in 2..0xffffffffL && timestamp in 0..0xffffffffL && bits in 0..0xffffffffL)
+        require(version in 2..0x7fffffffL && timestamp in 0..0xffffffffL && bits in 0..0xffffffffL)
         require(extraNonce.isNotEmpty() && extraNonce.size <= 32) { "extraNonce must be 1..32 bytes" }
         require(tag.isNotEmpty() && tag.length <= 32 && tag.all { it.code in 0x20..0x7e }) {
             "coinbase tag must be 1..32 printable ASCII characters"
@@ -88,7 +88,11 @@ object BitcoinCoinbaseTemplate {
         System.arraycopy(merkleRoot, 0, header, 36, 32)
         putUint32LE(header, 68, timestamp)
         putUint32LE(header, 72, bits)
-        return Candidate(height, coinbase, header, BitcoinHeader.compactToTarget(bits))
+        val target = BitcoinHeader.compactToTarget(bits)
+        require(target <= BitcoinHeader.compactToTarget(0x1d00ffffL)) {
+            "candidate nBits exceeds the Bitcoin Mainnet proof-of-work limit"
+        }
+        return Candidate(height, coinbase, header, target)
     }
 
     private fun serializeCoinbase(valueSats: Long, scriptSig: ByteArray, payoutScript: ByteArray): ByteArray {

@@ -40,6 +40,15 @@ class BitcoinCoinbaseTemplateTest {
         })
     }
 
+    @Test fun rejectsTargetsEasierThanTheMainnetProofOfWorkLimit() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BitcoinCoinbaseTemplate.build(
+                900_000, ByteArray(32), 0x20000000L, 1_800_000_000L,
+                0x1e00ffffL, payout, byteArrayOf(1)
+            )
+        }
+    }
+
     @Test fun rejectsBadAddressesAndInvalidBlockMetadata() {
         assertThrows(IllegalArgumentException::class.java) {
             BitcoinCoinbaseTemplate.payoutScriptForAddress("bc1qnotavalidaddress")
