@@ -97,7 +97,10 @@ class BitcoinP2pPeer(
                     else -> { /* ignore other well-formed messages during handshake */ }
                 }
             }
-            s.soTimeout = 30_000
+            // Keep the post-handshake stream blocking. A timeout in the middle of a
+            // partially-read P2P frame would discard its prefix and desynchronize framing.
+            // Closing the socket is the cancellation mechanism for the reader thread.
+            s.soTimeout = 0
             return Handshake(peerVersion, address.hostAddress ?: address.toString(), System.currentTimeMillis() / 1000L)
         } catch (t: Throwable) {
             close()
