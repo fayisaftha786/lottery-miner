@@ -155,7 +155,7 @@ object BitcoinP2pHeaderSynchronizer {
     fun synchronize(
         peer: BitcoinP2pPeer,
         chain: BitcoinMainnetHeaderChain = BitcoinMainnetHeaderChain.fromGenesis(),
-        onProgress: (BitcoinMainnetHeaderChain.Tip, Long) -> Unit = {}
+        onProgress: (BitcoinMainnetHeaderChain.Tip, Long) -> Unit = { _, _ -> }
     ): BitcoinMainnetHeaderChain {
         var totalHeaders = 0L
         while (totalHeaders <= MAX_SYNC_HEADERS) {
