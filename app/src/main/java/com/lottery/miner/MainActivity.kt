@@ -700,10 +700,10 @@ class MainActivity : AppCompatActivity() {
         sb.append("ത്രെഡ്     : ").append(s.activeThreads).append('/').append(s.totalThreads).append('\n')
         sb.append("Worker tune: ").append(s.workerTuningStatus).append('\n')
         if (s.workerHashCounts.isNotEmpty()) {
-            sb.append("REAL HASHES PER WORKER (cumulative)\\n")
+            sb.append("REAL HASHES PER WORKER (cumulative)\n")
             s.workerHashCounts.forEachIndexed { index, hashes ->
                 sb.append("Worker ").append(index + 1).append(": ")
-                    .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes\\n")
+                    .append(String.format(Locale.US, "%.3e", hashes.toDouble())).append(" hashes\n")
             }
         }
         sb.append("ആകെ ഹാഷ്  : ").append(String.format(Locale.US, "%.3e", s.totalHashes.toDouble())).append('\n')
