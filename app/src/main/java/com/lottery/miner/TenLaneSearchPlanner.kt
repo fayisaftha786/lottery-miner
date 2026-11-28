@@ -4,10 +4,7 @@ import java.math.BigInteger
 
 /**
  * Ten deterministic, non-overlapping extranonce2 search lanes.
- *
- * Each lane owns counters congruent to its worker index modulo workerCount.
- * A lane-specific affine permutation changes traversal order only; it does
- * not increase the probability of any individual SHA-256d hash.
+ * Affine permutations change traversal order, never per-hash odds.
  */
 object TenLaneSearchPlanner {
     const val MAX_LANES = 10
@@ -16,24 +13,23 @@ object TenLaneSearchPlanner {
     data class Lane(val workerIndex: Int, val workerCount: Int, val maxCounter: Long) {
         private val first = workerIndex.toLong()
         private val stride = workerCount.toLong()
-        private val count: Long = if (first > maxCounter) 0L else (maxCounter - first) / stride + 1L
-        private val modulus = BigInteger.valueOf(count.coerceAtLeast(1L))
-        private val multiplier: BigInteger = coprimeMultiplier(seeds[workerIndex] % count.coerceAtLeast(1L), modulus)
-        private val offset: BigInteger = BigInteger.valueOf((workerIndex.toLong() * 7L + 3L) % count.coerceAtLeast(1L))
+        private val count: BigInteger = if (first > maxCounter) BigInteger.ZERO else
+            BigInteger.valueOf(maxCounter).subtract(BigInteger.valueOf(first))
+                .divide(BigInteger.valueOf(stride)).add(BigInteger.ONE)
+        private val modulus = count.max(BigInteger.ONE)
+        private val multiplier = coprimeMultiplier(seeds[workerIndex] % modulus.toLong().coerceAtLeast(1L), modulus)
+        private val offset = BigInteger.valueOf((workerIndex.toLong() * 7L + 3L)).mod(modulus)
 
-        /** Returns the next unique extranonce2 counter, or null after this lane is exhausted. */
         fun counterAt(sequence: Long): Long? {
             require(sequence >= 0L)
-            if (sequence >= count) return null
-            val permuted = multiplier.multiply(BigInteger.valueOf(sequence))
-                .add(offset).mod(modulus)
-            return BigInteger.valueOf(first)
-                .add(BigInteger.valueOf(stride).multiply(permuted))
-                .longValueExact()
-                .takeIf { it <= maxCounter }
+            val seq = BigInteger.valueOf(sequence)
+            if (seq >= count) return null
+            val permuted = multiplier.multiply(seq).add(offset).mod(modulus)
+            val value = BigInteger.valueOf(first).add(BigInteger.valueOf(stride).multiply(permuted))
+            return value.longValueExact().takeIf { it <= maxCounter }
         }
 
-        fun capacity(): Long = count
+        fun capacity(): Long = count.min(BigInteger.valueOf(Long.MAX_VALUE)).toLong()
     }
 
     fun lane(workerIndex: Int, workerCount: Int, maxCounter: Long): Lane {
@@ -46,9 +42,7 @@ object TenLaneSearchPlanner {
     private fun coprimeMultiplier(seed: Long, modulus: BigInteger): BigInteger {
         if (modulus == BigInteger.ONE) return BigInteger.ZERO
         var candidate = BigInteger.valueOf(seed.coerceAtLeast(1L))
-        while (candidate.gcd(modulus) != BigInteger.ONE) {
-            candidate = candidate.add(BigInteger.ONE)
-        }
+        while (candidate.gcd(modulus) != BigInteger.ONE) candidate = candidate.add(BigInteger.ONE)
         return candidate
     }
 }
