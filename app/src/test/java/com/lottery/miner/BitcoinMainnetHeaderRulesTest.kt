@@ -42,6 +42,15 @@ class BitcoinMainnetHeaderRulesTest {
         }
     }
 
+    @Test fun appliesMainnetBuriedVersionFloorsAtActivationHeights() {
+        assertEquals(1L, BitcoinMainnetHeaderRules.minimumBlockVersion(227_930))
+        assertEquals(2L, BitcoinMainnetHeaderRules.minimumBlockVersion(227_931))
+        assertEquals(2L, BitcoinMainnetHeaderRules.minimumBlockVersion(363_724))
+        assertEquals(3L, BitcoinMainnetHeaderRules.minimumBlockVersion(363_725))
+        assertEquals(3L, BitcoinMainnetHeaderRules.minimumBlockVersion(388_380))
+        assertEquals(4L, BitcoinMainnetHeaderRules.minimumBlockVersion(388_381))
+    }
+
     @Test fun rejectsInvalidTimestampHistory() {
         assertThrows(IllegalArgumentException::class.java) {
             BitcoinMainnetHeaderRules.medianTimePast(emptyList())

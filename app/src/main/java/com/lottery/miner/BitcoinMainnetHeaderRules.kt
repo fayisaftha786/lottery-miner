@@ -9,6 +9,18 @@ object BitcoinMainnetHeaderRules {
     const val TARGET_TIMESPAN_SECONDS = 1_209_600L
     const val MAX_FUTURE_BLOCK_TIME_SECONDS = 7_200L
     const val BIP34_ACTIVATION_HEIGHT = 227_931L
+    const val BIP66_ACTIVATION_HEIGHT = 363_725L
+    const val BIP65_ACTIVATION_HEIGHT = 388_381L
+
+    fun minimumBlockVersion(height: Long): Long {
+        require(height >= 0L)
+        return when {
+            height >= BIP65_ACTIVATION_HEIGHT -> 4L
+            height >= BIP66_ACTIVATION_HEIGHT -> 3L
+            height >= BIP34_ACTIVATION_HEIGHT -> 2L
+            else -> 1L
+        }
+    }
 
     fun medianTimePast(previousTimestamps: List<Long>): Long {
         require(previousTimestamps.isNotEmpty() && previousTimestamps.size <= 11) {
@@ -61,10 +73,9 @@ object BitcoinMainnetHeaderRules {
         )
         require(parsed.bits == wantedBits) { "header nBits is not the Mainnet difficulty for this height" }
         checkTimestamp(parsed.timestamp, previousTimestamps, nowSeconds)
-        if (nextHeight >= BIP34_ACTIVATION_HEIGHT) {
-            require(parsed.version in 2L..0x7fffffffL) {
-                "block version is below the activated Mainnet BIP34 floor"
-            }
+        val minVersion = minimumBlockVersion(nextHeight)
+        require(parsed.version in minVersion..0x7fffffffL) {
+            "block version is below the activated Mainnet buried-softfork floor"
         }
         return parsed
     }
