@@ -12,22 +12,9 @@ object MinerState {
     @Volatile var status = "നിർത്തി"
     @Volatile var hashrate = 0.0
     @Volatile var totalHashes = 0L
-    val accepted = AtomicInteger(0)
-    val rejected = AtomicInteger(0)
-    val unknownShares = AtomicInteger(0)
-    val droppedShares = AtomicInteger(0)
-    val submittedShares = AtomicInteger(0)
-    val connectionAttempts = AtomicInteger(0)
-    @Volatile var lastConnectAttemptAt = 0L
-    @Volatile var authorizedAt = 0L
     @Volatile var lastJobAt = 0L
-    @Volatile var lastShareSubmittedAt = 0L
-    @Volatile var lastShareResponseAt = 0L
     @Volatile var lastDisconnectReason = ""
-    @Volatile var lastPoolEvent = ""
-    @Volatile var lastPoolEventAt = 0L
     @Volatile var bestDiff = 0.0
-    @Volatile var poolDiff = 0.0
     @Volatile var netDiff = 0.0
     @Volatile var tempC = Double.NaN
     @Volatile var tempAvailable = false
@@ -40,6 +27,13 @@ object MinerState {
     @Volatile var workerTuningStatus = "Waiting for an authorized mining job"
     @Volatile var hwSha = false
     @Volatile var blockCandidateDetected = false
+    @Volatile var directHeight = 0
+    @Volatile var directTransactionCount = 0
+    @Volatile var directJobId = ""
+    @Volatile var directLastResponse = ""
+    val directCandidates = AtomicInteger(0)
+    val directAccepted = AtomicInteger(0)
+    val directRejected = AtomicInteger(0)
     @Volatile var pauseReason = ""
 
     private val logs = ArrayDeque<String>()
@@ -68,28 +62,22 @@ object MinerState {
         activeThreads = 0
         workerTuningStatus = "Waiting for an authorized mining job"
         totalHashes = 0L
-        accepted.set(0)
-        rejected.set(0)
-        unknownShares.set(0)
-        droppedShares.set(0)
-        submittedShares.set(0)
-        connectionAttempts.set(0)
-        lastConnectAttemptAt = 0L
-        authorizedAt = 0L
         lastJobAt = 0L
-        lastShareSubmittedAt = 0L
-        lastShareResponseAt = 0L
         lastDisconnectReason = ""
-        lastPoolEvent = ""
-        lastPoolEventAt = 0L
         bestDiff = 0.0
-        poolDiff = 0.0
         netDiff = 0.0
         tempC = Double.NaN
         tempAvailable = false
         androidThermalStatus = "N/A"
         batteryAvailable = false
         blockCandidateDetected = false
+        directHeight = 0
+        directTransactionCount = 0
+        directJobId = ""
+        directLastResponse = ""
+        directCandidates.set(0)
+        directAccepted.set(0)
+        directRejected.set(0)
         pauseReason = ""
         logs.clear()
         status = "തുടങ്ങുന്നു…"

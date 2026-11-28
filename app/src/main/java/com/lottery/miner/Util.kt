@@ -31,11 +31,9 @@ object Util {
         return md.digest(md.digest(data))
     }
 
-    /** Validate a mainnet legacy or SegWit address, optionally followed by a pool worker suffix. */
-    fun isValidBitcoinAddress(input: String): Boolean {
-        val parts = input.split('.', limit = 2)
-        val address = parts[0]
-        if (address.isEmpty() || (parts.size == 2 && !parts[1].matches(Regex("[A-Za-z0-9_-]{1,20}")))) return false
+    /** Validate a plain Bitcoin mainnet payout address. */
+    fun isValidBitcoinAddress(address: String): Boolean {
+        if (address.isEmpty() || address.contains('.')) return false
         return if (address.startsWith("1") || address.startsWith("3")) isValidBase58Address(address)
         else isValidSegwitAddress(address)
     }
@@ -147,14 +145,6 @@ object Util {
 
     fun networkDifficulty(nbitsHex: String): Double = DIFF1.toDouble() / nbitsToTarget(nbitsHex).toDouble()
 
-    /** Expected pool feedback-share interval; this is not a block-finding or payout estimate. */
-    fun expectedShareIntervalSeconds(difficulty: Double, hashRate: Double): Double {
-        require(difficulty.isFinite() && difficulty > 0.0) { "difficulty must be positive and finite" }
-        require(hashRate.isFinite() && hashRate > 0.0) { "hashrate must be positive and finite" }
-        return difficulty * 4_294_967_296.0 / hashRate
-    }
-
-
     fun fmtRate(hps: Double): String = when {
         hps >= 1e9 -> String.format(Locale.US, "%.2f GH/s", hps / 1e9)
         hps >= 1e6 -> String.format(Locale.US, "%.2f MH/s", hps / 1e6)
@@ -163,45 +153,3 @@ object Util {
     }
 }
 
-
-/**
- * Keeps the active share target stable for the current Stratum job.
- * Difficulty notifications are staged and only take effect when the next
- * mining.notify arrives, as required by Stratum V1 job semantics.
- */
-class PoolDifficultyTargets(initialDifficulty: Double = 1.0) {
-    @Volatile private var active: ByteArray = Util.difficultyToTarget(initialDifficulty)
-    @Volatile private var activeDifficulty: Double = initialDifficulty
-    @Volatile private var pending: ByteArray? = null
-    @Volatile private var pendingDifficulty: Double? = null
-
-    @Synchronized fun stage(difficulty: Double) {
-        // Validate and compute before mutating pending state.
-        val target = Util.difficultyToTarget(difficulty)
-        pending = target
-        pendingDifficulty = difficulty
-    }
-
-    @Synchronized fun activateForNextJob(): ByteArray {
-        pending?.let {
-            active = it
-            activeDifficulty = requireNotNull(pendingDifficulty)
-            pending = null
-            pendingDifficulty = null
-        }
-        return active.copyOf()
-    }
-
-    @Synchronized fun activeTarget(): ByteArray = active.copyOf()
-
-    @Synchronized fun activeDifficulty(): Double = activeDifficulty
-
-    /** Restore the new-session default and discard any staged difficulty. */
-    @Synchronized fun reset(initialDifficulty: Double = 1.0) {
-        val target = Util.difficultyToTarget(initialDifficulty)
-        active = target
-        activeDifficulty = initialDifficulty
-        pending = null
-        pendingDifficulty = null
-    }
-}

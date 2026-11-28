@@ -15,9 +15,7 @@ data class AlgorithmCandidate(
 
 enum class PayoutModel {
     /** Expected value of rare network-block payouts; not a daily cash payment. */
-    SOLO_BLOCK_REWARD,
-    /** Proportional share-based pool payout model. */
-    PROPORTIONAL_POOL
+    SOLO_BLOCK_REWARD
 }
 
 data class MiningEconomicsInput(
@@ -27,7 +25,6 @@ data class MiningEconomicsInput(
     val coinPriceFiat: Double,
     val powerWatts: Double,
     val electricityFiatPerKwh: Double,
-    val poolFeePercent: Double,
     val snapshotAgeSeconds: Long,
     val networkBlocksPerDay: Double = 144.0,
     val payoutModel: PayoutModel = PayoutModel.SOLO_BLOCK_REWARD
@@ -36,7 +33,6 @@ data class MiningEconomicsInput(
 data class MiningEconomicsResult(
     val grossFiatPerDay: Double,
     val electricityFiatPerDay: Double,
-    val poolFeeFiatPerDay: Double,
     val netFiatPerDay: Double,
     val expectedBlocksFoundPerDay: Double,
     val expectedDaysPerBlock: Double,
@@ -54,16 +50,11 @@ object MiningStrategy {
         require(input.coinPriceFiat.isFinite() && input.coinPriceFiat >= 0.0)
         require(input.powerWatts.isFinite() && input.powerWatts >= 0.0)
         require(input.electricityFiatPerKwh.isFinite() && input.electricityFiatPerKwh >= 0.0)
-        require(input.poolFeePercent.isFinite() && input.poolFeePercent in 0.0..100.0)
         require(input.snapshotAgeSeconds >= 0L)
         require(input.networkBlocksPerDay.isFinite() && input.networkBlocksPerDay > 0.0)
-        require(input.payoutModel == PayoutModel.SOLO_BLOCK_REWARD) {
-            "Proportional pool estimates require pool-specific hashrate and payout data; network-wide data cannot be reused"
-        }
 
         val share = (input.deviceHashrate / input.networkHashrate).coerceIn(0.0, 1.0)
         val gross = share * input.dailyNetworkRewardCoins * input.coinPriceFiat
-        val fee = gross * input.poolFeePercent / 100.0
         val electricity = input.powerWatts / 1000.0 * 24.0 * input.electricityFiatPerKwh
         val fresh = input.snapshotAgeSeconds <= MAX_SNAPSHOT_AGE_SECONDS
         val expectedBlocksPerDay = share * input.networkBlocksPerDay
@@ -75,8 +66,7 @@ object MiningStrategy {
         return MiningEconomicsResult(
             grossFiatPerDay = gross,
             electricityFiatPerDay = electricity,
-            poolFeeFiatPerDay = fee,
-            netFiatPerDay = if (fresh) gross - fee - electricity else Double.NaN,
+            netFiatPerDay = if (fresh) gross - electricity else Double.NaN,
             expectedBlocksFoundPerDay = expectedBlocksPerDay,
             expectedDaysPerBlock = expectedDaysPerBlock,
             isFresh = fresh,
