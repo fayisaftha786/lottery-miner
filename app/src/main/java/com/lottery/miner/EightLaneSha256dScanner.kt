@@ -8,12 +8,8 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Scans one consensus-valid coinbase-only candidate header using disjoint
- * interleaved nonce lanes. Must be called on a background thread.
- *
- * This object only performs PoW for the supplied candidate. The caller is
- * responsible for obtaining consensus-validated block metadata and for
- * relaying a returned block to independent Mainnet peers.
+ * Scans one supplied coinbase-only candidate across disjoint uint32 nonce lanes.
+ * A cancelled scan reports the exact number of hashes completed before returning.
  */
 class EightLaneSha256dScanner(
     private val workerCount: Int = 8,
@@ -46,11 +42,6 @@ class EightLaneSha256dScanner(
         stopRequested.set(true)
     }
 
-    /**
-     * Performs a complete uint32 nonce-space pass for one fixed header.
-     * Returns null when cancelled or when every nonce is exhausted.
-     * The onProgress callback runs from worker threads and must be thread-safe.
-     */
     fun scan(candidate: BitcoinCoinbaseTemplate.Candidate, onProgress: (Progress) -> Unit = {}): FoundBlock? {
         check(Native.initCore() >= 0) { "native SHA256d self-test failed" }
         stopRequested.set(false)
@@ -83,16 +74,12 @@ class EightLaneSha256dScanner(
                             header, batch.startNonce, batch.stride, batch.count,
                             target, foundNonces, best
                         )
-                        check(countFound in 0..foundNonces.size) {
-                            "native strided scan failed: $countFound"
-                        }
-                        val hashes = batch.count.toLong()
-                        workerHashes[workerId] += hashes
-                        val doneHashes = total.addAndGet(hashes)
+                        check(countFound in 0..foundNonces.size) { "native strided scan failed: " + countFound }
+                        val doneHashes = total.addAndGet(batch.count.toLong())
+                        workerHashes[workerId] += batch.count.toLong()
                         ordinal += batch.count.toLong()
 
                         if (countFound > 0) {
-                            // A network-target hit is rechecked by the independent Kotlin PoW validator.
                             val nonce = foundNonces[0].toLong() and 0xffffffffL
                             val block = candidate.serializeBlock(nonce)
                             val elapsed = (System.nanoTime() - startedAt) / 1_000_000_000.0
@@ -105,14 +92,15 @@ class EightLaneSha256dScanner(
                         if (ordinal - lastReportOrdinal >= batchSize.toLong() * 16L) {
                             lastReportOrdinal = ordinal
                             val elapsed = (System.nanoTime() - startedAt) / 1_000_000_000.0
-                            val snapshot = Progress(
-                                doneHashes,
-                                if (elapsed > 0.0) doneHashes / elapsed else 0.0,
-                                elapsed,
-                                workerHashes.toList(),
-                                false
-                            )
-                            try { onProgress(snapshot) } catch (_: Exception) { /* telemetry must not stop hashing */ }
+                            try {
+                                onProgress(Progress(
+                                    doneHashes,
+                                    if (elapsed > 0.0) doneHashes / elapsed else 0.0,
+                                    elapsed,
+                                    workerHashes.toList(),
+                                    false
+                                ))
+                            } catch (_: Exception) { }
                         }
                     }
                 } catch (t: Throwable) {
@@ -138,17 +126,25 @@ class EightLaneSha256dScanner(
         }
         failed.get()?.let { throw IllegalStateException("SHA256d lane failed", it) }
         val result = found.get()
-        if (result != null) return result
-        if (stopRequested.get()) return null
-
         val elapsed = (System.nanoTime() - startedAt) / 1_000_000_000.0
         val count = total.get()
         try {
             onProgress(Progress(
-                count, if (elapsed > 0.0) count / elapsed else 0.0,
-                elapsed, workerHashes.toList(), true
+                count,
+                if (elapsed > 0.0) count / elapsed else 0.0,
+                elapsed,
+                workerHashes.toList(),
+                !stopRequested.get()
             ))
         } catch (_: Exception) { }
+        if (result != null) {
+            return result.copy(
+                totalHashes = count,
+                elapsedSeconds = elapsed,
+                hashesPerSecond = if (elapsed > 0.0) count / elapsed else 0.0
+            )
+        }
+        if (stopRequested.get()) return null
         return null
     }
 

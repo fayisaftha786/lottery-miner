@@ -50,9 +50,10 @@ class BitcoinP2pPeer(
     }
 
     data class Handshake(val peerVersion: Long, val peerAddress: String, val connectedAt: Long)
-    private var socket: Socket? = null
-    private var input: InputStream? = null
-    private var output: java.io.OutputStream? = null
+    @Volatile private var socket: Socket? = null
+    @Volatile private var input: InputStream? = null
+    @Volatile private var output: java.io.OutputStream? = null
+    private val outputLock = Any()
 
     @Synchronized
     fun connectAndHandshake(address: InetAddress, port: Int = MAINNET_PORT): Handshake {
@@ -113,17 +114,18 @@ class BitcoinP2pPeer(
     fun requestHeadersAnnouncements() = send("sendheaders", byteArrayOf())
 
     /** Read one bounded, checksum-validated P2P frame on the caller's worker thread. */
-    @Synchronized
     fun receiveMessage(): BitcoinP2pCodec.Message {
         val stream = input ?: error("peer is not connected")
         return readMessage(stream)
     }
 
-    @Synchronized
     fun send(command: String, payload: ByteArray) {
-        val out = output ?: error("peer is not connected")
-        out.write(BitcoinP2pCodec.encode(command, payload))
-        out.flush()
+        val frame = BitcoinP2pCodec.encode(command, payload)
+        synchronized(outputLock) {
+            val out = output ?: error("peer is not connected")
+            out.write(frame)
+            out.flush()
+        }
     }
 
     private fun readMessage(stream: InputStream): BitcoinP2pCodec.Message {
@@ -189,9 +191,11 @@ class BitcoinP2pPeer(
 
     @Synchronized
     override fun close() {
-        try { socket?.close() } catch (_: Exception) { }
-        socket = null
-        input = null
-        output = null
+        synchronized(outputLock) {
+            try { socket?.close() } catch (_: Exception) { }
+            socket = null
+            input = null
+            output = null
+        }
     }
 }
