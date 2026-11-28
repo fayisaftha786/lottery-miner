@@ -672,8 +672,28 @@ class MainActivity : AppCompatActivity() {
         pollExternalStatsIfNeeded()
         val s = MinerState
         btn.text = if (s.running) "സ്റ്റോപ്പ്" else "സ്റ്റാർട്ട്"
+        val health = PoolHealthAnalyzer.analyze(
+            connected = s.connected,
+            authorizedAtMillis = s.authorizedAt,
+            lastJobAtMillis = s.lastJobAt,
+            lastShareResponseAtMillis = s.lastShareResponseAt,
+            nowMillis = System.currentTimeMillis(),
+            submitted = s.submittedShares.get(),
+            accepted = s.accepted.get(),
+            rejected = s.rejected.get(),
+            unknown = s.unknownShares.get(),
+            dropped = s.droppedShares.get(),
+            hashrateHps = s.hashrate.coerceAtLeast(0.0),
+            activeWorkers = s.activeThreads
+        )
         val sb = StringBuilder()
         if (s.blockCandidateDetected) sb.append("പ്രാദേശിക block candidate കണ്ടെത്തി — pool സ്ഥിരീകരിച്ചിട്ടില്ല\n")
+        sb.append("POOL HEALTH: ").append(health.state).append('\\n')
+        sb.append("Last job age: ").append(health.jobAgeSeconds?.let { "${it}s" } ?: "N/A")
+            .append(" · Last share response: ").append(health.responseAgeSeconds?.let { "${it}s" } ?: "N/A").append('\\n')
+        sb.append("Share acceptance: ").append(health.acceptancePercent?.let { String.format(Locale.US, "%.1f%%", it) } ?: "N/A")
+            .append(" · Response coverage: ").append(health.responseCoveragePercent?.let { String.format(Locale.US, "%.1f%%", it) } ?: "N/A").append('\\n')
+        sb.append("Hashrate/active worker: ").append(health.hashratePerActiveWorker?.let { Util.fmtRate(it) } ?: "N/A").append('\\n')
         sb.append("PHONE MINING: ").append(Util.fmtRate(s.hashrate))
             .append(if (s.hwSha) "  [ARM SHA2 ✓]" else "").append('\n')
         sb.append("സ്ഥിതി     : ").append(s.status).append('\n')
