@@ -295,6 +295,12 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
             val size = en2Size
             val maxCounter = if (size < 8) (1L shl (size * 8)) - 1L else Long.MAX_VALUE
             val lane = TenLaneSearchPlanner.lane(idx, cfg.threads, maxCounter)
+            if (sequence < 0L) {
+                MinerState.status = "Extranonce2 search sequence exhausted; reconnecting safely"
+                if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
+                sleepMs(500)
+                continue
+            }
             val counter = lane.counterAt(sequence)
             if (counter == null) {
                 MinerState.status = "Extranonce2 പരിധി തീർന്നു; pool reconnect ചെയ്യുന്നു"
@@ -302,13 +308,7 @@ class MinerEngine(private val ctx: Context, private val cfg: MinerConfig) : Stra
                 sleepMs(500)
                 continue
             }
-            if (sequence == Long.MAX_VALUE) {
-                MinerState.status = "Extranonce2 search sequence exhausted; reconnecting safely"
-                if (reconnectingForExhaustion.compareAndSet(false, true)) client?.close()
-                sleepMs(500)
-                continue
-            }
-            sequence++
+            sequence = if (sequence == Long.MAX_VALUE) Long.MIN_VALUE else sequence + 1L
             val generation = jobGeneration.get()
             val en1Snapshot = en1.copyOf()
             val en2 = encodeEn2(counter, size)
