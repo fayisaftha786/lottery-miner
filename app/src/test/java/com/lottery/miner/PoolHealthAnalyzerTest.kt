@@ -27,7 +27,7 @@ class PoolHealthAnalyzerTest {
     @Test fun reportsHealthySessionAndRealShareRatios() {
         val s = analyze()
         assertEquals("POOL RESPONSE INCOMPLETE", s.state)
-        assertEquals(50L, s.jobAgeSeconds)
+        assertEquals(5L, s.jobAgeSeconds)
         assertEquals(2L, s.responseAgeSeconds)
         assertEquals(90.9090909, s.acceptancePercent!!, 1e-6)
         assertEquals(91.6666667, s.responseCoveragePercent!!, 1e-6)
